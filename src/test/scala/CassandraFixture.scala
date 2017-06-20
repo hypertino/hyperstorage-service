@@ -1,8 +1,8 @@
 import com.datastax.driver.core.Session
-import eu.inn.binders.cassandra.GuavaSessionQueryCache
-import eu.inn.binders.naming.CamelCaseToSnakeCaseConverter
-import eu.inn.hyperstorage.CassandraConnector
-import eu.inn.hyperstorage.db.Db
+import com.hypertino.binders.cassandra.GuavaSessionQueryCache
+import com.hypertino.binders.naming.CamelCaseToSnakeCaseConverter
+import com.hypertino.hyperstorage.CassandraConnector
+import com.hypertino.hyperstorage.db.Db
 import org.cassandraunit.CassandraCQLUnit
 import org.cassandraunit.dataset.cql.ClassPathCQLDataSet
 import org.mockito.Mockito._
@@ -48,7 +48,7 @@ trait CassandraFixture extends BeforeAndAfterAll with ScalaFutures {
     }
   }
 
-  import eu.inn.binders.cassandra._
+  import com.hypertino.binders.cassandra._
   def removeContent(documentUri: String) = cql"delete from content where document_uri=$documentUri".execute()
   def removeContent(documentUri: String, itemId: String) = cql"delete from content where document_uri=$documentUri and item_id=$itemId".execute()
 }

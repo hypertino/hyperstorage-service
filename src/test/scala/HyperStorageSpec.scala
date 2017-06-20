@@ -5,18 +5,18 @@ import akka.pattern.gracefulStop
 import akka.testkit.{TestActorRef, TestProbe}
 import akka.util.Timeout
 import com.datastax.driver.core.utils.UUIDs
-import eu.inn.binders.value._
-import eu.inn.hyperbus.model._
-import eu.inn.hyperbus.model.utils.{Sort, SortBy}
-import eu.inn.hyperbus.serialization.{StringDeserializer, StringSerializer}
-import eu.inn.hyperstorage._
-import eu.inn.hyperstorage.api._
-import eu.inn.hyperstorage.db.IndexDef
-import eu.inn.hyperstorage.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
-import eu.inn.hyperstorage.sharding.ShardMemberStatus.Active
-import eu.inn.hyperstorage.sharding._
-import eu.inn.hyperstorage.workers.primary.{PrimaryTask, PrimaryWorker, PrimaryWorkerTaskResult}
-import eu.inn.hyperstorage.workers.secondary._
+import com.hypertino.binders.value._
+import com.hypertino.hyperbus.model._
+import com.hypertino.hyperbus.model.utils.{Sort, SortBy}
+import com.hypertino.hyperbus.serialization.{StringDeserializer, StringSerializer}
+import com.hypertino.hyperstorage._
+import com.hypertino.hyperstorage.api._
+import com.hypertino.hyperstorage.db.IndexDef
+import com.hypertino.hyperstorage.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
+import com.hypertino.hyperstorage.sharding.ShardMemberStatus.Active
+import com.hypertino.hyperstorage.sharding._
+import com.hypertino.hyperstorage.workers.primary.{PrimaryTask, PrimaryWorker, PrimaryWorkerTaskResult}
+import com.hypertino.hyperstorage.workers.secondary._
 import mock.FaultClientTransport
 import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}

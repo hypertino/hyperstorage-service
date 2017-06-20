@@ -1,4 +1,4 @@
-import eu.inn.hyperstorage.utils.BiMap
+import com.hypertino.hyperstorage.utils.BiMap
 import org.scalatest.{FreeSpec, Matchers}
 
 class BiMapSpec extends FreeSpec with Matchers {

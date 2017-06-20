@@ -1,8 +1,8 @@
-import eu.inn.binders.value.{Number, Text}
-import eu.inn.hyperstorage.api.{HyperStorageIndexSortFieldType, HyperStorageIndexSortItem, HyperStorageIndexSortOrder}
-import eu.inn.hyperstorage.db._
-import eu.inn.hyperstorage.indexing.FieldFiltersExtractor
-import eu.inn.parser.HParser
+import com.hypertino.binders.value.{Number, Text}
+import com.hypertino.hyperstorage.api.{HyperStorageIndexSortFieldType, HyperStorageIndexSortItem, HyperStorageIndexSortOrder}
+import com.hypertino.hyperstorage.db._
+import com.hypertino.hyperstorage.indexing.FieldFiltersExtractor
+import com.hypertino.parser.HParser
 import org.scalatest.{FreeSpec, Matchers}
 
 

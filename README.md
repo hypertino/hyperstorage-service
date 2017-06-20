@@ -26,7 +26,7 @@ resolvers ++= Seq("Innova plugins" at "http://repproxy.srv.inn.ru/artifactory/pl
 ```scala
 ramlHyperbusSource := file("hyperstorage.raml")
 
-ramlHyperbusPackageName := "eu.inn.hyperstorage.api"
+ramlHyperbusPackageName := "com.hypertino.hyperstorage.api"
 ```
 В качестве RAML файла может быть общий с другими сервисами файл, но он должен включать спецификацию для HyperStorage.
 

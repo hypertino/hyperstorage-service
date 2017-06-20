@@ -11,11 +11,11 @@
         <level value="INFO"/>
     </logger>
 
-    <logger name="eu.inn.hyperstorage">
+    <logger name="com.hypertino.hyperstorage">
         <level value="INFO"/>
     </logger>
 
-    <logger name="eu.inn.hyperstorage.recovery">
+    <logger name="com.hypertino.hyperstorage.recovery">
         <level value="INFO"/>
     </logger>
 
@@ -27,7 +27,7 @@
         <level value="INFO"/>
     </logger>
 
-    <logger name="eu.inn.binders.cassandra">
+    <logger name="com.hypertino.binders.cassandra">
         <level value="INFO"/>
     </logger>
 

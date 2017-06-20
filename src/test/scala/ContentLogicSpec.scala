@@ -1,4 +1,4 @@
-import eu.inn.hyperstorage.{ContentLogic, ResourcePath}
+import com.hypertino.hyperstorage.{ContentLogic, ResourcePath}
 import org.scalatest.{FreeSpec, Matchers}
 
 class ContentLogicSpec extends FreeSpec with Matchers {

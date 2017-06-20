@@ -1,7 +1,7 @@
 package mock
 
 import com.typesafe.config.Config
-import eu.inn.hyperbus.transport.api._
+import com.hypertino.hyperbus.transport.api._
 
 import scala.collection.mutable
 import scala.concurrent.ExecutionContext.Implicits.global

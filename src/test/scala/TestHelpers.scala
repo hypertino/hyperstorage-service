@@ -7,19 +7,19 @@ import akka.util.Timeout
 import com.codahale.metrics.ScheduledReporter
 import com.datastax.driver.core.utils.UUIDs
 import com.typesafe.config.ConfigFactory
-import eu.inn.hyperbus.Hyperbus
-import eu.inn.hyperbus.model.{DynamicBody, Response}
-import eu.inn.hyperbus.serialization.StringDeserializer
-import eu.inn.hyperbus.transport.ActorSystemRegistry
-import eu.inn.hyperbus.transport.api.{TransportConfigurationLoader, TransportManager}
-import eu.inn.hyperstorage.db.{Db, Transaction}
-import eu.inn.hyperstorage.indexing.IndexManager
-import eu.inn.hyperstorage.sharding._
-import eu.inn.hyperstorage._
-import eu.inn.hyperstorage.workers.primary.PrimaryWorker
-import eu.inn.hyperstorage.workers.secondary.{SecondaryWorker, SecondaryWorker$}
-import eu.inn.metrics.MetricsTracker
-import eu.inn.metrics.modules.ConsoleReporterModule
+import com.hypertino.hyperbus.Hyperbus
+import com.hypertino.hyperbus.model.{DynamicBody, Response}
+import com.hypertino.hyperbus.serialization.StringDeserializer
+import com.hypertino.hyperbus.transport.ActorSystemRegistry
+import com.hypertino.hyperbus.transport.api.{TransportConfigurationLoader, TransportManager}
+import com.hypertino.hyperstorage.db.{Db, Transaction}
+import com.hypertino.hyperstorage.indexing.IndexManager
+import com.hypertino.hyperstorage.sharding._
+import com.hypertino.hyperstorage._
+import com.hypertino.hyperstorage.workers.primary.PrimaryWorker
+import com.hypertino.hyperstorage.workers.secondary.{SecondaryWorker, SecondaryWorker$}
+import com.hypertino.metrics.MetricsTracker
+import com.hypertino.metrics.modules.ConsoleReporterModule
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.{BeforeAndAfterEach, Matchers}
 import org.slf4j.LoggerFactory
@@ -86,7 +86,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     processor ! SubscribeToShardStatus(indexManager)
 
     val adapter = TestActorRef(HyperbusAdapter.props(processor, db, tracker, 20.seconds))
-    import eu.inn.hyperbus.akkaservice._
+    import com.hypertino.hyperbus.akkaservice._
     implicit val timeout = Timeout(20.seconds)
     hyperbus.routeTo[HyperbusAdapter](adapter).futureValue // wait while subscription is completes
 

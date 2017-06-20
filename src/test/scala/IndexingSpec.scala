@@ -1,8 +1,8 @@
-import eu.inn.binders.value._
-import eu.inn.hyperbus.model._
-import eu.inn.hyperbus.model.utils.{Sort, SortBy}
-import eu.inn.hyperstorage.api._
-import eu.inn.hyperstorage.db.{FieldFilter, FilterGt, IndexDef}
+import com.hypertino.binders.value._
+import com.hypertino.hyperbus.model._
+import com.hypertino.hyperbus.model.utils.{Sort, SortBy}
+import com.hypertino.hyperstorage.api._
+import com.hypertino.hyperstorage.db.{FieldFilter, FilterGt, IndexDef}
 import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.time.{Millis, Span}

@@ -1,6 +1,6 @@
-import eu.inn.binders.value.{Obj, ObjV, Value}
-import eu.inn.hyperbus.model.utils.SortBy
-import eu.inn.hyperstorage.CollectionOrdering
+import com.hypertino.binders.value.{Obj, ObjV, Value}
+import com.hypertino.hyperbus.model.utils.SortBy
+import com.hypertino.hyperstorage.CollectionOrdering
 import org.scalatest.{FreeSpec, Matchers}
 
 

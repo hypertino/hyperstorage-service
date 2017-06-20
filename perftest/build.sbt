@@ -17,7 +17,7 @@ resolvers ++= Seq(
 
 ramlHyperbusSource := file("../src/main/resources/hyperstorage.raml")
 
-ramlHyperbusPackageName := "eu.inn.hyperstorage.api"
+ramlHyperbusPackageName := "com.hypertino.hyperstorage.api"
 
 ramlHyperbusSourceIsResource := false
 

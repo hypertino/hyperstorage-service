@@ -1,5 +1,5 @@
 import akka.cluster.Cluster
-import eu.inn.hyperstorage.sharding.{ShardMemberStatus, ShutdownProcessor}
+import com.hypertino.hyperstorage.sharding.{ShardMemberStatus, ShutdownProcessor}
 import org.scalatest._
 import org.scalatest.concurrent.ScalaFutures
 

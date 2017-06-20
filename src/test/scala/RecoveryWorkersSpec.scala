@@ -4,16 +4,16 @@ import akka.actor.{ActorSelection, Address}
 import akka.pattern.gracefulStop
 import akka.testkit.{TestActorRef, TestProbe}
 import com.datastax.driver.core.utils.UUIDs
-import eu.inn.binders.value._
-import eu.inn.hyperbus.model._
-import eu.inn.hyperbus.serialization.StringSerializer
-import eu.inn.hyperstorage._
-import eu.inn.hyperstorage.api._
-import eu.inn.hyperstorage.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
-import eu.inn.hyperstorage.sharding.ShardMemberStatus.Active
-import eu.inn.hyperstorage.sharding._
-import eu.inn.hyperstorage.workers.primary.{PrimaryTask, PrimaryWorker}
-import eu.inn.hyperstorage.workers.secondary.{BackgroundContentTask, BackgroundContentTaskFailedException, BackgroundContentTaskResult}
+import com.hypertino.binders.value._
+import com.hypertino.hyperbus.model._
+import com.hypertino.hyperbus.serialization.StringSerializer
+import com.hypertino.hyperstorage._
+import com.hypertino.hyperstorage.api._
+import com.hypertino.hyperstorage.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
+import com.hypertino.hyperstorage.sharding.ShardMemberStatus.Active
+import com.hypertino.hyperstorage.sharding._
+import com.hypertino.hyperstorage.workers.primary.{PrimaryTask, PrimaryWorker}
+import com.hypertino.hyperstorage.workers.secondary.{BackgroundContentTask, BackgroundContentTaskFailedException, BackgroundContentTaskResult}
 import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.time.{Millis, Span}

@@ -1,8 +1,8 @@
-import eu.inn.binders.{value ⇒ bn}
-import eu.inn.hyperstorage.indexing.AstComparator
-import eu.inn.parser.HParser
+import com.hypertino.binders.{value ⇒ bn}
+import com.hypertino.hyperstorage.indexing.AstComparator
+import com.hypertino.parser.HParser
 import org.scalatest.{FreeSpec, Matchers}
-import eu.inn.hyperstorage.indexing.AstComparation._
+import com.hypertino.hyperstorage.indexing.AstComparation._
 
 class AstComparationTest extends FreeSpec with Matchers {
 

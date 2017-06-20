@@ -1,7 +1,7 @@
 import java.util.Date
 
-import eu.inn.binders.value.Text
-import eu.inn.hyperstorage.db._
+import com.hypertino.binders.value.Text
+import com.hypertino.hyperstorage.db._
 import org.scalatest.concurrent.Eventually
 import org.scalatest.{FreeSpec, Matchers}
 

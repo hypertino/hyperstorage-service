@@ -1,10 +1,10 @@
-import eu.inn.binders.value.{Lst, ObjV, Value}
-import eu.inn.config.ConfigLoader
-import eu.inn.hyperbus.Hyperbus
-import eu.inn.hyperbus.model.{DynamicBody, QueryBuilder, Response}
-import eu.inn.hyperbus.model.utils.SortBy
-import eu.inn.hyperbus.transport.api.{TransportConfigurationLoader, TransportManager}
-import eu.inn.hyperstorage.api._
+import com.hypertino.binders.value.{Lst, ObjV, Value}
+import com.hypertino.config.ConfigLoader
+import com.hypertino.hyperbus.Hyperbus
+import com.hypertino.hyperbus.model.{DynamicBody, QueryBuilder, Response}
+import com.hypertino.hyperbus.model.utils.SortBy
+import com.hypertino.hyperbus.transport.api.{TransportConfigurationLoader, TransportManager}
+import com.hypertino.hyperstorage.api._
 import org.scalameter._
 
 import scala.concurrent.{Await, ExecutionContext, Future}
@@ -101,7 +101,7 @@ object BenchmarkTest {
   }
 
   def query(sort: Seq[SortBy] = Seq.empty, filter: Option[String] = None, pageSize: Int = 50): Response[DynamicBody] = {
-    import eu.inn.hyperbus.model.utils.Sort._
+    import com.hypertino.hyperbus.model.utils.Sort._
     val qb = new QueryBuilder() add("size", pageSize)
     if (sort.nonEmpty) qb.sortBy(sort)
     filter.foreach(qb.add("filter", _))

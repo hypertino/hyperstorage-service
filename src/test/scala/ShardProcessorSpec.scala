@@ -1,4 +1,4 @@
-import eu.inn.hyperstorage.sharding._
+import com.hypertino.hyperstorage.sharding._
 import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.time.{Millis, Span}
