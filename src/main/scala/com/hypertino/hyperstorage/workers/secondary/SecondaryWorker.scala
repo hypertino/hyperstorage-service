@@ -7,6 +7,7 @@ import com.hypertino.hyperbus.model._
 import com.hypertino.hyperstorage.db._
 import com.hypertino.hyperstorage.sharding.{ShardTask, ShardTaskComplete}
 import com.hypertino.metrics.MetricsTracker
+import monix.execution.Scheduler
 
 import scala.concurrent.ExecutionContext
 import scala.util.control.NonFatal
@@ -23,13 +24,12 @@ trait SecondaryTaskTrait extends ShardTask {
 
 @SerialVersionUID(1L) case class SecondaryTaskFailed(key: String, reason: String) extends RuntimeException(s"Secondary task for '$key' is failed with reason $reason")
 
-class SecondaryWorker(val hyperbus: Hyperbus, val db: Db, val tracker: MetricsTracker, val indexManager: ActorRef) extends Actor with ActorLogging
+class SecondaryWorker(val hyperbus: Hyperbus, val db: Db, val tracker: MetricsTracker, val indexManager: ActorRef, implicit val scheduler: Scheduler) extends Actor with ActorLogging
   with BackgroundContentTaskCompleter
   with IndexDefTaskWorker
   with IndexContentTaskWorker {
 
   override def executionContext: ExecutionContext = context.dispatcher // todo: use other instead of this?
-  import context.dispatcher
 
   override def receive: Receive = {
     case task: BackgroundContentTask ⇒
@@ -54,8 +54,8 @@ class SecondaryWorker(val hyperbus: Hyperbus, val db: Db, val tracker: MetricsTr
 }
 
 object SecondaryWorker {
-  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, indexManager: ActorRef) = Props(classOf[SecondaryWorker],
-    hyperbus, db, tracker, indexManager
+  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, indexManager: ActorRef, scheduler: Scheduler) = Props(classOf[SecondaryWorker],
+    hyperbus, db, tracker, indexManager, scheduler
   )
 }
 

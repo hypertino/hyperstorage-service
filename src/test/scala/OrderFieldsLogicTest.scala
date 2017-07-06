@@ -1,8 +1,8 @@
-import com.hypertino.binders.value.{Number, ObjV}
-import com.hypertino.hyperbus.model.utils.SortBy
+import com.hypertino.binders.value.{Number, Obj}
 import com.hypertino.hyperstorage.api.{HyperStorageIndexSortFieldType, HyperStorageIndexSortItem, HyperStorageIndexSortOrder}
 import com.hypertino.hyperstorage.db._
 import com.hypertino.hyperstorage.indexing.{IndexLogic, OrderFieldsLogic}
+import com.hypertino.hyperstorage.utils.SortBy
 import org.scalatest.{FreeSpec, Matchers}
 
 
@@ -94,7 +94,7 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
         )
         val filterFields = Seq.empty[FieldFilter]
         val previousValue = None
-        val currentValue = ObjV("a" → 5, "b" → 1, "c" → 2, "d" → 2)
+        val currentValue = Obj.from("a" → 5, "b" → 1, "c" → 2, "d" → 2)
         val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 0, false, currentValue, false)
         res shouldBe Seq(
           FieldFilter("t0", Number(5), FilterEq),
@@ -113,7 +113,7 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
         )
         val filterFields = Seq.empty[FieldFilter]
         val previousValue = None
-        val currentValue = ObjV("a" → 5, "b" → 1, "c" → 2, "d" → 2)
+        val currentValue = Obj.from("a" → 5, "b" → 1, "c" → 2, "d" → 2)
         val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 0, false, currentValue, true)
         res shouldBe Seq(
           FieldFilter("t0", Number(5), FilterEq),
@@ -134,7 +134,7 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
           FieldFilter("t0", Number(18), FilterEq)
         )
         val previousValue = None
-        val currentValue = ObjV("a" → 5, "b" → 1, "c" → 2, "d" → 2)
+        val currentValue = Obj.from("a" → 5, "b" → 1, "c" → 2, "d" → 2)
         val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 0, false, currentValue, false)
         res shouldBe Seq(
           FieldFilter("t1", Number(1), FilterEq),
@@ -154,7 +154,7 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
           FieldFilter("t0", Number(18), FilterEq)
         )
         val previousValue = None
-        val currentValue = ObjV("a" → 18, "b" → 1, "c" → 2, "d" → 2)
+        val currentValue = Obj.from("a" → 18, "b" → 1, "c" → 2, "d" → 2)
         val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 4, true, currentValue, false)
         res shouldBe Seq(
           FieldFilter("t1", Number(1), FilterEq),
@@ -173,7 +173,7 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
           FieldFilter("t0", Number(18), FilterEq)
         )
         val previousValue = None
-        val currentValue = ObjV("a" → 18, "b" → 1, "c" → 2, "d" → 2)
+        val currentValue = Obj.from("a" → 18, "b" → 1, "c" → 2, "d" → 2)
         val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 4, false, currentValue, false)
         res shouldBe Seq(
           FieldFilter("t1", Number(1), FilterEq),
@@ -194,7 +194,7 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
           FieldFilter("t1", Number(0), FilterGt)
         )
         val previousValue = None
-        val currentValue = ObjV("a" → 5, "b" → 1, "c" → 2, "d" → 2)
+        val currentValue = Obj.from("a" → 5, "b" → 1, "c" → 2, "d" → 2)
         val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 0, false, currentValue, false)
         res shouldBe Seq(
           FieldFilter("t1", Number(1), FilterEq),
@@ -222,7 +222,7 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
           FieldFilter("t1", Number(0), FilterGt)
         )
         val previousValue = None
-        val currentValue = ObjV("a" → 5, "b" → 1, "c" → 2, "d" → 2)
+        val currentValue = Obj.from("a" → 5, "b" → 1, "c" → 2, "d" → 2)
         val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 4, true, currentValue, false)
         res shouldBe Seq(
           FieldFilter("t1", Number(1), FilterEq),
@@ -248,7 +248,7 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
           FieldFilter("t1", Number(3), FilterLt)
         )
         val previousValue = None
-        val currentValue = ObjV("a" → 5, "b" → 2, "c" → 2, "d" → 2)
+        val currentValue = Obj.from("a" → 5, "b" → 2, "c" → 2, "d" → 2)
         val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 4, true, currentValue, true)
         res shouldBe Seq(
           FieldFilter("t1", Number(2), FilterEq),
@@ -273,7 +273,7 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
           FieldFilter("t0", Number(5), FilterEq),
           FieldFilter("t1", Number(1), FilterLt)
         )
-        val currentValue = ObjV("a" → 5, "b" → 2, "c" → 1, "d" → 1)
+        val currentValue = Obj.from("a" → 5, "b" → 2, "c" → 1, "d" → 1)
         val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 0, false, currentValue, false)
         res shouldBe Seq.empty
 
@@ -281,7 +281,7 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
           FieldFilter("t0", Number(5), FilterEq),
           FieldFilter("t1", Number(3), FilterLt)
         )
-        val currentValue2 = ObjV("a" → 5, "b" → 2, "c" → 1, "d" → 1)
+        val currentValue2 = Obj.from("a" → 5, "b" → 2, "c" → 1, "d" → 1)
         val res2 = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 0, false, currentValue, true)
         res2 shouldBe Seq.empty
       }

@@ -73,14 +73,24 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       if (documentUri != task.key) {
         throw new IllegalArgumentException(s"Task key ${task.key} doesn't correspond to $documentUri")
       }
-      val (updatedItemId, updatedRequest) = request.method match {
+      val (updatedItemId, updatedRequest) = request.headers.method match {
         case Method.POST ⇒
           // posting new item into collection, converting post to put
           val id = IdGenerator.create()
           if (ContentLogic.isCollectionUri(documentUri) && itemId.isEmpty) {
+            val hrl = request.headers.hrl
+            val newHrl = HRL(hrl.location, Obj.from(
+              hrl.query.toMap.toSeq.filterNot(_._1=="path") ++ Seq("path" → Text(request.path + "/" + id))
+                : _*)
+            )
             (id, request.copy(
-              uri = Uri(request.uri.pattern, request.uri.args + "path" → Specific(request.path + "/" + id)),
-              headers = new HeadersBuilder(request.headers) withMethod Method.PUT result(), // POST becomes PUT with auto Id
+              //uri = Uri(request.uri.pattern, request.uri.args + "path" → Specific(request.path + "/" + id)),
+              headers = Headers
+                .builder
+                .++=(request.headers)
+                .withMethod(Method.PUT)
+                .withHRL(newHrl)
+                .requestHeaders(), // POST becomes PUT with auto Id
               body = appendId(filterNulls(request.body), id)
             ))
           }
@@ -107,7 +117,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     } recover {
       case NonFatal(e) ⇒
         log.error(e, s"Can't deserialize and split path for: $task")
-        owner ! ShardTaskComplete(task, hyperbusException(e, task))
+        owner ! ShardTaskComplete(task, hyperbusException(e, task)(MessagingContext.empty))
     }
   }
 
@@ -159,7 +169,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 
     val newTransaction = createNewTransaction(documentUri, itemId, request, existingContentStatic)
     val newContent = updateContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic)
-    val obsoleteIndexItems = if (request.headers.method != Method.POST && ContentLogic.isCollectionUri(documentUri) && itemId.nonEmpty) {
+    val obsoleteIndexItems = if (request.headers.method != Method.POST && ContentLogic.isCollectionUri(documentUri) && !itemId.isEmpty) {
       findObsoleteIndexItems(existingContent,newContent,indexDefs)
     }
     else {
@@ -181,7 +191,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
   }
 
   private def findObsoleteIndexItems(existingContent: Option[Content], newContent: Content, indexDefs: Seq[IndexDef]) : Option[String] = {
-    import com.hypertino.binders.json._
+    import com.hypertino.binders.json.JsonBinders._
     // todo: refactor, this is crazy method
     // todo: work with Value content instead of string
     val m = existingContent.flatMap { c ⇒
@@ -220,10 +230,12 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       case Some(content) ⇒ content.revision + 1
     }
     TransactionLogic.newTransaction(documentUri, itemId, revision, request.copy(
-      headers = Headers.plain(request.headers +
-        (Header.REVISION → Seq(revision.toString)) +
-        (Header.METHOD → Seq("feed:" + request.method)))
-    ).serializeToString())
+      headers = Headers.builder
+        .++=(request.headers)
+        .+=(Header.REVISION → Number(revision))
+        .withMethod("feed:" + request.headers.method)
+        .requestHeaders()
+    ).serializeToString)
   }
 
   private def updateContent(documentUri: String,
@@ -232,7 +244,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
                             request: DynamicRequest,
                             existingContent: Option[Content],
                             existingContentStatic: Option[ContentBase]): Content =
-    request.method match {
+    request.headers.method match {
       case Method.PUT ⇒ putContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic)
       case Method.PATCH ⇒ patchContent(documentUri, itemId, newTransaction, request, existingContent)
       case Method.DELETE ⇒ deleteContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic)
@@ -244,6 +256,8 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
                          request: DynamicRequest,
                          existingContent: Option[Content],
                          existingContentStatic: Option[ContentBase]): Content = {
+    implicit val mcx = request
+
     if (ContentLogic.isCollectionUri(documentUri) && itemId.isEmpty) {
       throw Conflict(ErrorBody("collection-put-not-implemented", Some(s"Currently you can't put the whole collection")))
     }
@@ -252,7 +266,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       case None ⇒
         Content(documentUri, itemId, newTransaction.revision,
           transactionList = List(newTransaction.uuid),
-          body = Some(request.body.serializeToString()),
+          body = Some(request.body.serializeToString),
           isDeleted = false,
           createdAt = existingContent.map(_.createdAt).getOrElse(new Date),
           modifiedAt = existingContent.flatMap(_.modifiedAt)
@@ -261,7 +275,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       case Some(static) ⇒
         Content(documentUri, itemId, newTransaction.revision,
           transactionList = newTransaction.uuid +: static.transactionList,
-          body = Some(request.body.serializeToString()),
+          body = Some(request.body.serializeToString),
           isDeleted = false,
           createdAt = existingContent.map(_.createdAt).getOrElse(new Date),
           modifiedAt = existingContent.flatMap(_.modifiedAt)
@@ -295,7 +309,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
   }
 
   private def mergeBody(existing: Value, patch: Value): Option[String] = {
-    import com.hypertino.binders.json._
+    import com.hypertino.binders.json.JsonBinders._
     val newBodyContent = filterNulls(existing + patch)
     newBodyContent match {
       case Null ⇒ None
@@ -328,7 +342,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
   }
 
   private def taskWaitResult(owner: ActorRef, originalTask: PrimaryTask, request: DynamicRequest, trackProcessTime: Timer.Context)
-                            (implicit mcf: MessagingContextFactory): Receive = {
+                            (implicit mcf: MessagingContext): Receive = {
     case PrimaryWorkerTaskCompleted(task, transaction, created) if task == originalTask ⇒
       if (log.isDebugEnabled) {
         log.debug(s"task $originalTask is completed")
@@ -336,18 +350,14 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       owner ! BackgroundContentTask(System.currentTimeMillis() + backgroundTaskTimeout.toMillis, transaction.documentUri)
       val transactionId = transaction.documentUri + ":" + transaction.uuid + ":" + transaction.revision
       val result: Response[Body] = if (created) {
+        // todo: add LOCATION!!! xxx !!!
         Created(HyperStorageTransactionCreated(transactionId,
-          path = request.path,
-          links = new LinksBuilder()
-            .self(api.HyperStorageTransaction.selfPattern, templated = true)
-            .location(HyperStorageContentGet.uriPattern)
-            .result()
-        ))
+          path = request.path))
       }
       else {
         Ok(api.HyperStorageTransaction(transactionId))
       }
-      owner ! ShardTaskComplete(task, PrimaryWorkerTaskResult(result.serializeToString()))
+      owner ! ShardTaskComplete(task, PrimaryWorkerTaskResult(result.serializeToString))
       trackProcessTime.stop()
       unbecome()
 
@@ -357,10 +367,10 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       unbecome()
   }
 
-  private def hyperbusException(e: Throwable, task: ShardTask): PrimaryWorkerTaskResult = {
-    val (response: HyperbusException[ErrorBody], logException) = e match {
+  private def hyperbusException(e: Throwable, task: ShardTask)(implicit mcx: MessagingContext): PrimaryWorkerTaskResult = {
+    val (response: HyperbusError[ErrorBody], logException) = e match {
       case h: NotFound[ErrorBody] ⇒ (h, false)
-      case h: HyperbusException[ErrorBody] ⇒ (h, true)
+      case h: HyperbusError[ErrorBody] ⇒ (h, true)
       case other ⇒ (InternalServerError(ErrorBody("update-failed", Some(e.toString))), true)
     }
 
@@ -368,7 +378,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       log.error(e, s"task $task is failed")
     }
 
-    PrimaryWorkerTaskResult(response.serializeToString())
+    PrimaryWorkerTaskResult(response.serializeToString)
   }
 
   private def filterNulls(body: DynamicBody): DynamicBody = {
@@ -376,25 +386,11 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
   }
 
   private def appendId(body: DynamicBody, id: Value): DynamicBody = {
-    body.copy(content = Obj(body.content.asMap + ("id" → id)))
+    body.copy(content = Obj(body.content.toMap + ("id" → id)))
   }
 
   implicit class RequestWrapper(val request: DynamicRequest) {
-    def path: String = request.uri.args("path").specific
-
-    def isEvent = request.uri.pattern.specific.endsWith("/feed")
-
-    def serializeToString(): String = StringSerializer.serializeToString(request)
-  }
-
-  implicit class ResponseWrapper(val response: Response[Body]) {
-    def serializeToString(): String = StringSerializer.serializeToString(response)
-  }
-
-  implicit class BodyWrapper(val body: Body) {
-    def serializeToString(): String = {
-      StringSerializer.serializeToString(body)
-    }
+    def path: String = request.headers.hrl.query.path.toString
   }
 }
 

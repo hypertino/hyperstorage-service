@@ -1,8 +1,8 @@
 import com.datastax.driver.core.Session
 import com.hypertino.binders.cassandra.GuavaSessionQueryCache
-import com.hypertino.binders.naming.CamelCaseToSnakeCaseConverter
 import com.hypertino.hyperstorage.CassandraConnector
 import com.hypertino.hyperstorage.db.Db
+import com.hypertino.inflector.naming.CamelCaseToSnakeCaseConverter
 import org.cassandraunit.CassandraCQLUnit
 import org.cassandraunit.dataset.cql.ClassPathCQLDataSet
 import org.mockito.Mockito._
@@ -18,7 +18,7 @@ trait CassandraFixture extends BeforeAndAfterAll with ScalaFutures {
   //var session: Session = _
   var db: Db = _
   var dbOriginal: Db = _
-  implicit var sessionQueryCache: GuavaSessionQueryCache[CamelCaseToSnakeCaseConverter] = _
+  implicit var sessionQueryCache: GuavaSessionQueryCache[CamelCaseToSnakeCaseConverter.type] = _
 
   implicit def executionContext: ExecutionContext
 
@@ -29,7 +29,7 @@ trait CassandraFixture extends BeforeAndAfterAll with ScalaFutures {
     }
     dbOriginal = new Db(connector)
     db = spy(dbOriginal)
-    sessionQueryCache = new GuavaSessionQueryCache[CamelCaseToSnakeCaseConverter](Cassandra.session)
+    sessionQueryCache = new GuavaSessionQueryCache[CamelCaseToSnakeCaseConverter.type](Cassandra.session)
   }
 
   override def afterAll() {

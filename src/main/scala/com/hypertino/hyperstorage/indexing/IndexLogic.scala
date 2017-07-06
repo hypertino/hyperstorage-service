@@ -1,12 +1,12 @@
 package com.hypertino.hyperstorage.indexing
 
 import com.hypertino.binders.value.{Null, Obj, Value}
-import com.hypertino.hyperbus.model.utils.SortBy
 import com.hypertino.parser.ast.{Expression, Identifier}
 import com.hypertino.parser.eval.{EvalIdentifierNotFound, ValueContext}
 import com.hypertino.parser.{HEval, HParser}
 import com.hypertino.hyperstorage.api._
 import com.hypertino.hyperstorage.db._
+import com.hypertino.hyperstorage.utils.SortBy
 
 import scala.util.{Success, Try}
 
@@ -17,7 +17,7 @@ object IndexLogic {
     else {
       sortBy.zipWithIndex.foldLeft(new StringBuilder("index_content_")) { case (tableName, (sortItem, index)) ⇒
         HParser(sortItem.fieldName) match {
-          case Success(Identifier(seq)) ⇒
+          case Identifier(seq) ⇒
           case _ ⇒ throw new IllegalArgumentException(s"Index field name is invalid: ${sortItem.fieldName}")
         }
 
@@ -40,7 +40,7 @@ object IndexLogic {
   }
 
   def serializeSortByFields(sortBy: Seq[HyperStorageIndexSortItem]): Option[String] = {
-    import com.hypertino.binders.json._
+    import com.hypertino.binders.json.JsonBinders._
     if (sortBy.nonEmpty) Some(sortBy.toJson) else None
   }
 
@@ -53,7 +53,7 @@ object IndexLogic {
     sortBy.zipWithIndex.map { case (sortItem, index) ⇒
       val fieldName = tableFieldName(sortItem, size, index)
       val fieldValue = HParser(sortItem.fieldName) match {
-        case Success(identifier: Identifier) if valueContext.identifier.isDefinedAt(identifier) ⇒
+        case identifier: Identifier if valueContext.identifier.isDefinedAt(identifier) ⇒
           valueContext.identifier(identifier)
         case _ ⇒ Null
       }
@@ -78,12 +78,12 @@ object IndexLogic {
     }
   }
 
-  def evaluateFilterExpression(expression: String, value: Value): Try[Boolean] = {
+  def evaluateFilterExpression(expression: String, value: Value): Boolean = {
     val v = value match {
       case o: Obj ⇒ o
       case _ ⇒ Obj.empty
     }
-    HEval(expression, v).map(_.asBoolean)
+    HEval(expression, v).toBoolean
   }
 
   def weighIndex(queryExpression: Option[Expression], querySortOrder: Seq[SortBy],
@@ -118,7 +118,7 @@ object IndexLogic {
       case (sortItem, index) ⇒
         val fieldName = tableFieldName(sortItem, size, index)
         val fieldValue = HParser(sortItem.fieldName) match {
-          case Success(identifier: Identifier) if valueContext.identifier.isDefinedAt(identifier) ⇒
+          case identifier: Identifier if valueContext.identifier.isDefinedAt(identifier) ⇒
             valueContext.identifier(identifier)
           case _ ⇒ Null
         }
@@ -177,7 +177,7 @@ object IndexLogic {
   def greater(a: Value, b: Value, sortFieldType: String): Boolean = {
     sortFieldType match {
       case HyperStorageIndexSortFieldType.DECIMAL ⇒ a.asBigDecimal > b.asBigDecimal
-      case _ => a.asString > b.asString
+      case _ => a.toString > b.toString
     }
   }
 

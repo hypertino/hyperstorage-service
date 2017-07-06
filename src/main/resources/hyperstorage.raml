@@ -1,6 +1,6 @@
 #%RAML 1.0
 title: HyperStorage API
-baseUri: https://meta.inn.eu/hyperstorage
+baseUri: hb://hyperstorage
 types:
   HyperStorageTransaction:
     type: object
@@ -46,17 +46,26 @@ types:
       indexId: string
       path: string
 
-annotationTypes:
-  feed: nil
-
-/hyper-storage/content/{path:*}:
+/content/{path}:
   uriParameters:
-    path:*: string
+    path: string
   get:
+    queryParameters:
+      sortBy:
+        type: string
+        required: false
+      filter:
+        type: string
+        required: false
+      size:
+        type: integer
+        required: false
+      skipMax:
+        type: integer
+        required: false
     responses:
       200:
   put:
-    (feed):
     responses:
       200:
         body:
@@ -67,14 +76,12 @@ annotationTypes:
             application/json:
               type: HyperStorageTransactionCreated
   patch:
-    (feed):
     responses:
       200:
         body:
           application/json:
             type: HyperStorageTransaction
   delete:
-    (feed):
     responses:
       200:
         body:
@@ -86,8 +93,11 @@ annotationTypes:
         body:
             application/json:
               type: HyperStorageTransactionCreated
+  feed:put:
+  feed:patch:
+  feed:delete:
 
-/hyper-storage/transactions/{transactionId}:
+/transactions/{transactionId}:
   uriParameters:
     transactionId: string
   get:
@@ -97,7 +107,7 @@ annotationTypes:
           application/json:
             type: HyperStorageTransaction
 
-/hyper-storage/indexes/{path}:
+/indexes/{path}:
   uriParameters:
     path: string
   post:
@@ -110,7 +120,7 @@ annotationTypes:
           application/json:
             type: HyperStorageIndexCreated
 
-/hyper-storage/indexes/{path}/{indexId}:
+/indexes/{path}/{indexId}:
   uriParameters:
     path: string
     indexId: string

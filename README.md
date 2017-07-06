@@ -45,7 +45,7 @@ HyperStorage поддерживает работу с контентом в хр
 В этом примере посылается типизированый запрос `HyperStorageContentPut` для вставки документа.
 
 ```scala
-hyperbus <~ HyperStorageContentPut("abc/123", DynamicBody(ObjV("a" → 10, "x" → "hello"))) map {
+hyperbus <~ HyperStorageContentPut("abc/123", DynamicBody(Obj.from("a" → 10, "x" → "hello"))) map {
     case Ok(body) ⇒ println("abc/123 is updated")
     case Created(body) ⇒ println("abc/123 is created")
 } recover {

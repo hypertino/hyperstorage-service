@@ -8,12 +8,14 @@ import com.datastax.driver.core.utils.UUIDs
 import com.hypertino.binders.value.Value
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model.{DynamicRequest, _}
+import com.hypertino.hyperbus.serialization.MessageReader
 import com.hypertino.hyperstorage.db.{Transaction, _}
 import com.hypertino.hyperstorage.metrics.Metrics
 import com.hypertino.hyperstorage.sharding.ShardTaskComplete
 import com.hypertino.hyperstorage.utils.FutureUtils
 import com.hypertino.hyperstorage.{ResourcePath, _}
 import com.hypertino.metrics.MetricsTracker
+import monix.execution.Scheduler
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Success
@@ -34,7 +36,7 @@ trait BackgroundContentTaskCompleter {
   def db: Db
   def tracker: MetricsTracker
   def log: LoggingAdapter
-  implicit def executionContext: ExecutionContext
+  implicit def scheduler: Scheduler
 
   def deleteIndexDefAndData(indexDef: IndexDef): Future[Unit]
   def indexItem(indexDef: IndexDef, item: Content): Future[String]
@@ -82,7 +84,7 @@ trait BackgroundContentTaskCompleter {
         updateIndexFuture.flatMap { _ ⇒
           FutureUtils.serial(incompleteTransactions) { it ⇒
             val event = it.unwrappedBody
-            hyperbus <| event flatMap { publishResult ⇒
+            hyperbus.publish(event).runAsync.flatMap { publishResult ⇒
               if (log.isDebugEnabled) {
                 log.debug(s"Event $event is published with result $publishResult")
               }
@@ -126,7 +128,7 @@ trait BackgroundContentTaskCompleter {
   private def updateIndexes(content: ContentStatic, incompleteTransactions: Seq[UnwrappedTransaction]): Future[Unit] = {
     if (ContentLogic.isCollectionUri(content.documentUri)) {
       val isCollectionDelete = incompleteTransactions.exists { it ⇒
-        it.transaction.itemId.isEmpty && it.unwrappedBody.method == Method.FEED_DELETE
+        it.transaction.itemId.isEmpty && it.unwrappedBody.headers.method == Method.FEED_DELETE
       }
       if (isCollectionDelete) {
         // todo: cache index meta
@@ -142,7 +144,7 @@ trait BackgroundContentTaskCompleter {
         // todo: refactor, this is crazy
         val itemIds = incompleteTransactions.collect {
           case it if it.transaction.itemId.nonEmpty ⇒
-            import com.hypertino.binders.json._
+            import com.hypertino.binders.json.JsonBinders._
             val obsoleteMap = it.transaction.obsoleteIndexItems.map(_.parseJson[Map[String, Map[String, Value]]])
             val obsoleteSeq = obsoleteMap.map(_.map(kv ⇒ kv._1 → kv._2.toSeq).toSeq).getOrElse(Seq.empty)
             it.transaction.itemId → obsoleteSeq
@@ -192,6 +194,6 @@ case class UnwrappedTransaction(transaction: Transaction, unwrappedBody: Dynamic
 
 object UnwrappedTransaction {
   def apply(transaction: Transaction): UnwrappedTransaction = UnwrappedTransaction(
-    transaction, DynamicRequest(transaction.body)
+    transaction, MessageReader.fromString(transaction.body, DynamicRequest.apply)
   )
 }

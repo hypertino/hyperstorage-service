@@ -1,5 +1,7 @@
 package com.hypertino.hyperstorage.workers.secondary
 
+import java.io.Reader
+
 import akka.actor.ActorRef
 import akka.event.LoggingAdapter
 import akka.pattern.ask
@@ -7,14 +9,16 @@ import akka.util.Timeout
 import com.datastax.driver.core.utils.UUIDs
 import com.fasterxml.jackson.core.JsonParser
 import com.hypertino.hyperbus.model._
-import com.hypertino.hyperbus.serialization.{MessageDeserializer, RequestDeserializer, RequestHeader, StringSerializer}
-import com.hypertino.hyperbus.{Hyperbus, IdGenerator}
-import com.hypertino.hyperstorage.api.{HyperStorageIndexPost, _}
+import com.hypertino.hyperbus.serialization.{MessageDeserializer, MessageReader, RequestDeserializer}
+import com.hypertino.hyperbus.Hyperbus
+import com.hypertino.hyperbus.util.IdGenerator
+import com.hypertino.hyperstorage.api.{IndexPost, _}
 import com.hypertino.hyperstorage.db._
 import com.hypertino.hyperstorage.indexing.{IndexDefTransaction, IndexLogic, IndexManager}
 import com.hypertino.hyperstorage.sharding.ShardTaskComplete
 import com.hypertino.hyperstorage.{ResourcePath, _}
 import com.hypertino.metrics.MetricsTracker
+import org.apache.kafka.common.requests.RequestHeader
 
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
@@ -39,17 +43,17 @@ trait IndexDefTaskWorker {
     {
       try {
         validateCollectionUri(task.key)
-        val is = new java.io.ByteArrayInputStream(task.content.getBytes("UTF-8"))
-        val deserializer: RequestDeserializer[Request[Body]] = (requestHeader: RequestHeader, jsonParser: JsonParser) ⇒ {
-          requestHeader.method match {
-            case Method.POST ⇒ HyperStorageIndexPost.apply(requestHeader, jsonParser)
-            case Method.DELETE ⇒ HyperStorageIndexDelete.apply(requestHeader, jsonParser)
+        val deserializer: RequestDeserializer[RequestBase] = (reader: Reader, headersMap: HeadersMap) ⇒ {
+          val requestHeaders = RequestHeaders(headersMap)
+          requestHeaders.method match {
+            case Method.POST ⇒ IndexPost(reader, headersMap)
+            case Method.DELETE ⇒ IndexDelete(reader, headersMap)
           }
         }
 
-        MessageDeserializer.deserializeRequestWith[Request[Body]](is)(deserializer) match {
-          case post: HyperStorageIndexPost ⇒ startCreatingNewIndex(task, post)
-          case delete: HyperStorageIndexDelete ⇒ startRemovingIndex(task, delete)
+        MessageReader.fromString[RequestBase](task.content, deserializer) match {
+          case post: IndexPost ⇒ startCreatingNewIndex(task, post)
+          case delete: IndexDelete ⇒ startRemovingIndex(task, delete)
         }
       } catch {
         case NonFatal(e) ⇒
@@ -68,7 +72,7 @@ trait IndexDefTaskWorker {
     }
   }
 
-  private def startCreatingNewIndex(task: SecondaryTaskTrait, post: HyperStorageIndexPost): Future[ShardTaskComplete] = {
+  private def startCreatingNewIndex(task: SecondaryTaskTrait, post: IndexPost): Future[ShardTaskComplete] = {
     implicit val mcx = post
     val indexId = post.body.indexId.getOrElse(
       IdGenerator.create()
@@ -97,10 +101,9 @@ trait IndexDefTaskWorker {
             indexId,
             pendingIndex.defTransactionId
           )) map { _ ⇒ // IndexManager.IndexCommandAccepted
-            Created(HyperStorageIndexCreated(indexId, path = post.path, links = new LinksBuilder()
-              .location(HyperStorageIndex.selfPattern, templated = true)
-              .result()
-            ))
+
+            // todo: !!!! LOCATION header
+            Created(HyperStorageIndexCreated(indexId, path = post.path))
           }
         }
       }
@@ -109,7 +112,7 @@ trait IndexDefTaskWorker {
     }
   }
 
-  private def startRemovingIndex(task: SecondaryTaskTrait, delete: HyperStorageIndexDelete): Future[ShardTaskComplete] = {
+  private def startRemovingIndex(task: SecondaryTaskTrait, delete: IndexDelete): Future[ShardTaskComplete] = {
     implicit val mcx = delete
 
     db.selectIndexDef(delete.path, delete.indexId) flatMap {
@@ -138,9 +141,9 @@ trait IndexDefTaskWorker {
     case NonFatal(e) ⇒
       log.error(e, s"Can't execute $task")
       val he = e match {
-        case h: HyperbusException[ErrorBody] ⇒ h
-        case other ⇒ InternalServerError(ErrorBody("failed", Some(e.toString)))
+        case h: HyperbusError[ErrorBody] ⇒ h
+        case other ⇒ InternalServerError(ErrorBody("failed", Some(e.toString)))(MessagingContext.empty)
       }
-      ShardTaskComplete(task, IndexDefTaskTaskResult(StringSerializer.serializeToString(he)))
+      ShardTaskComplete(task, IndexDefTaskTaskResult(he.serializeToString))
   }
 }

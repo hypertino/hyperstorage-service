@@ -41,8 +41,8 @@ class RecoveryWorkersSpec extends FreeSpec
 
       val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
       val path = "incomplete-" + UUID.randomUUID().toString
-      val taskStr1 = StringSerializer.serializeToString(HyperStorageContentPut(path,
-        DynamicBody(ObjV("text" → "Test resource value", "null" → Null))
+      val taskStr1 = StringSerializer.serializeToString(ContentPut(path,
+        DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
       ))
       worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskStr1)
       val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
@@ -83,8 +83,8 @@ class RecoveryWorkersSpec extends FreeSpec
 
       val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
       val path = "incomplete-" + UUID.randomUUID().toString
-      val taskStr1 = StringSerializer.serializeToString(HyperStorageContentPut(path,
-        DynamicBody(ObjV("text" → "Test resource value", "null" → Null))
+      val taskStr1 = StringSerializer.serializeToString(ContentPut(path,
+        DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
       ))
       val millis = System.currentTimeMillis()
       worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskStr1)

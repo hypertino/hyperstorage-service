@@ -104,13 +104,15 @@ trait IndexContentTaskWorker {
     val sortBy = IndexLogic.extractSortFieldValues(indexDef.sortByParsed, contentValue)
 
     val write: Boolean = !item.isDeleted && (indexDef.filterBy.map { filterBy ⇒
-      IndexLogic.evaluateFilterExpression(filterBy, contentValue) recover {
+      try {
+        IndexLogic.evaluateFilterExpression(filterBy, contentValue)
+      } catch {
         case NonFatal(e) ⇒
           if (log.isDebugEnabled) {
             log.debug(s"Can't evaluate expression: `$filterBy` for $item", e)
           }
           false
-      } get
+      }
     } getOrElse {
       true
     })

@@ -1,13 +1,12 @@
 package com.hypertino.hyperstorage
 
-import akka.actor.{Actor, ActorLogging, ActorRef, Props}
+import akka.actor.ActorRef
 import akka.pattern.ask
 import com.hypertino.binders.value.{Lst, Null, Number, Obj, Value}
-import com.hypertino.hyperbus.akkaservice.AkkaHyperService
+import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model._
-import com.hypertino.hyperbus.model.utils.Sort._
-import com.hypertino.hyperbus.model.utils.SortBy
-import com.hypertino.hyperbus.serialization.StringSerializer
+import com.hypertino.hyperbus.serialization.MessageReader
+import com.hypertino.hyperbus.transport.api.CommandEvent
 import com.hypertino.hyperstorage.api.{HyperStorageIndexSortItem, _}
 import com.hypertino.hyperstorage.db._
 import com.hypertino.hyperstorage.indexing.{FieldFiltersExtractor, IndexLogic, OrderFieldsLogic}
@@ -18,106 +17,133 @@ import com.hypertino.metrics.MetricsTracker
 import com.hypertino.parser.ast.{Expression, Identifier}
 import com.hypertino.parser.eval.ValueContext
 import com.hypertino.parser.{HEval, HParser}
+import monix.eval.Task
+import monix.execution.{Ack, Scheduler}
+import monix.execution.Ack.Continue
+import com.hypertino.hyperstorage.utils.Sort._
+import com.hypertino.hyperstorage.utils.{Sort, SortBy}
 
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.util.control.NonFatal
 
-class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsTracker, requestTimeout: FiniteDuration) extends Actor with ActorLogging {
+// todo: convert Task.fromFuture to tasks...
 
-  import context._
+class HyperbusAdapter(hyperbus: Hyperbus,
+                      hyperStorageProcessor: ActorRef,
+                      db: Db,
+                      tracker: MetricsTracker,
+                      requestTimeout: FiniteDuration)
+                     (implicit scheduler: Scheduler) {
 
-  final val COLLECTION_FILTER_NAME = "filter"
-  final val COLLECTION_SIZE_FIELD_NAME = "size"
-  final val COLLECTION_SKIP_MAX_FIELD_NAME = "skipMax"
+  //final val COLLECTION_FILTER_NAME = "filter"
+  //final val COLLECTION_SIZE_FIELD_NAME = "size"
+  //final val COLLECTION_SKIP_MAX_FIELD_NAME = "skipMax"
   final val DEFAULT_MAX_SKIPPED_ROWS = 10000
   final val MAX_COLLECTION_SELECTS = 20
   final val DEFAULT_PAGE_SIZE = 100
 
-  def receive = AkkaHyperService.dispatch(this)
+  private val subscriptions = Seq(
+    hyperbus.commands[ContentGet].subscribe { implicit command ⇒
+      val request = command.request
+      Task.fromFuture[ResponseBase] {
+        tracker.timeOfFuture(Metrics.RETRIEVE_TIME) {
+          val resourcePath = ContentLogic.splitPath(request.path)
+          val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
+          if (ContentLogic.isCollectionUri(resourcePath.documentUri) && resourcePath.itemId.isEmpty) {
+            queryCollection(resourcePath, request)
+          }
+          else {
+            queryDocument(resourcePath, request)
+          }
+        }
+      }.runOnComplete(command.reply)
+      Continue
+    },
 
-  def ~>(implicit request: HyperStorageContentGet) = {
-    tracker.timeOfFuture(Metrics.RETRIEVE_TIME) {
-      val resourcePath = ContentLogic.splitPath(request.path)
-      val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
-      if (ContentLogic.isCollectionUri(resourcePath.documentUri) && resourcePath.itemId.isEmpty) {
-        queryCollection(resourcePath, request)
-      }
-      else {
-        queryDocument(resourcePath, request)
-      }
+    hyperbus.commands[ContentPut].subscribe { implicit command ⇒
+      executeRequest(command, command.request.path)
+    },
+
+    hyperbus.commands[ContentPost].subscribe { implicit command ⇒
+      executeRequest(command, command.request.path)
+    },
+
+    hyperbus.commands[ContentPatch].subscribe { implicit command ⇒
+      executeRequest(command, command.request.path)
+    },
+
+    hyperbus.commands[ContentDelete].subscribe { implicit command ⇒
+      executeRequest(command, command.request.path)
+    },
+
+    hyperbus.commands[IndexPost].subscribe { implicit command ⇒
+      executeIndexRequest(command)
+    },
+
+    hyperbus.commands[IndexDelete].subscribe { implicit command ⇒
+      executeIndexRequest(command)
     }
+  )
+
+  def off(): Task[Unit] = {
+    Task.eval(subscriptions.foreach(_.cancel()))
   }
 
-  def ~>(request: HyperStorageContentPut) = executeRequest(request, request.path)
-
-  def ~>(request: HyperStorageContentPost) = executeRequest(request, request.path)
-
-  private def executeRequest(implicit request: Request[Body], uri: String) = {
-    val str = StringSerializer.serializeToString(request)
+  private def executeRequest(implicit command: CommandEvent[RequestBase], uri: String): Future[Ack] = {
+    val str = command.request.serializeToString
     val ttl = Math.max(requestTimeout.toMillis - 100, 100)
     val documentUri = ContentLogic.splitPath(uri).documentUri
     val task = PrimaryTask(documentUri, System.currentTimeMillis() + ttl, str)
     implicit val timeout: akka.util.Timeout = requestTimeout
 
     // todo: what happens when error is returned
-    hyperStorageProcessor ? task map {
-      case PrimaryWorkerTaskResult(content) ⇒
-        StringDeserializer.dynamicResponse(content) // todo: we are deserializing just to serialize back here
-    }
+    Task.fromFuture {
+      hyperStorageProcessor ? task map {
+        case PrimaryWorkerTaskResult(content) ⇒
+          MessageReader.fromString(content, StandardResponse.apply) // todo: we are deserializing just to serialize back here
+      }
+    } runOnComplete command.reply
+    Continue
   }
 
-  def ~>(request: HyperStorageContentPatch) = executeRequest(request, request.path)
-
-  def ~>(request: HyperStorageContentDelete) = executeRequest(request, request.path)
-
-  def ~>(request: HyperStorageIndexPost) = executeIndexRequest(request)
-
-  def ~>(request: HyperStorageIndexDelete) = executeIndexRequest(request)
-
-  private def executeIndexRequest(request: Request[Body]) = {
+  private def executeIndexRequest(implicit command: CommandEvent[RequestBase]): Future[Ack] = {
     val ttl = Math.max(requestTimeout.toMillis - 100, 100)
-    val key = request match {
-      case post: HyperStorageIndexPost ⇒ post.path
-      case delete: HyperStorageIndexDelete ⇒ delete.path
+    val key = command.request match {
+      case post: IndexPost ⇒ post.path
+      case delete: IndexDelete ⇒ delete.path
     }
-    val indexDefTask = IndexDefTask(System.currentTimeMillis() + ttl, key, StringSerializer.serializeToString(request))
+    val indexDefTask = IndexDefTask(System.currentTimeMillis() + ttl, key, command.request.serializeToString)
     implicit val timeout: akka.util.Timeout = requestTimeout
 
-    hyperStorageProcessor ? indexDefTask map {
-      case r: Response[Body] ⇒
-        r
-    }
+    Task.fromFuture {
+      hyperStorageProcessor ? indexDefTask map {
+        case r: ResponseBase ⇒
+          r
+      }
+    } runOnComplete command.reply
+    Continue
   }
 
-  private def queryCollection(resourcePath: ResourcePath, request: HyperStorageContentGet) = {
+  private def queryCollection(resourcePath: ResourcePath, request: ContentGet): Future[ResponseBase] = {
     implicit val mcx = request
     val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
 
-    val f = request.body.content.selectDynamic(COLLECTION_FILTER_NAME)
-    val filter = if (f.asString == "") None else Some(f.asString)
-    val sortBy = request.body.sortBy.getOrElse(Seq.empty)
+    val sortBy = Sort.parseQueryParam(request.sortBy)
 
-    val indexDefsFuture = if (filter.isEmpty && sortBy.isEmpty) {
+    val indexDefsFuture = if (request.filter.isEmpty && sortBy.isEmpty) {
       Future.successful(Iterator.empty)
     } else {
       db.selectIndexDefs(resourcePath.documentUri)
     }
 
-    val pageSize = request.body.content.selectDynamic(COLLECTION_SIZE_FIELD_NAME) match {
-      case Null ⇒ DEFAULT_PAGE_SIZE
-      case other: Value ⇒ other.asInt
-    }
-
-    val skipMax = request.body.content.selectDynamic(COLLECTION_SKIP_MAX_FIELD_NAME) match {
-      case Null ⇒ DEFAULT_MAX_SKIPPED_ROWS
-      case other: Value ⇒ other.asInt
-    }
+    val pageSize = request.size.getOrElse(DEFAULT_PAGE_SIZE)
+    val skipMax = request.skipMax.getOrElse(DEFAULT_MAX_SKIPPED_ROWS)
 
     for {
       contentStatic ← db.selectContentStatic(resourcePath.documentUri)
       indexDefs ← indexDefsFuture
-      (collectionStream,revisionOpt) ← selectCollection(resourcePath.documentUri, indexDefs, filter, sortBy, pageSize, skipMax)
+      (collectionStream, revisionOpt) ← selectCollection(resourcePath.documentUri, indexDefs, request.filter, sortBy, pageSize, skipMax)
     } yield {
       if (contentStatic.isDefined && contentStatic.forall(!_.isDeleted)) {
         val result = Obj(Map("_embedded" →
@@ -125,9 +151,11 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
             Lst(collectionStream)
           ))))
 
-        Ok(DynamicBody(result), Headers(
-          revisionOpt.map(r ⇒ Header.REVISION → Seq(r.toString)).toMap
-        ))
+        val headersMap: HeadersMap = HeadersMap(
+          revisionOpt.map(r ⇒ Seq(Header.REVISION → Number(r))).toSeq.flatten : _*
+        )
+
+        Ok(DynamicBody(result), headersMap)
       }
       else {
         notFound
@@ -141,16 +169,17 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
                                queryFilter: Option[String],
                                querySortBy: Seq[SortBy],
                                pageSize: Int,
-                               skipMax: Int): Future[(List[Value], Option[Long])] = {
+                               skipMax: Int)
+                              (implicit messagingContext: MessagingContext): Future[(List[Value], Option[Long])] = {
 
-    val queryFilterExpression = queryFilter.flatMap(Option.apply).map(HParser(_).get)
+    val queryFilterExpression = queryFilter.flatMap(Option.apply).map(HParser(_))
 
     val defIdSort = HyperStorageIndexSortItem("id", Some(HyperStorageIndexSortFieldType.TEXT), Some(HyperStorageIndexSortOrder.ASC))
 
     // todo: this should be cached, heavy operations here
     val sources = indexDefs.flatMap { indexDef ⇒
       if (indexDef.status == IndexDef.STATUS_NORMAL) Some {
-        val filterAST = indexDef.filterBy.map(HParser(_).get)
+        val filterAST = indexDef.filterBy.map(HParser(_))
         val indexSortBy = indexDef.sortByParsed :+ defIdSort
         (IndexLogic.weighIndex(queryFilterExpression, querySortBy, filterAST, indexSortBy), indexSortBy, Some(indexDef))
       }
@@ -203,7 +232,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
       case None ⇒
         db.selectContentCollection(ops.documentUri,
           ops.limit,
-          ops.filterFields.find(_.name == "item_id").map(ff ⇒ (ff.value.asString, ff.op)),
+          ops.filterFields.find(_.name == "item_id").map(ff ⇒ (ff.value.toString, ff.op)),
           ops.ckFields.find(_.name == "item_id").forall(_.ascending)
         )
 
@@ -236,7 +265,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
             lastValue = Some(o)
             ops.queryFilterExpression.forall { qfe ⇒
               try {
-                new HEval(o).eval(qfe).asBoolean
+                new HEval(o).eval(qfe).toBoolean
               } catch {
                 case NonFatal(e) ⇒ false
               }
@@ -270,7 +299,8 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
                                 recursionCounter: Int,
                                 skippedRows: Int,
                                 lastValueOpt: Option[Obj]
-        ): Future[(List[Value], Option[Long])] = {
+                               )
+                               (implicit messagingContext: MessagingContext): Future[(List[Value], Option[Long])] = {
 
     //println(s"queryUntilFetched($ops,$leastFieldFilter,$recursionCounter,$skippedRows,$lastValueOpt)")
 
@@ -308,7 +338,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
     }
   }
 
-  private def queryDocument(resourcePath: ResourcePath, request: HyperStorageContentGet) = {
+  private def queryDocument(resourcePath: ResourcePath, request: ContentGet): Future[ResponseBase] = {
     implicit val mcx = request
     val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
     db.selectContent(resourcePath.documentUri, resourcePath.itemId) map {
@@ -317,7 +347,7 @@ class HyperbusAdapter(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsT
       case Some(content) ⇒
         if (!content.isDeleted) {
           val body = DynamicBody(content.bodyValue)
-          Ok(body, Headers(Map(Header.REVISION → Seq(content.revision.toString))))
+          Ok(body, HeadersMap(Header.REVISION → content.revision))
         } else {
           notFound
         }
@@ -370,14 +400,7 @@ class CollectionOrdering(querySortBy: Seq[SortBy]) extends Ordering[Value] {
   private def cmp(x: Value, y: Value): Int = {
     (x,y) match {
       case (Number(xn),Number(yn)) ⇒ xn.compare(yn)
-      case (xs,ys) ⇒ xs.asString.compareTo(ys.asString)
+      case (xs,ys) ⇒ xs.toString.compareTo(ys.toString)
     }
   }
-}
-
-object HyperbusAdapter {
-  def props(hyperStorageProcessor: ActorRef, db: Db, tracker: MetricsTracker, requestTimeout: FiniteDuration) = Props(
-    classOf[HyperbusAdapter],
-    hyperStorageProcessor, db, tracker, requestTimeout
-  )
 }

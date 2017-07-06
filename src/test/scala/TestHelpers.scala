@@ -8,16 +8,15 @@ import com.codahale.metrics.ScheduledReporter
 import com.datastax.driver.core.utils.UUIDs
 import com.typesafe.config.ConfigFactory
 import com.hypertino.hyperbus.Hyperbus
-import com.hypertino.hyperbus.model.{DynamicBody, Response}
-import com.hypertino.hyperbus.serialization.StringDeserializer
-import com.hypertino.hyperbus.transport.ActorSystemRegistry
+import com.hypertino.hyperbus.model.{DynamicBody, DynamicResponse, Response, StandardResponse}
+import com.hypertino.hyperbus.serialization.MessageReader
 import com.hypertino.hyperbus.transport.api.{TransportConfigurationLoader, TransportManager}
 import com.hypertino.hyperstorage.db.{Db, Transaction}
 import com.hypertino.hyperstorage.indexing.IndexManager
 import com.hypertino.hyperstorage.sharding._
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.workers.primary.PrimaryWorker
-import com.hypertino.hyperstorage.workers.secondary.{SecondaryWorker, SecondaryWorker$}
+import com.hypertino.hyperstorage.workers.secondary.SecondaryWorker
 import com.hypertino.metrics.MetricsTracker
 import com.hypertino.metrics.modules.ConsoleReporterModule
 import org.scalatest.concurrent.ScalaFutures
@@ -38,8 +37,8 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
   //val _actorSystems = TrieMap[Int, ActorSystem]()
   val _hyperbuses = TrieMap[Int, Hyperbus]()
 
-  implicit def executionContext: ExecutionContext = {
-    scala.concurrent.ExecutionContext.Implicits.global
+  implicit def scheduler = {
+    monix.execution.Scheduler.Implicits.global
   }
 
   def createShardProcessor(groupName: String, workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
@@ -85,11 +84,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
 
     processor ! SubscribeToShardStatus(indexManager)
 
-    val adapter = TestActorRef(HyperbusAdapter.props(processor, db, tracker, 20.seconds))
-    import com.hypertino.hyperbus.akkaservice._
-    implicit val timeout = Timeout(20.seconds)
-    hyperbus.routeTo[HyperbusAdapter](adapter).futureValue // wait while subscription is completes
-
+    val adapter = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     Thread.sleep(2000)
     hyperbus
   }
@@ -98,15 +93,14 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
 
   def testActorSystem(index: Int = 0) = {
     testHyperbus(index)
-    ActorSystemRegistry.get(s"eu-inn-$index").get
+    val config = ConfigFactory.load().getConfig(s"actor-system-registry.actor-system-$index")
+    ActorSystem(s"actor-system-$index", config)
   }
 
   def testHyperbus(index: Int = 0) = {
     val hb = _hyperbuses.getOrElseUpdate(index, {
       val config = ConfigFactory.load().getConfig(s"hyperbus-$index")
-      val transportConfiguration = TransportConfigurationLoader.fromConfig(config)
-      val transportManager = new TransportManager(transportConfiguration)
-      new Hyperbus(transportManager, defaultGroupName = Some(s"subscriber-$index"), logMessages = true)
+      new Hyperbus(config)
     }
     )
     hb
@@ -159,7 +153,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     def processorPath = t.asInstanceOf[TestShardTask].processActorPath getOrElse ""
   }
 
-  def response(content: String): Response[DynamicBody] = StringDeserializer.dynamicResponse(content).asInstanceOf[Response[DynamicBody]]
+  def response(content: String): DynamicResponse = MessageReader.fromString(content, StandardResponse.apply)
 }
 
 case class TestShardTask(key: String, value: String,

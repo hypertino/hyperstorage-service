@@ -1,8 +1,8 @@
 package com.hypertino.hyperstorage.indexing
 
-import com.hypertino.hyperbus.model.utils.SortBy
 import com.hypertino.hyperstorage.api.{HyperStorageIndexSortItem, HyperStorageIndexSortOrder}
 import com.hypertino.hyperstorage.db.CkField
+import com.hypertino.hyperstorage.utils.SortBy
 
 object OrderFieldsLogic {
   def weighOrdering(query: Seq[SortBy], indexSortedBy: Seq[HyperStorageIndexSortItem]): Int = {

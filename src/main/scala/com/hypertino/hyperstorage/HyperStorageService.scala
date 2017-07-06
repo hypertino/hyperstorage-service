@@ -14,6 +14,7 @@ import com.hypertino.hyperstorage.workers.secondary.SecondaryWorker
 import com.hypertino.metrics.MetricsTracker
 import com.hypertino.service.control.api.{Console, Service}
 import com.typesafe.config.Config
+import monix.execution.Scheduler
 import org.slf4j.LoggerFactory
 import scaldi.{Injectable, Injector}
 
@@ -37,7 +38,7 @@ case class HyperStorageConfig(
 class HyperStorageService(console: Console,
                           config: Config,
                           connector: CassandraConnector,
-                          implicit val ec: ExecutionContext,
+                          implicit val scheduler: Scheduler,
                           implicit val injector: Injector) extends Service with Injectable {
   var log = LoggerFactory.getLogger(getClass)
   log.info(s"Starting HyperStorage service v${BuildInfo.version}...")
@@ -56,9 +57,7 @@ class HyperStorageService(console: Console,
 
   // initialize
   log.info(s"Initializing hyperbus...")
-  val transportConfiguration = TransportConfigurationLoader.fromConfig(config, injector)
-  val transportManager = new TransportManager(transportConfiguration)
-  val hyperbus = new Hyperbus(transportManager)
+  val hyperbus = new Hyperbus(config)
 
   // currently we rely on the name of system
   val actorSystem = ActorSystem("hyper-storaage")// ActorSystemRegistry.get("eu-inn").get
@@ -82,7 +81,7 @@ class HyperStorageService(console: Console,
 
   // worker actor todo: recovery job
   val primaryWorkerProps = PrimaryWorker.props(hyperbus, db, tracker, backgroundTaskTimeout)
-  val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, indexManagerRef)
+  val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, indexManagerRef, scheduler)
   val workerSettings = Map(
     "hyper-storage-primary-worker" → (primaryWorkerProps, maxWorkers, "pgw-"),
     "hyper-storage-secondary-worker" → (secondaryWorkerProps, maxWorkers, "sgw-")
@@ -93,12 +92,7 @@ class HyperStorageService(console: Console,
     ShardProcessor.props(workerSettings, "hyper-storage", tracker, shardSyncTimeout), "hyper-storage"
   )
 
-  val adapterRef = actorSystem.actorOf(HyperbusAdapter.props(shardProcessorRef, db, tracker, requestTimeout), "adapter")
-
-  val subscriptions = Await.result({
-    implicit val timeout: akka.util.Timeout = requestTimeout
-    hyperbus.routeTo[HyperbusAdapter](adapterRef)
-  }, requestTimeout)
+  val hyperbusAdapter = new HyperbusAdapter(hyperbus, shardProcessorRef, db, tracker, requestTimeout)
 
   val hotPeriod = (hotRecovery.toMillis, failTimeout.toMillis)
   log.info(s"Launching hot recovery $hotRecovery-$failTimeout")
@@ -119,9 +113,12 @@ class HyperStorageService(console: Console,
   override def stopService(controlBreak: Boolean): Unit = {
     log.info("Stopping HyperStorage service...")
 
+    // todo: remove awaits here
+
     staleRecoveryRef ! ShutdownRecoveryWorker
     hotRecoveryRef ! ShutdownRecoveryWorker
-    subscriptions.foreach(subscription => Await.result(hyperbus.off(subscription), shutdownTimeout/2))
+
+    Await.result(hyperbusAdapter.off().runAsync, shutdownTimeout/2)
 
     log.info("Stopping processor actor...")
     try {
@@ -132,7 +129,7 @@ class HyperStorageService(console: Console,
     }
 
     try {
-      Await.result(hyperbus.shutdown(shutdownTimeout*4/5), shutdownTimeout)
+      Await.result(hyperbus.shutdown(shutdownTimeout*4/5).runAsync, shutdownTimeout)
     } catch {
       case t: Throwable ⇒
         log.error("Hyperbus didn't shutdown gracefully", t)

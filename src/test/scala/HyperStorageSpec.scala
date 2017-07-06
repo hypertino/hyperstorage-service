@@ -7,8 +7,6 @@ import akka.util.Timeout
 import com.datastax.driver.core.utils.UUIDs
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model._
-import com.hypertino.hyperbus.model.utils.{Sort, SortBy}
-import com.hypertino.hyperbus.serialization.{StringDeserializer, StringSerializer}
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.api._
 import com.hypertino.hyperstorage.db.IndexDef
@@ -37,8 +35,9 @@ class HyperStorageSpec extends FreeSpec
   import ContentLogic._
 
   override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(10000, Millis)))
+  import MessagingContext.Implicits.emptyContext
 
-  "HyperStorageSpec" - {
+  "HyperStorageSpec" in {
     "Put" in {
       val hyperbus = testHyperbus()
       val tk = testKit()
@@ -48,23 +47,23 @@ class HyperStorageSpec extends FreeSpec
 
       val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
 
-      val task = HyperStorageContentPut(
+      val task = ContentPut(
         path = "test-resource-1",
-        DynamicBody(ObjV("text" → "Test resource value", "null" → Null))
+        DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
       )
 
       whenReady(db.selectContent("test-resource-1", "")) { result =>
         result shouldBe None
       }
 
-      val taskStr = StringSerializer.serializeToString(task)
+      val taskStr = task.serializeToString
       worker ! PrimaryTask(task.path, System.currentTimeMillis() + 10000, taskStr)
       val backgroundTask = expectMsgType[BackgroundContentTask]
       backgroundTask.documentUri should equal(task.path)
       val workerResult = expectMsgType[ShardTaskComplete]
       val r = response(workerResult.result.asInstanceOf[PrimaryWorkerTaskResult].content)
-      r.statusCode should equal(Status.CREATED)
-      r.correlationId should equal(task.correlationId)
+      r.headers.statusCode should equal(Status.CREATED)
+      r.headers.correlationId should equal(task.correlationId)
 
       val uuid = whenReady(db.selectContent("test-resource-1", "")) { result =>
         result.get.body should equal(Some("""{"text":"Test resource value"}"""))
@@ -77,7 +76,7 @@ class HyperStorageSpec extends FreeSpec
         result.get.transactionList.head
       }
 
-      val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self))
+      val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
       backgroundWorker ! backgroundTask
       val backgroundWorkerResult = expectMsgType[ShardTaskComplete]
       val rc = backgroundWorkerResult.result.asInstanceOf[BackgroundContentTaskResult]
@@ -99,16 +98,16 @@ class HyperStorageSpec extends FreeSpec
 
       val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
 
-      val task = HyperStorageContentPatch(
+      val task = ContentPatch(
         path = "not-existing",
-        DynamicBody(ObjV("text" → "Test resource value"))
+        DynamicBody(Obj.from("text" → "Test resource value"))
       )
 
-      val taskStr = StringSerializer.serializeToString(task)
+      val taskStr = task.serializeToString
       worker ! PrimaryTask(task.path, System.currentTimeMillis() + 10000, taskStr)
       expectMsgPF() {
-        case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).statusCode == Status.NOT_FOUND &&
-          response(result.content).correlationId == task.correlationId ⇒ {
+        case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.NOT_FOUND &&
+          response(result.content).headers.correlationId == task.correlationId ⇒ {
           true
         }
       }
@@ -126,24 +125,24 @@ class HyperStorageSpec extends FreeSpec
       val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
 
       val path = "test-resource-" + UUID.randomUUID().toString
-      val taskPutStr = StringSerializer.serializeToString(HyperStorageContentPut(path,
-        DynamicBody(ObjV("text1" → "abc", "text2" → "klmn"))
-      ))
+      val taskPutStr = ContentPut(path,
+        DynamicBody(Obj.from("text1" → "abc", "text2" → "klmn"))
+      ).serializeToString
 
       worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskPutStr)
       expectMsgType[BackgroundContentTask]
       expectMsgType[ShardTaskComplete]
 
-      val task = HyperStorageContentPatch(path,
-        DynamicBody(ObjV("text1" → "efg", "text2" → Null, "text3" → "zzz"))
+      val task = ContentPatch(path,
+        DynamicBody(Obj.from("text1" → "efg", "text2" → Null, "text3" → "zzz"))
       )
-      val taskPatchStr = StringSerializer.serializeToString(task)
+      val taskPatchStr = task.serializeToString
 
       worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskPatchStr)
       expectMsgType[BackgroundContentTask]
       expectMsgPF() {
-        case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).statusCode == Status.OK &&
-          response(result.content).correlationId == task.correlationId ⇒ {
+        case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.OK &&
+          response(result.content).headers.correlationId == task.correlationId ⇒ {
           true
         }
       }
@@ -153,8 +152,8 @@ class HyperStorageSpec extends FreeSpec
       }
 
       // delete resource
-      val deleteTask = HyperStorageContentDelete(path)
-      val deleteTaskStr = StringSerializer.serializeToString(deleteTask)
+      val deleteTask = ContentDelete(path)
+      val deleteTaskStr = deleteTask.serializeToString
       worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, deleteTaskStr)
       expectMsgType[BackgroundContentTask]
       expectMsgType[ShardTaskComplete]
@@ -163,8 +162,8 @@ class HyperStorageSpec extends FreeSpec
       worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskPatchStr)
 
       expectMsgPF() {
-        case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).statusCode == Status.NOT_FOUND &&
-          response(result.content).correlationId == task.correlationId ⇒ {
+        case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.NOT_FOUND &&
+          response(result.content).headers.correlationId == task.correlationId ⇒ {
           true
         }
       }
@@ -179,13 +178,13 @@ class HyperStorageSpec extends FreeSpec
 
       val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
 
-      val task = HyperStorageContentDelete(path = "not-existing", body = EmptyBody)
+      val task = ContentDelete(path = "not-existing", body = EmptyBody)
 
-      val taskStr = StringSerializer.serializeToString(task)
+      val taskStr = task.serializeToString
       worker ! PrimaryTask(task.path, System.currentTimeMillis() + 10000, taskStr)
       expectMsgPF() {
-        case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).statusCode == Status.NOT_FOUND &&
-          response(result.content).correlationId == task.correlationId ⇒ {
+        case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.NOT_FOUND &&
+          response(result.content).headers.correlationId == task.correlationId ⇒ {
           true
         }
       }
@@ -205,9 +204,9 @@ class HyperStorageSpec extends FreeSpec
       val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
 
       val path = "test-resource-" + UUID.randomUUID().toString
-      val taskPutStr = StringSerializer.serializeToString(HyperStorageContentPut(path,
-        DynamicBody(ObjV("text1" → "abc", "text2" → "klmn"))
-      ))
+      val taskPutStr = ContentPut(path,
+        DynamicBody(Obj.from("text1" → "abc", "text2" → "klmn"))
+      ).serializeToString
 
       worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskPutStr)
       expectMsgType[BackgroundContentTask]
@@ -217,14 +216,14 @@ class HyperStorageSpec extends FreeSpec
         result shouldNot be(None)
       }
 
-      val task = HyperStorageContentDelete(path)
+      val task = ContentDelete(path)
 
-      val taskStr = StringSerializer.serializeToString(task)
+      val taskStr = task.serializeToString
       worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskStr)
       expectMsgType[BackgroundContentTask]
       expectMsgPF() {
-        case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).statusCode == Status.OK &&
-          response(result.content).correlationId == task.correlationId ⇒ {
+        case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.OK &&
+          response(result.content).headers.correlationId == task.headers.correlationId ⇒ {
           true
         }
       }
@@ -245,28 +244,28 @@ class HyperStorageSpec extends FreeSpec
 
       val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
       val path = "abcde"
-      val taskStr1 = StringSerializer.serializeToString(HyperStorageContentPut(path,
-        DynamicBody(ObjV("text" → "Test resource value", "null" → Null))
-      ))
+      val taskStr1 = ContentPut(path,
+        DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
+      ).serializeToString
       worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskStr1)
       expectMsgType[BackgroundContentTask]
       val result1 = expectMsgType[ShardTaskComplete]
       transactionList += response(result1.result.asInstanceOf[PrimaryWorkerTaskResult].content).body.content.transactionId
 
-      val taskStr2 = StringSerializer.serializeToString(HyperStorageContentPatch(path,
-        DynamicBody(ObjV("text" → "abc", "text2" → "klmn"))
-      ))
+      val taskStr2 = ContentPatch(path,
+        DynamicBody(Obj.from("text" → "abc", "text2" → "klmn"))
+      ).serializeToString
       worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskStr2)
       expectMsgType[BackgroundContentTask]
       val result2 = expectMsgType[ShardTaskComplete]
       transactionList += response(result2.result.asInstanceOf[PrimaryWorkerTaskResult].content).body.content.transactionId
 
-      val taskStr3 = StringSerializer.serializeToString(HyperStorageContentDelete(path))
+      val taskStr3 = ContentDelete(path).serializeToString
       worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskStr3)
       val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
       val workerResult = expectMsgType[ShardTaskComplete]
       val r = response(workerResult.result.asInstanceOf[PrimaryWorkerTaskResult].content)
-      r.statusCode should equal(Status.OK)
+      r.headers.statusCode should equal(Status.OK)
       transactionList += r.body.content.transactionId
       // todo: list of transactions!s
 
@@ -275,7 +274,7 @@ class HyperStorageSpec extends FreeSpec
         result.get.transactionList
       }
 
-      val transactions = transactionList.map(s ⇒ UUID.fromString(s.asString.split(':')(1)))
+      val transactions = transactionList.map(s ⇒ UUID.fromString(s.toString.split(':')(1)))
 
       transactions should equal(transactionsC.reverse)
 
@@ -283,7 +282,7 @@ class HyperStorageSpec extends FreeSpec
         transaction.completedAt should be(None)
       }
 
-      val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self))
+      val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
       backgroundWorker ! backgroundWorkerTask
       val backgroundWorkerResult = expectMsgType[ShardTaskComplete]
       val rc = backgroundWorkerResult.result.asInstanceOf[BackgroundContentTaskResult]
@@ -304,16 +303,16 @@ class HyperStorageSpec extends FreeSpec
 
       val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
       val path = "faulty"
-      val taskStr1 = StringSerializer.serializeToString(HyperStorageContentPut(path,
-        DynamicBody(ObjV("text" → "Test resource value", "null" → Null))
-      ))
+      val taskStr1 = ContentPut(path,
+        DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
+      ).serializeToString
       worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskStr1)
       expectMsgType[BackgroundContentTask]
       expectMsgType[ShardTaskComplete]
 
-      val taskStr2 = StringSerializer.serializeToString(HyperStorageContentPatch(path,
-        DynamicBody(ObjV("text" → "abc", "text2" → "klmn"))
-      ))
+      val taskStr2 = ContentPatch(path,
+        DynamicBody(Obj.from("text" → "abc", "text2" → "klmn"))
+      ).serializeToString
       worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskStr2)
       val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
       expectMsgType[ShardTaskComplete]
@@ -326,11 +325,11 @@ class HyperStorageSpec extends FreeSpec
         _.completedAt shouldBe None
       }
 
-      val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self))
+      val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
 
       FaultClientTransport.checkers += {
         case request: DynamicRequest ⇒
-          if (request.method == Method.FEED_PUT) {
+          if (request.headers.method == Method.FEED_PUT) {
             true
           } else {
             fail("Unexpected publish")
@@ -347,7 +346,7 @@ class HyperStorageSpec extends FreeSpec
       FaultClientTransport.checkers.clear()
       FaultClientTransport.checkers += {
         case request: DynamicRequest ⇒
-          if (request.method == Method.FEED_PATCH) {
+          if (request.headers.method == Method.FEED_PATCH) {
             true
           } else {
             false

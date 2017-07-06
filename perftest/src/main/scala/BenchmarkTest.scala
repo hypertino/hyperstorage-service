@@ -1,4 +1,4 @@
-import com.hypertino.binders.value.{Lst, ObjV, Value}
+import com.hypertino.binders.value.{Lst, Obj.from, Value}
 import com.hypertino.config.ConfigLoader
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model.{DynamicBody, QueryBuilder, Response}
@@ -35,7 +35,7 @@ object BenchmarkTest {
         println(e.toString)
     }
 
-    val fi = hyperbus <~ HyperStorageIndexPost(colname, HyperStorageIndexNew(Some("index2"),
+    val fi = hyperbus <~ IndexPost(colname, HyperStorageIndexNew(Some("index2"),
       Seq(HyperStorageIndexSortItem("d", order = Some("desc"), fieldType = Some("text"))), Some("a > 5 and a < 60000000")))
     wf(fi)
 
@@ -88,7 +88,7 @@ object BenchmarkTest {
     System.exit(0)
   }
 
-  def nextRandomObj() = ObjV(
+  def nextRandomObj() = Obj.from(
     "a" → random.nextInt(),
     "b" → random.alphanumeric.take(32).mkString,
     "c" → random.alphanumeric.take(10 + random.nextInt(100)).mkString,
@@ -96,7 +96,7 @@ object BenchmarkTest {
   )
 
   def insert(id: String, content: Value) = {
-    val f = hyperbus <~ HyperStorageContentPut(s"$colname/$id", DynamicBody(content))
+    val f = hyperbus <~ ContentPut(s"$colname/$id", DynamicBody(content))
     wf(f)
   }
 
@@ -106,7 +106,7 @@ object BenchmarkTest {
     if (sort.nonEmpty) qb.sortBy(sort)
     filter.foreach(qb.add("filter", _))
 
-    val f = hyperbus <~ HyperStorageContentGet(colname,
+    val f = hyperbus <~ ContentGet(colname,
       body = qb.result()
     )
     wf(f)

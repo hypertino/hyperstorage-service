@@ -1,17 +1,17 @@
-import com.hypertino.binders.value.{Obj, ObjV, Value}
-import com.hypertino.hyperbus.model.utils.SortBy
+import com.hypertino.binders.value.{Obj, Text, Value}
 import com.hypertino.hyperstorage.CollectionOrdering
+import com.hypertino.hyperstorage.utils.SortBy
 import org.scalatest.{FreeSpec, Matchers}
 
 
 class CollectionOrderingTest extends FreeSpec with Matchers {
   "CollectionOrdering" - {
-    val c1 = ObjV("a" → "hello", "b" → 100500, "c" → 10)
-    val c1x = Obj(c1.asMap + "id" → "item1")
-    val c2 = ObjV("a" → "goodbye", "b" → 1, "c" → 20)
-    val c2x = Obj(c2.asMap + "id" → "item2")
-    val c3 = ObjV("a" → "way way", "b" → 12, "c" → 10)
-    val c3x = Obj(c3.asMap + "id" → "item3")
+    val c1 = Obj.from("a" → "hello", "b" → 100500, "c" → 10)
+    val c1x = Obj.from(c1.toMap.toSeq ++ Seq("id" → Text("item1")): _*)
+    val c2 = Obj.from("a" → "goodbye", "b" → 1, "c" → 20)
+    val c2x = Obj.from(c2.toMap.toSeq ++ Seq("id" → Text("item2")): _*)
+    val c3 = Obj.from("a" → "way way", "b" → 12, "c" → 10)
+    val c3x = Obj.from(c3.toMap.toSeq ++ Seq("id" → Text("item3")): _*)
 
     "sort" - {
       val list = List(c1x,c2x,c3x)
