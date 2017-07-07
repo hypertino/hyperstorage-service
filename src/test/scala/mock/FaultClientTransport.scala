@@ -33,9 +33,7 @@ class FaultClientTransport(config: Config) extends ClientTransport {
     }
   }
 
-  override def shutdown(duration: FiniteDuration): Future[Boolean] = Future {
-    true
-  }
+  override def shutdown(duration: FiniteDuration): Task[Boolean] = Task.eval(true)
 }
 
 object FaultClientTransport {

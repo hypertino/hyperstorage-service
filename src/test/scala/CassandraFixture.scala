@@ -3,6 +3,7 @@ import com.hypertino.binders.cassandra.GuavaSessionQueryCache
 import com.hypertino.hyperstorage.CassandraConnector
 import com.hypertino.hyperstorage.db.Db
 import com.hypertino.inflector.naming.CamelCaseToSnakeCaseConverter
+import monix.execution.Scheduler
 import org.cassandraunit.CassandraCQLUnit
 import org.cassandraunit.dataset.cql.ClassPathCQLDataSet
 import org.mockito.Mockito._
@@ -20,7 +21,7 @@ trait CassandraFixture extends BeforeAndAfterAll with ScalaFutures {
   var dbOriginal: Db = _
   implicit var sessionQueryCache: GuavaSessionQueryCache[CamelCaseToSnakeCaseConverter.type] = _
 
-  implicit def executionContext: ExecutionContext
+  implicit def scheduler: Scheduler
 
   override def beforeAll() {
     Cassandra.start

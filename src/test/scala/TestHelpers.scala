@@ -65,7 +65,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
 
     val indexManager = TestActorRef(IndexManager.props(hyperbus, db, tracker, 1))
     val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
-    val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, indexManager)
+    val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, indexManager, scheduler)
     val workerSettings = Map(
       "hyper-storage-primary-worker" → (workerProps, 1, "pgw-"),
       "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
@@ -136,7 +136,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     log.info("------- SHUTTING DOWN HYPERBUSES -------- ")
     _hyperbuses.foreach {
       case (index, hb) ⇒ {
-        Await.result(hb.shutdown(10.second), 11.second)
+        Await.result(hb.shutdown(10.second).runAsync, 11.second)
       }
     }
     _hyperbuses.clear()

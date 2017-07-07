@@ -6,7 +6,6 @@ import akka.testkit.{TestActorRef, TestProbe}
 import com.datastax.driver.core.utils.UUIDs
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model._
-import com.hypertino.hyperbus.serialization.StringSerializer
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.api._
 import com.hypertino.hyperstorage.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
@@ -31,7 +30,9 @@ class RecoveryWorkersSpec extends FreeSpec
   import ContentLogic._
 
   override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(10000, Millis)))
-  "RecoveryWorkersSpec" - {
+  import MessagingContext.Implicits.emptyContext
+
+  "RecoveryWorkersSpec" in {
     "HotRecoveryWorker" in {
       val hyperbus = testHyperbus()
       val tk = testKit()
@@ -41,9 +42,9 @@ class RecoveryWorkersSpec extends FreeSpec
 
       val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
       val path = "incomplete-" + UUID.randomUUID().toString
-      val taskStr1 = StringSerializer.serializeToString(ContentPut(path,
+      val taskStr1 = ContentPut(path,
         DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
-      ))
+      ).serializeToString
       worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskStr1)
       val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
       expectMsgType[ShardTaskComplete]
@@ -83,9 +84,9 @@ class RecoveryWorkersSpec extends FreeSpec
 
       val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
       val path = "incomplete-" + UUID.randomUUID().toString
-      val taskStr1 = StringSerializer.serializeToString(ContentPut(path,
+      val taskStr1 = ContentPut(path,
         DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
-      ))
+      ).serializeToString
       val millis = System.currentTimeMillis()
       worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskStr1)
       val backgroundWorkerTask = expectMsgType[BackgroundContentTask]

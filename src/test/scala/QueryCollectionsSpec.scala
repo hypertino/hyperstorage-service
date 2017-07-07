@@ -3,6 +3,7 @@ import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperstorage.api._
 import com.hypertino.hyperstorage.db._
+import com.hypertino.hyperstorage.utils.{Sort, SortBy}
 import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.time.{Millis, Span}
@@ -17,8 +18,9 @@ class QueryCollectionsSpec extends FreeSpec
   with Eventually {
 
   override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(10000, Millis)))
+  import MessagingContext.Implicits.emptyContext
 
-  "Query collection" - {
+  "Query collection" in {
     val c1 = Obj.from("a" → "hello", "b" → 100500)
     val c1x = c1 + Obj.from("id" → "item1")
     val c2 = Obj.from("a" → "goodbye", "b" → 1)
@@ -54,7 +56,7 @@ class QueryCollectionsSpec extends FreeSpec
         indexDefUp1.get.status shouldBe IndexDef.STATUS_NORMAL
       }
 
-      hyperbus.ask(IndexPost("collection-1~"
+      hyperbus.ask(IndexPost("collection-1~",
         HyperStorageIndexNew(Some("index2"), Seq(HyperStorageIndexSortItem("a", order = Some("asc"), fieldType = Some("text"))), Some("b > 10"))))
           .runAsync
           .futureValue.statusCode should equal(Status.CREATED)
@@ -65,9 +67,10 @@ class QueryCollectionsSpec extends FreeSpec
         indexDefUp2.get.status shouldBe IndexDef.STATUS_NORMAL
       }
 
-      (hyperbus <~ IndexPost("collection-1~",
+      hyperbus.ask(IndexPost("collection-1~",
         HyperStorageIndexNew(Some("index3"), Seq(HyperStorageIndexSortItem("a", order = Some("asc"), fieldType = Some("text"))), None)))
-        .futureValue.statusCode should equal(Status.CREATED)
+        .runAsync
+        .futureValue.headers.statusCode should equal(Status.CREATED)
 
       eventually {
         val indexDefUp3 = db.selectIndexDef("collection-1~", "index3").futureValue
@@ -77,17 +80,19 @@ class QueryCollectionsSpec extends FreeSpec
       reset(db)
     }
 
-    "Query without sorting and indexes with fiter by id" in {
+    "Query without sorting and indexes with fiter by id (+check correlationId)" in {
       val hyperbus = setup()
       // setupIndexes(hyperbus)
       // query by id asc
-      implicit val mcx = MessagingContextFactory.withCorrelationId("abc123")
-      val res = (hyperbus <~ ContentGet("collection-1~",
-        body = new QueryBuilder() add("size", 5) add("filter", "id =\"item3\"") result()
-      )).futureValue
-      res.statusCode shouldBe Status.OK
-      res.headers should contain("correlationId" → Seq("abc123"))
-      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → LstV(c3x)))
+      implicit val mcx = MessagingContext("abc123")
+      val get = ContentGet("collection-1~", size = Some(5), filter = Some("id =\"item3\""))(mcx)
+      val res = hyperbus
+        .ask(get)
+        .runAsync
+        .futureValue
+      res.headers.statusCode shouldBe Status.OK
+      res.headers.correlationId shouldBe "abc123"
+      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c3x)))
       verify(db).selectContentCollection("collection-1~", 5, Some(("item3",FilterEq)), true)
     }
 
@@ -95,11 +100,12 @@ class QueryCollectionsSpec extends FreeSpec
       val hyperbus = setup()
       // setupIndexes(hyperbus)
       // query by id asc
-      val res = (hyperbus <~ ContentGet("collection-1~",
-        body = new QueryBuilder() add("size", 1) add("filter", "a =\"way way\"") result()
-      )).futureValue
-      res.statusCode shouldBe Status.OK
-      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → LstV(c3x)))
+      val res = hyperbus
+        .ask(ContentGet("collection-1~", size=Some(1), filter=Some("a =\"way way\"")))
+        .runAsync
+        .futureValue
+      res.headers.statusCode shouldBe Status.OK
+      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c3x)))
       verify(db).selectContentCollection("collection-1~", 1, None, true)
       verify(db).selectContentCollection("collection-1~", 500, Some(("item1",FilterGt)), true)
     }
@@ -108,11 +114,12 @@ class QueryCollectionsSpec extends FreeSpec
       val hyperbus = setup()
       setupIndexes(hyperbus)
       // query by id asc
-      val res = (hyperbus <~ ContentGet("collection-1~",
-        body = new QueryBuilder() sortBy Seq(SortBy("id")) add("size", 50) result()
-      )).futureValue
-      res.statusCode shouldBe Status.OK
-      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → LstV(c1x, c2x, c3x)))
+      val res = hyperbus
+        .ask(ContentGet("collection-1~", size=Some(50), sortBy = Some("id")))
+        .runAsync
+        .futureValue
+      res.headers.statusCode shouldBe Status.OK
+      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c1x, c2x, c3x)))
       verify(db).selectContentCollection("collection-1~", 50, None, true)
     }
 
@@ -120,11 +127,12 @@ class QueryCollectionsSpec extends FreeSpec
       val hyperbus = setup()
       setupIndexes(hyperbus)
 
-      val res = (hyperbus <~ ContentGet("collection-1~",
-        body = new QueryBuilder() sortBy Seq(SortBy("id", descending = true)) add("size", 50) result()
-      )).futureValue
-      res.statusCode shouldBe Status.OK
-      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → LstV(c3x, c2x, c1x)))
+      val res = hyperbus
+        .ask(ContentGet("collection-1~", size=Some(50), sortBy = Some("-id")))
+        .runAsync
+        .futureValue
+      res.headers.statusCode shouldBe Status.OK
+      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c3x, c2x, c1x)))
       verify(db).selectContentCollection("collection-1~", 50, None, false)
     }
 
@@ -132,11 +140,13 @@ class QueryCollectionsSpec extends FreeSpec
       val hyperbus = setup()
       setupIndexes(hyperbus)
 
-      val res = (hyperbus <~ ContentGet("collection-1~",
-        body = new QueryBuilder() sortBy Seq(SortBy("id")) add("size", 50) add("filter", "id >\"item1\"") result()
-      )).futureValue
-      res.statusCode shouldBe Status.OK
-      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → LstV(c2x, c3x)))
+      val res = hyperbus
+        .ask(ContentGet("collection-1~", size=Some(50), sortBy = Some("id"), filter = Some("id >\"item1\"")))
+        .runAsync
+        .futureValue
+
+      res.headers.statusCode shouldBe Status.OK
+      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c2x, c3x)))
       verify(db).selectContentCollection("collection-1~", 50, Some(("item1", FilterGt)), true)
     }
 
@@ -144,11 +154,13 @@ class QueryCollectionsSpec extends FreeSpec
       val hyperbus = setup()
       setupIndexes(hyperbus)
 
-      val res = (hyperbus <~ ContentGet("collection-1~",
-        body = new QueryBuilder() sortBy Seq(SortBy("id", descending = true)) add("size", 50) add("filter", "id <\"item3\"") result()
-      )).futureValue
-      res.statusCode shouldBe Status.OK
-      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → LstV(c2x, c1x)))
+      val res = hyperbus
+        .ask(ContentGet("collection-1~", size=Some(50), sortBy = Some("-id"), filter = Some("id <\"item3\"")))
+        .runAsync
+        .futureValue
+
+      res.headers.statusCode shouldBe Status.OK
+      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c2x, c1x)))
       verify(db).selectContentCollection("collection-1~", 50, Some(("item3", FilterLt)), false)
     }
 
@@ -156,11 +168,13 @@ class QueryCollectionsSpec extends FreeSpec
       val hyperbus = setup()
       setupIndexes(hyperbus)
 
-      val res = (hyperbus <~ ContentGet("collection-1~",
-        body = new QueryBuilder() add("size", 2) add("filter", "a =\"way way\"") result()
-      )).futureValue
-      res.statusCode shouldBe Status.OK
-      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → LstV(c3x)))
+      val res = hyperbus
+        .ask(ContentGet("collection-1~", size=Some(2), filter = Some("a =\"way way\"")))
+        .runAsync
+        .futureValue
+
+      res.headers.statusCode shouldBe Status.OK
+      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c3x)))
       verify(db).selectContentCollection("collection-1~", 2, None, true)
       verify(db).selectContentCollection("collection-1~", 501, Some(("item2", FilterGt)), true)
     }
@@ -169,11 +183,13 @@ class QueryCollectionsSpec extends FreeSpec
       val hyperbus = setup()
       setupIndexes(hyperbus)
 
-      val res = (hyperbus <~ ContentGet("collection-1~",
-        body = new QueryBuilder() sortBy Seq(SortBy("id", descending = true)) add("size", 2) add("filter", "a =\"hello\"") result()
-      )).futureValue
-      res.statusCode shouldBe Status.OK
-      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → LstV(c1x)))
+      val res = hyperbus
+        .ask(ContentGet("collection-1~", size=Some(2), sortBy = Some("-id"), filter = Some("a =\"hello\"")))
+        .runAsync
+        .futureValue
+
+      res.headers.statusCode shouldBe Status.OK
+      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c1x)))
       verify(db).selectContentCollection("collection-1~", 2, None, false)
       verify(db).selectContentCollection("collection-1~", 501, Some(("item2", FilterLt)), false)
     }
@@ -181,22 +197,26 @@ class QueryCollectionsSpec extends FreeSpec
     "Query with filter and sorting by some non-index field (full table scan)" in {
       val hyperbus = setup()
 
-      val res = (hyperbus <~ ContentGet("collection-1~",
-        body = new QueryBuilder() sortBy Seq(SortBy("a")) add("size", 2) add("filter", "a >\"goodbye\"") result()
-      )).futureValue
-      res.statusCode shouldBe Status.OK
-      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → LstV(c1x, c3x)))
+      val res = hyperbus
+        .ask(ContentGet("collection-1~", size=Some(2), sortBy = Some("a"), filter = Some("a >\"goodbye\"")))
+        .runAsync
+        .futureValue
+
+      res.headers.statusCode shouldBe Status.OK
+      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c1x, c3x)))
       verify(db).selectContentCollection("collection-1~", 10002, None, true)
     }
 
     "Query with filter and sorting descending by some non-index field (full table scan)" in {
       val hyperbus = setup()
 
-      val res = (hyperbus <~ ContentGet("collection-1~",
-        body = new QueryBuilder() sortBy Seq(SortBy("a", descending = true)) add("size", 2) add("filter", "a >\"goodbye\"") result()
-      )).futureValue
-      res.statusCode shouldBe Status.OK
-      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → LstV(c3x, c1x)))
+      val res = hyperbus
+        .ask(ContentGet("collection-1~", size=Some(2), sortBy = Some("-a"), filter = Some("a >\"goodbye\"")))
+        .runAsync
+        .futureValue
+
+      res.headers.statusCode shouldBe Status.OK
+      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c3x, c1x)))
       verify(db).selectContentCollection("collection-1~", 10002, None, true)
     }
 
@@ -204,18 +224,22 @@ class QueryCollectionsSpec extends FreeSpec
       val hyperbus = setup()
       setupIndexes(hyperbus)
 
-      val res = (hyperbus <~ ContentGet("collection-1~",
-        body = new QueryBuilder() sortBy Seq(SortBy("id")) add("size", 50) add("filter", "b > 10") result()
-      )).futureValue
-      res.statusCode shouldBe Status.OK
-      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → LstV(c1x, c3x)))
+      val res = hyperbus
+        .ask(ContentGet("collection-1~", size=Some(50), sortBy = Some("id"), filter = Some("b > 10")))
+        .runAsync
+        .futureValue
+
+      res.headers.statusCode shouldBe Status.OK
+      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c1x, c3x)))
       verify(db).selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq(CkField("item_id",true)), 50)
 
-      val res2 = (hyperbus <~ ContentGet("collection-1~",
-        body = new QueryBuilder() sortBy Seq(SortBy("a")) add("size", 50) add("filter", "b > 10") result()
-      )).futureValue
+      val res2 = hyperbus
+        .ask(ContentGet("collection-1~", size=Some(50), sortBy = Some("a"), filter = Some("b > 10")))
+        .runAsync
+        .futureValue
+
       res2.statusCode shouldBe Status.OK
-      res2.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → LstV(c1x, c3x)))
+      res2.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c1x, c3x)))
       verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq.empty, Seq(CkField("t0",true)), 50)
     }
 
@@ -223,18 +247,22 @@ class QueryCollectionsSpec extends FreeSpec
       val hyperbus = setup()
       setupIndexes(hyperbus)
 
-      val res = (hyperbus <~ ContentGet("collection-1~",
-        body = new QueryBuilder() sortBy Seq(SortBy("a", descending = true)) add("size", 50) add("filter", "b > 10") result()
-      )).futureValue
-      res.statusCode shouldBe Status.OK
-      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → LstV(c3x,c1x)))
+      val res = hyperbus
+        .ask(ContentGet("collection-1~", size=Some(50), sortBy = Some("-a"), filter = Some("b > 10")))
+        .runAsync
+        .futureValue
+
+      res.headers.statusCode shouldBe Status.OK
+      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c3x,c1x)))
       verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq.empty, Seq(CkField("t0",false)), 50)
 
-      val res2 = (hyperbus <~ ContentGet("collection-1~",
-        body = new QueryBuilder() sortBy Seq(SortBy("a", descending = true), SortBy("id", descending = true)) add("size", 50) add("filter", "b > 10") result()
-      )).futureValue
+      val res2 = hyperbus
+        .ask(ContentGet("collection-1~", size=Some(50), sortBy = Some("-a,-id"), filter = Some("b > 10")))
+        .runAsync
+        .futureValue
+
       res2.statusCode shouldBe Status.OK
-      res2.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → LstV(c3x,c1x)))
+      res2.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c3x,c1x)))
       verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq.empty, Seq(CkField("t0",false),CkField("item_id",false)), 50)
     }
 
@@ -242,11 +270,13 @@ class QueryCollectionsSpec extends FreeSpec
       val hyperbus = setup()
       setupIndexes(hyperbus)
 
-      val res = (hyperbus <~ ContentGet("collection-1~",
-        body = new QueryBuilder() sortBy Seq(SortBy("id")) add("size", 50) add("filter", "b > 12") result()
-      )).futureValue
-      res.statusCode shouldBe Status.OK
-      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → LstV(c1x)))
+      val res = hyperbus
+        .ask(ContentGet("collection-1~", size=Some(50), sortBy = Some("id"), filter = Some("b > 12")))
+        .runAsync
+        .futureValue
+
+      res.headers.statusCode shouldBe Status.OK
+      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c1x)))
       verify(db).selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq(CkField("item_id",true)), 50)
     }
 
@@ -254,16 +284,20 @@ class QueryCollectionsSpec extends FreeSpec
       val hyperbus = setup()
       setupIndexes(hyperbus)
 
-      val res = (hyperbus <~ ContentGet("collection-1~",
-        body = new QueryBuilder() sortBy Seq(SortBy("a")) add("size", 50) add("filter", "b > 10 and a > \"hello\"") result()
-      )).futureValue
-      res.statusCode shouldBe Status.OK
-      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → LstV(c3x)))
+      val res = hyperbus
+        .ask(ContentGet("collection-1~", size=Some(50), sortBy = Some("a"), filter = Some("b > 10 and a > \"hello\"")))
+        .runAsync
+        .futureValue
+
+      res.headers.statusCode shouldBe Status.OK
+      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c3x)))
       verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq(FieldFilter("t0", Text("hello"), FilterGt)), Seq(CkField("t0",true)), 50)
 
-      val res2 = (hyperbus <~ ContentGet("collection-1~",
-        body = new QueryBuilder() sortBy Seq(SortBy("a"),SortBy("id")) add("size", 50) add("filter", "b > 10 and a = \"hello\" and id > \"item2\"") result()
-      )).futureValue
+      val res2 = hyperbus
+        .ask(ContentGet("collection-1~", size=Some(50), sortBy = Some("a,id"), filter = Some("b > 10 and a = \"hello\" and id > \"item2\"")))
+        .runAsync
+        .futureValue
+
       res2.statusCode shouldBe Status.OK
       res2.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.empty))
       verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq(FieldFilter("t0", Text("hello"), FilterEq),FieldFilter("item_id", Text("item2"), FilterGt)), Seq(CkField("t0",true),CkField("item_id",true)), 50)
@@ -273,11 +307,13 @@ class QueryCollectionsSpec extends FreeSpec
       val hyperbus = setup()
       setupIndexes(hyperbus)
 
-      val res = (hyperbus <~ ContentGet("collection-1~",
-        body = new QueryBuilder() sortBy Seq(SortBy("a")) add("size", 2) add("filter", "b < 50") result()
-      )).futureValue
-      res.statusCode shouldBe Status.OK
-      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → LstV(c2x,c3x)))
+      val res = hyperbus
+        .ask(ContentGet("collection-1~", size=Some(2), sortBy = Some("a"), filter = Some("b < 50")))
+        .runAsync
+        .futureValue
+
+      res.headers.statusCode shouldBe Status.OK
+      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c2x,c3x)))
       verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq.empty, Seq(CkField("t0",true)), 2)
       verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("hello"), FilterEq),FieldFilter("item_id", Text("item1"), FilterGt)), Seq(CkField("t0",true)), 501)
     }
@@ -286,11 +322,13 @@ class QueryCollectionsSpec extends FreeSpec
       val hyperbus = setup()
       setupIndexes(hyperbus)
 
-      val res = (hyperbus <~ ContentGet("collection-1~",
-        body = new QueryBuilder() sortBy Seq(SortBy("a")) add("size", 2) add("filter", "b < 50 and a < \"zzz\" ") result()
-      )).futureValue
-      res.statusCode shouldBe Status.OK
-      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → LstV(c2x,c3x)))
+      val res = hyperbus
+        .ask(ContentGet("collection-1~", size=Some(2), sortBy = Some("a"), filter = Some("b < 50 and a < \"zzz\"")))
+        .runAsync
+        .futureValue
+
+      res.headers.statusCode shouldBe Status.OK
+      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c2x,c3x)))
       verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("zzz"), FilterLt)), Seq(CkField("t0",true)), 2)
       verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("hello"), FilterEq),FieldFilter("item_id", Text("item1"), FilterGt)), Seq(CkField("t0",true)), 501)
     }
@@ -299,11 +337,13 @@ class QueryCollectionsSpec extends FreeSpec
       val hyperbus = setup()
       setupIndexes(hyperbus)
 
-      val res = (hyperbus <~ ContentGet("collection-1~",
-        body = new QueryBuilder() sortBy Seq(SortBy("a", descending = true)) add("size", 2) add("filter", "b < 50 and a > \"aaa\" ") result()
-      )).futureValue
-      res.statusCode shouldBe Status.OK
-      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → LstV(c3x,c2x)))
+      val res = hyperbus
+        .ask(ContentGet("collection-1~", size=Some(2), sortBy = Some("-a"), filter = Some("b < 50 and a > \"aaa\"")))
+        .runAsync
+        .futureValue
+
+      res.headers.statusCode shouldBe Status.OK
+      res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c3x,c2x)))
       verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("aaa"), FilterGt)), Seq(CkField("t0",false)), 2)
       verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("hello"), FilterEq),FieldFilter("item_id", Text("item1"), FilterLt)), Seq(CkField("t0",false)), 501)
     }
