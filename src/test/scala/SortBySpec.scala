@@ -3,7 +3,7 @@ import com.hypertino.hyperstorage.utils.{Sort, SortBy}
 import org.scalatest.{FreeSpec, Matchers}
 
 class SortBySpec extends FreeSpec with Matchers {
-  "Sort" in {
+  "Sort" - {
     "should decode" in {
       Sort.parseQueryParam(Some("field1")) should equal(Seq(SortBy("field1")))
       Sort.parseQueryParam(Some("-field1")) should equal(Seq(SortBy("field1", descending = true)))

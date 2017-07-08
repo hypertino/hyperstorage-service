@@ -60,7 +60,7 @@ class HyperStorageService(console: Console,
   val hyperbus = new Hyperbus(config)
 
   // currently we rely on the name of system
-  val actorSystem = ActorSystem("hyper-storaage")// ActorSystemRegistry.get("eu-inn").get
+  val actorSystem = ActorSystem("hyper-storage")// ActorSystemRegistry.get("eu-inn").get
   val cluster = Cluster(actorSystem)
 
   //

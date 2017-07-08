@@ -5,12 +5,11 @@ import com.hypertino.hyperstorage.{CassandraConnector, HyperStorageService}
 import com.hypertino.service.control.ConsoleModule
 import com.hypertino.service.control.api.Service
 import com.typesafe.config.Config
-
-import scala.concurrent.ExecutionContext
+import monix.execution.Scheduler
 
 class ServiceModule(config: Config) extends ConsoleModule {
   bind[Config] to config
-  bind[ExecutionContext] to scala.concurrent.ExecutionContext.Implicits.global
+  bind[Scheduler] to monix.execution.Scheduler.Implicits.global
   bind[CassandraConnector] to new CassandraConnector {
     override def connect(): Session = {
       CassandraConnector.createCassandraSession(config.getConfig("cassandra"))

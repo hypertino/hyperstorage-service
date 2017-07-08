@@ -15,6 +15,7 @@ import com.hypertino.hyperstorage.db.{Db, Transaction}
 import com.hypertino.hyperstorage.indexing.IndexManager
 import com.hypertino.hyperstorage.sharding._
 import com.hypertino.hyperstorage._
+import com.hypertino.hyperstorage.modules.ModuleAggregator
 import com.hypertino.hyperstorage.workers.primary.PrimaryWorker
 import com.hypertino.hyperstorage.workers.secondary.SecondaryWorker
 import com.hypertino.metrics.MetricsTracker
@@ -31,15 +32,13 @@ import scala.concurrent.{Await, ExecutionContext}
 trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures with Injectable {
   this: org.scalatest.BeforeAndAfterEach with org.scalatest.Suite =>
   private[this] val log = LoggerFactory.getLogger(getClass)
-  implicit val injector = new ConsoleReporterModule(Duration.Inf)
+  implicit val injector = ModuleAggregator.injector :: new ConsoleReporterModule(Duration.Inf).injector
   val tracker = inject[MetricsTracker]
   val reporter = inject[ScheduledReporter]
-  //val _actorSystems = TrieMap[Int, ActorSystem]()
+  val _actorSystems = TrieMap[Int, ActorSystem]()
   val _hyperbuses = TrieMap[Int, Hyperbus]()
 
-  implicit def scheduler = {
-    monix.execution.Scheduler.Implicits.global
-  }
+  implicit def scheduler = inject [monix.execution.Scheduler]
 
   def createShardProcessor(groupName: String, workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
     val workerSettings = Map(groupName → (Props[TestWorker], workerCount, "test-worker"))
@@ -93,8 +92,10 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
 
   def testActorSystem(index: Int = 0) = {
     testHyperbus(index)
-    val config = ConfigFactory.load().getConfig(s"actor-system-registry.actor-system-$index")
-    ActorSystem(s"actor-system-$index", config)
+    _actorSystems.getOrElseUpdate(index, {
+      val config = ConfigFactory.load().getConfig(s"actor-system-registry.hyper-storage-$index")
+      ActorSystem(config.getString("actor-system-name"), config)
+    })
   }
 
   def testHyperbus(index: Int = 0) = {
@@ -111,6 +112,11 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     _hyperbuses.get(index).foreach { hb ⇒
       hb.shutdown(5.seconds)
       Thread.sleep(1000)
+      _hyperbuses.remove(index)
+    }
+    _actorSystems.get(index).foreach { as ⇒
+      Await.result(as.terminate(), 1.seconds);
+      _actorSystems.remove(index)
     }
   }
 
@@ -139,7 +145,11 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
         Await.result(hb.shutdown(10.second).runAsync, 11.second)
       }
     }
+    _actorSystems.foreach { as ⇒
+      Await.result(as._2.terminate(), 1.seconds);
+    }
     _hyperbuses.clear()
+    _actorSystems.clear()
     Thread.sleep(500)
     log.info("------- HYPERBUSES WERE SHUT DOWN -------- ")
     reporter.report()

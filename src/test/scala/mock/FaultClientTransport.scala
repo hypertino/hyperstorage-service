@@ -1,17 +1,16 @@
 package mock
 
-import com.hypertino.hyperbus.model.{Body, Message, RequestBase, ResponseBase}
+import com.hypertino.hyperbus.model.{RequestBase, ResponseBase}
 import com.hypertino.hyperbus.serialization.ResponseBaseDeserializer
-import com.typesafe.config.Config
 import com.hypertino.hyperbus.transport.api._
+import com.typesafe.config.Config
 import monix.eval.Task
+import scaldi.Injector
 
 import scala.collection.mutable
-import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.Future
 import scala.concurrent.duration.FiniteDuration
 
-class FaultClientTransport(config: Config) extends ClientTransport {
+class FaultClientTransport(config: Config, implicit val injector: Injector) extends ClientTransport {
   override def ask(message: RequestBase, responseDeserializer: ResponseBaseDeserializer): Task[ResponseBase] = {
     Task.raiseError(new RuntimeException("ask failed (test method)"))
   }
