@@ -16,13 +16,13 @@ import monix.execution.Ack.Continue
 import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.time.{Millis, Span}
-import org.scalatest.{FreeSpec, Matchers}
+import org.scalatest.{FlatSpec, FreeSpec, Matchers}
 
 import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
 
-class IntegratedSpec extends FreeSpec
+class IntegratedSpec extends FlatSpec
   with Matchers
   with ScalaFutures
   with CassandraFixture
@@ -30,322 +30,323 @@ class IntegratedSpec extends FreeSpec
   with Eventually {
 
   import ContentLogic._
+
   override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(10000, Millis)))
+
   import MessagingContext.Implicits.emptyContext
 
-  "HyperStorageIntegratedSpec" in {
-    "Test hyper-storage PUT+GET simple example" in {
-      val hyperbus = testHyperbus()
-      val tk = testKit()
-      import tk._
+  "HyperStorageIntegrated" should "Test hyper-storage PUT+GET simple example" in {
+    val hyperbus = testHyperbus()
+    val tk = testKit()
+    import tk._
 
-      cleanUpCassandra()
+    cleanUpCassandra()
 
-      val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
-      val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
-      val workerSettings = Map(
-        "hyper-storage-primary-worker" → (workerProps, 1, "pgw-"),
-        "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
-      )
+    val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
+    val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
+    val workerSettings = Map(
+      "hyper-storage-primary-worker" → (workerProps, 1, "pgw-"),
+      "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+    )
 
-      val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
-      val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
-      // wait while subscription is completes
-      Thread.sleep(2000)
+    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
+    val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
+    // wait while subscription is completes
+    Thread.sleep(2000)
 
-      hyperbus.ask(ContentPut("abc/123", DynamicBody(Obj.from("a" → 10, "x" → "hello")))).runAsync.map {
-        case Ok(body) ⇒ println("abc/123 is updated")
-        case Created(body) ⇒ println("abc/123 is created")
-      } recover {
-        case hyperbusError: ErrorResponse ⇒ println(hyperbusError.body.code)
-        case otherException ⇒ println("something wrong")
-      } futureValue
+    hyperbus.ask(ContentPut("abc/123", DynamicBody(Obj.from("a" → 10, "x" → "hello")))).runAsync.map {
+      case Ok(body) ⇒ println("abc/123 is updated")
+      case Created(body) ⇒ println("abc/123 is created")
+    } recover {
+      case hyperbusError: ErrorResponse ⇒ println(hyperbusError.body.code)
+      case otherException ⇒ println("something wrong")
+    } futureValue
 
-      hyperbus.ask(ContentGet("abc/123")).runAsync.map {
-        case Ok(body, _) ⇒ println("abc/123 is fetched:", body.content)
-      } recover {
-        case NotFound(body) ⇒ println("abc/123 is not found")
-        case hyperbusError: ErrorResponse ⇒ println(hyperbusError.body.code)
-        case otherException ⇒ println("something wrong")
-      } futureValue
+    hyperbus.ask(ContentGet("abc/123")).runAsync.map {
+      case Ok(body, _) ⇒ println("abc/123 is fetched:", body.content)
+    } recover {
+      case NotFound(body) ⇒ println("abc/123 is not found")
+      case hyperbusError: ErrorResponse ⇒ println(hyperbusError.body.code)
+      case otherException ⇒ println("something wrong")
+    } futureValue
 
-      hyperbus.ask(ContentDelete("abc/123")).runAsync.map {
-        case Ok(body) ⇒ println("abc/123 is deleted.")
-      } recover {
-        case NotFound(body) ⇒ println("abc/123 is not found")
-        case hyperbusError: ErrorResponse ⇒ println(hyperbusError.body.code)
-        case otherException ⇒ println("something wrong")
-      } futureValue
+    hyperbus.ask(ContentDelete("abc/123")).runAsync.map {
+      case Ok(body) ⇒ println("abc/123 is deleted.")
+    } recover {
+      case NotFound(body) ⇒ println("abc/123 is not found")
+      case hyperbusError: ErrorResponse ⇒ println(hyperbusError.body.code)
+      case otherException ⇒ println("something wrong")
+    } futureValue
+  }
+
+  it should "Test hyper-storage PUT+GET+Event" in {
+    val hyperbus = testHyperbus()
+    val tk = testKit()
+    import tk._
+
+    cleanUpCassandra()
+
+    val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
+    val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
+    val workerSettings = Map(
+      "hyper-storage-primary-worker" → (workerProps, 1, "pgw-"),
+      "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+    )
+
+    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
+    val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
+    // wait while subscription is completes
+    Thread.sleep(2000)
+
+    val putEventPromise = Promise[ContentFeedPut]()
+
+    hyperbus.events[ContentFeedPut](None).subscribe { put ⇒
+      putEventPromise.success(put)
+      Continue
     }
 
-    "Test hyper-storage PUT+GET+Event" in {
-      val hyperbus = testHyperbus()
-      val tk = testKit()
-      import tk._
+    Thread.sleep(2000)
 
-      cleanUpCassandra()
-
-      val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
-      val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
-      val workerSettings = Map(
-        "hyper-storage-primary-worker" → (workerProps, 1, "pgw-"),
-        "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
-      )
-
-      val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
-      val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
-      // wait while subscription is completes
-      Thread.sleep(2000)
-
-      val putEventPromise = Promise[ContentFeedPut]()
-
-      hyperbus.events[ContentFeedPut](None).subscribe { put ⇒
-        putEventPromise.success(put)
-        Continue
-      }
-
-      Thread.sleep(2000)
-
-      val path = UUID.randomUUID().toString
-      implicit val mcx = MessagingContext("abc123")
-      val f1 = hyperbus.ask(ContentPut(path, DynamicBody(Text("Hello")))(mcx)).runAsync
-      whenReady(f1) { response ⇒
-        response.headers.statusCode should equal(Status.CREATED)
-        response.headers.correlationId should equal("abc123")
-      }
-
-      val putEventFuture = putEventPromise.future
-      whenReady(putEventFuture) { putEvent ⇒
-        putEvent.headers.method should equal(Method.FEED_PUT)
-        putEvent.body should equal(DynamicBody(Text("Hello")))
-        putEvent.headers.get(Header.REVISION) shouldNot be(None)
-      }
-
-      whenReady(hyperbus.ask(ContentGet(path)(mcx)).runAsync) { response ⇒
-        response.headers.statusCode should equal(Status.OK)
-        response.body.content should equal(Text("Hello"))
-        response.headers should contain("correlationId" → Seq("abc123"))
-      }
+    val path = UUID.randomUUID().toString
+    implicit val mcx = MessagingContext("abc123")
+    val f1 = hyperbus.ask(ContentPut(path, DynamicBody(Text("Hello")))(mcx)).runAsync
+    whenReady(f1) { response ⇒
+      response.headers.statusCode should equal(Status.CREATED)
+      response.headers.correlationId should equal("abc123")
     }
 
-    "Null patch with hyper-storage (integrated)" in {
-      val hyperbus = testHyperbus()
-      val tk = testKit()
-      import tk._
-
-      cleanUpCassandra()
-
-      val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
-      val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
-      val workerSettings = Map(
-        "hyper-storage-primary-worker" → (workerProps, 1, "pgw-"),
-        "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
-      )
-
-      val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
-      val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
-      // wait while subscription is completes
-      Thread.sleep(2000)
-
-      val patchEventPromise = Promise[ContentFeedPatch]()
-
-      hyperbus.events[ContentFeedPatch](None).subscribe { p ⇒
-        patchEventPromise.success(p)
-        Continue
-      }
-
-      Thread.sleep(2000)
-
-      val path = UUID.randomUUID().toString
-      whenReady(hyperbus.ask(ContentPut(path, DynamicBody(
-        Obj.from("a" → "1", "b" → "2", "c" → "3")
-      ))).runAsync) { response ⇒
-        response.headers.statusCode should equal(Status.CREATED)
-      }
-
-      val f = hyperbus.ask(ContentPatch(path, DynamicBody(Obj.from("b" → Null)))).runAsync
-      whenReady(f) { response ⇒
-        response.headers.statusCode should equal(Status.OK)
-      }
-
-      val patchEventFuture = patchEventPromise.future
-      whenReady(patchEventFuture) { patchEvent ⇒
-        patchEvent.headers.method should equal(Method.FEED_PATCH)
-        patchEvent.body should equal(DynamicBody(Obj.from("b" → Null)))
-        patchEvent.headers.get(Header.REVISION) shouldNot be(None)
-      }
-
-      whenReady(hyperbus.ask(ContentGet(path)).runAsync) { response ⇒
-        response.headers.statusCode should equal(Status.OK)
-        response.body.content should equal(Obj.from("a" → "1", "c" → "3"))
-      }
+    val putEventFuture = putEventPromise.future
+    whenReady(putEventFuture) { putEvent ⇒
+      putEvent.headers.method should equal(Method.FEED_PUT)
+      putEvent.body should equal(DynamicBody(Text("Hello")))
+      putEvent.headers.get(Header.REVISION) shouldNot be(None)
     }
 
-    "Test hyper-storage PUT+GET+GET Collection+Event" in {
-      val hyperbus = testHyperbus()
-      val tk = testKit()
-      import tk._
+    whenReady(hyperbus.ask(ContentGet(path)(mcx)).runAsync) { response ⇒
+      response.headers.statusCode should equal(Status.OK)
+      response.body.content should equal(Text("Hello"))
+      response.headers should contain("correlationId" → Seq("abc123"))
+    }
+  }
 
-      cleanUpCassandra()
+  it should "Null patch with hyper-storage (integrated)" in {
+    val hyperbus = testHyperbus()
+    val tk = testKit()
+    import tk._
 
-      val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
-      val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
-      val workerSettings = Map(
-        "hyper-storage-primary-worker" → (workerProps, 1, "pgw-"),
-        "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
-      )
+    cleanUpCassandra()
 
-      val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
-      val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
-      // wait while subscription is completes
-      Thread.sleep(2000)
+    val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
+    val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
+    val workerSettings = Map(
+      "hyper-storage-primary-worker" → (workerProps, 1, "pgw-"),
+      "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+    )
 
-      val putEventPromise = Promise[ContentFeedPut]()
-      hyperbus.events[ContentFeedPut](None).subscribe { put ⇒
-        putEventPromise.success(put)
-        Continue
-      }
+    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
+    val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
+    // wait while subscription is completes
+    Thread.sleep(2000)
 
-      Thread.sleep(2000)
+    val patchEventPromise = Promise[ContentFeedPatch]()
 
-      val c1 = Obj.from("a" → "hello", "b" → 100500)
-      val c2 = Obj.from("a" → "goodbye", "b" → 654321)
-      val c1x = c1 + Obj.from("id" → "item1")
-      val c2x = c2 + Obj.from("id" → "item2")
-
-      val path = "collection-1~/item1"
-      val f = hyperbus.ask(ContentPut(path, DynamicBody(c1))).runAsync
-      whenReady(f) { case response: Response[Body] ⇒
-        response.headers.statusCode should equal(Status.CREATED)
-      }
-
-      val putEventFuture = putEventPromise.future
-      whenReady(putEventFuture) { putEvent ⇒
-        putEvent.headers.method should equal(Method.FEED_PUT)
-        putEvent.body should equal(DynamicBody(c1x))
-        putEvent.headers.get(Header.REVISION) shouldNot be(None)
-      }
-
-      val f2 = hyperbus.ask(ContentGet(path)).runAsync
-      whenReady(f2) { response ⇒
-        response.headers.statusCode should equal(Status.OK)
-        response.body.content should equal(c1x)
-      }
-
-      val path2 = "collection-1~/item2"
-      val f3 = hyperbus.ask(ContentPut(path2, DynamicBody(c2x))).runAsync
-      whenReady(f3) { response ⇒
-        response.headers.statusCode should equal(Status.CREATED)
-      }
-
-      val f4 = hyperbus.ask(ContentGet("collection-1~", size=Some(50))).runAsync
-
-      whenReady(f4) { response ⇒
-        response.headers.statusCode should equal(Status.OK)
-        response.body.content should equal(
-          Obj.from("_embedded" -> Obj.from("els" → Lst.from(c1x, c2x)))
-        )
-      }
-
-      import com.hypertino.hyperstorage.utils.Sort._
-
-      val f5 = hyperbus.ask(ContentGet("collection-1~",
-        size = Some(50),
-        sortBy = Some(generateQueryParam(Seq(SortBy("id", true)))))
-      ).runAsync
-
-      whenReady(f5) { response ⇒
-        response.statusCode should equal(Status.OK)
-        response.body.content should equal(
-          Obj.from("_embedded" -> Obj.from("els" → Lst.from(c2x, c1x)))
-        )
-      }
+    hyperbus.events[ContentFeedPatch](None).subscribe { p ⇒
+      patchEventPromise.success(p)
+      Continue
     }
 
-    "Test hyper-storage POST+GET+GET Collection+Event" in {
-      val hyperbus = testHyperbus()
-      val tk = testKit()
-      import tk._
+    Thread.sleep(2000)
 
-      cleanUpCassandra()
+    val path = UUID.randomUUID().toString
+    whenReady(hyperbus.ask(ContentPut(path, DynamicBody(
+      Obj.from("a" → "1", "b" → "2", "c" → "3")
+    ))).runAsync) { response ⇒
+      response.headers.statusCode should equal(Status.CREATED)
+    }
 
-      val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
-      val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
-      val workerSettings = Map(
-        "hyper-storage-primary-worker" → (workerProps, 1, "pgw-"),
-        "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+    val f = hyperbus.ask(ContentPatch(path, DynamicBody(Obj.from("b" → Null)))).runAsync
+    whenReady(f) { response ⇒
+      response.headers.statusCode should equal(Status.OK)
+    }
+
+    val patchEventFuture = patchEventPromise.future
+    whenReady(patchEventFuture) { patchEvent ⇒
+      patchEvent.headers.method should equal(Method.FEED_PATCH)
+      patchEvent.body should equal(DynamicBody(Obj.from("b" → Null)))
+      patchEvent.headers.get(Header.REVISION) shouldNot be(None)
+    }
+
+    whenReady(hyperbus.ask(ContentGet(path)).runAsync) { response ⇒
+      response.headers.statusCode should equal(Status.OK)
+      response.body.content should equal(Obj.from("a" → "1", "c" → "3"))
+    }
+  }
+
+  it should "Test hyper-storage PUT+GET+GET Collection+Event" in {
+    val hyperbus = testHyperbus()
+    val tk = testKit()
+    import tk._
+
+    cleanUpCassandra()
+
+    val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
+    val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
+    val workerSettings = Map(
+      "hyper-storage-primary-worker" → (workerProps, 1, "pgw-"),
+      "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+    )
+
+    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
+    val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
+    // wait while subscription is completes
+    Thread.sleep(2000)
+
+    val putEventPromise = Promise[ContentFeedPut]()
+    hyperbus.events[ContentFeedPut](None).subscribe { put ⇒
+      putEventPromise.success(put)
+      Continue
+    }
+
+    Thread.sleep(2000)
+
+    val c1 = Obj.from("a" → "hello", "b" → 100500)
+    val c2 = Obj.from("a" → "goodbye", "b" → 654321)
+    val c1x = c1 + Obj.from("id" → "item1")
+    val c2x = c2 + Obj.from("id" → "item2")
+
+    val path = "collection-1~/item1"
+    val f = hyperbus.ask(ContentPut(path, DynamicBody(c1))).runAsync
+    whenReady(f) { case response: Response[Body] ⇒
+      response.headers.statusCode should equal(Status.CREATED)
+    }
+
+    val putEventFuture = putEventPromise.future
+    whenReady(putEventFuture) { putEvent ⇒
+      putEvent.headers.method should equal(Method.FEED_PUT)
+      putEvent.body should equal(DynamicBody(c1x))
+      putEvent.headers.get(Header.REVISION) shouldNot be(None)
+    }
+
+    val f2 = hyperbus.ask(ContentGet(path)).runAsync
+    whenReady(f2) { response ⇒
+      response.headers.statusCode should equal(Status.OK)
+      response.body.content should equal(c1x)
+    }
+
+    val path2 = "collection-1~/item2"
+    val f3 = hyperbus.ask(ContentPut(path2, DynamicBody(c2x))).runAsync
+    whenReady(f3) { response ⇒
+      response.headers.statusCode should equal(Status.CREATED)
+    }
+
+    val f4 = hyperbus.ask(ContentGet("collection-1~", size = Some(50))).runAsync
+
+    whenReady(f4) { response ⇒
+      response.headers.statusCode should equal(Status.OK)
+      response.body.content should equal(
+        Obj.from("_embedded" -> Obj.from("els" → Lst.from(c1x, c2x)))
       )
+    }
 
-      val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
-      val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
-      // wait while subscription is completes
-      Thread.sleep(2000)
+    import com.hypertino.hyperstorage.utils.Sort._
 
-      val putEventPromise = Promise[ContentFeedPut]()
-      hyperbus.events[ContentFeedPut](None).subscribe { put ⇒
-        putEventPromise.success(put)
-        Continue
-      }
+    val f5 = hyperbus.ask(ContentGet("collection-1~",
+      size = Some(50),
+      sortBy = Some(generateQueryParam(Seq(SortBy("id", true)))))
+    ).runAsync
 
-      Thread.sleep(2000)
+    whenReady(f5) { response ⇒
+      response.statusCode should equal(Status.OK)
+      response.body.content should equal(
+        Obj.from("_embedded" -> Obj.from("els" → Lst.from(c2x, c1x)))
+      )
+    }
+  }
 
-      val c1 = Obj.from("a" → "hello", "b" → Number(100500))
-      val c2 = Obj.from("a" → "goodbye", "b" → Number(654321))
+  it should "Test hyper-storage POST+GET+GET Collection+Event" in {
+    val hyperbus = testHyperbus()
+    val tk = testKit()
+    import tk._
 
-      val path = "collection-2~"
-      val f = hyperbus.ask(ContentPost(path, DynamicBody(c1))).runAsync
-      val tr1: HyperStorageTransactionCreated = whenReady(f) { case response: Created[HyperStorageTransactionCreated] ⇒
-        response.headers.statusCode should equal(Status.CREATED)
-        response.body
-      }
+    cleanUpCassandra()
 
-      val id1 = tr1.path.split('/').tail.head
-      val c1x = c1 + Obj.from("id" → id1)
+    val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
+    val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
+    val workerSettings = Map(
+      "hyper-storage-primary-worker" → (workerProps, 1, "pgw-"),
+      "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+    )
 
-      val putEventFuture = putEventPromise.future
-      whenReady(putEventFuture) { putEvent ⇒
-        putEvent.headers.method should equal(Method.FEED_PUT)
-        putEvent.body should equal(DynamicBody(c1x))
-        putEvent.headers.get(Header.REVISION) shouldNot be(None)
-      }
+    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
+    val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
+    // wait while subscription is completes
+    Thread.sleep(2000)
 
-      val f2 = hyperbus.ask(ContentGet(tr1.path)).runAsync
-      whenReady(f2) { response ⇒
-        response.headers.statusCode should equal(Status.OK)
-        response.body.content should equal(c1x)
-      }
+    val putEventPromise = Promise[ContentFeedPut]()
+    hyperbus.events[ContentFeedPut](None).subscribe { put ⇒
+      putEventPromise.success(put)
+      Continue
+    }
 
-      val f3 = hyperbus.ask(ContentPost(path, DynamicBody(c2))).runAsync
-      val tr2: HyperStorageTransactionCreated = whenReady(f3) { case response: Created[Body] ⇒
-        response.headers.statusCode should equal(Status.CREATED)
-        response.body
-      }
+    Thread.sleep(2000)
 
-      val id2 = tr2.path.split('/').tail.head
-      val c2x = c2 + Obj.from("id" → id2)
+    val c1 = Obj.from("a" → "hello", "b" → Number(100500))
+    val c2 = Obj.from("a" → "goodbye", "b" → Number(654321))
 
-      val f4 = hyperbus.ask(ContentGet("collection-2~", size = Some(50))).runAsync
+    val path = "collection-2~"
+    val f = hyperbus.ask(ContentPost(path, DynamicBody(c1))).runAsync
+    val tr1: HyperStorageTransactionCreated = whenReady(f) { case response: Created[HyperStorageTransactionCreated] ⇒
+      response.headers.statusCode should equal(Status.CREATED)
+      response.body
+    }
 
-      whenReady(f4) { response ⇒
-        response.headers.statusCode should equal(Status.OK)
-        response.body.content should equal(
-          Obj.from("_embedded" -> Obj.from("els" → Lst.from(c1x, c2x)))
-        )
-      }
+    val id1 = tr1.path.split('/').tail.head
+    val c1x = c1 + Obj.from("id" → id1)
 
-      import com.hypertino.hyperstorage.utils.Sort._
+    val putEventFuture = putEventPromise.future
+    whenReady(putEventFuture) { putEvent ⇒
+      putEvent.headers.method should equal(Method.FEED_PUT)
+      putEvent.body should equal(DynamicBody(c1x))
+      putEvent.headers.get(Header.REVISION) shouldNot be(None)
+    }
 
-      val f5 = hyperbus.ask(ContentGet("collection-2~",
-        size = Some(50),
-        sortBy = Some(generateQueryParam(Seq(SortBy("id", false)))))
-      ).runAsync
+    val f2 = hyperbus.ask(ContentGet(tr1.path)).runAsync
+    whenReady(f2) { response ⇒
+      response.headers.statusCode should equal(Status.OK)
+      response.body.content should equal(c1x)
+    }
 
-      whenReady(f5) { response ⇒
-        response.headers.statusCode should equal(Status.OK)
-        response.body.content should equal(
-          Obj.from("_embedded" -> Obj.from("els" → Lst.from(c1x,c2x)))
-        )
-      }
+    val f3 = hyperbus.ask(ContentPost(path, DynamicBody(c2))).runAsync
+    val tr2: HyperStorageTransactionCreated = whenReady(f3) { case response: Created[Body] ⇒
+      response.headers.statusCode should equal(Status.CREATED)
+      response.body
+    }
+
+    val id2 = tr2.path.split('/').tail.head
+    val c2x = c2 + Obj.from("id" → id2)
+
+    val f4 = hyperbus.ask(ContentGet("collection-2~", size = Some(50))).runAsync
+
+    whenReady(f4) { response ⇒
+      response.headers.statusCode should equal(Status.OK)
+      response.body.content should equal(
+        Obj.from("_embedded" -> Obj.from("els" → Lst.from(c1x, c2x)))
+      )
+    }
+
+    import com.hypertino.hyperstorage.utils.Sort._
+
+    val f5 = hyperbus.ask(ContentGet("collection-2~",
+      size = Some(50),
+      sortBy = Some(generateQueryParam(Seq(SortBy("id", false)))))
+    ).runAsync
+
+    whenReady(f5) { response ⇒
+      response.headers.statusCode should equal(Status.OK)
+      response.body.content should equal(
+        Obj.from("_embedded" -> Obj.from("els" → Lst.from(c1x, c2x)))
+      )
     }
   }
 }
+

@@ -16,11 +16,11 @@ import com.hypertino.hyperstorage.workers.secondary.{BackgroundContentTask, Back
 import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.time.{Millis, Span}
-import org.scalatest.{FreeSpec, Matchers}
+import org.scalatest.{FlatSpec, FreeSpec, Matchers}
 
 import scala.concurrent.duration._
 
-class RecoveryWorkersSpec extends FreeSpec
+class RecoveryWorkersSpec extends FlatSpec
   with Matchers
   with ScalaFutures
   with CassandraFixture
@@ -30,116 +30,116 @@ class RecoveryWorkersSpec extends FreeSpec
   import ContentLogic._
 
   override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(10000, Millis)))
+
   import MessagingContext.Implicits.emptyContext
 
-  "RecoveryWorkersSpec" in {
-    "HotRecoveryWorker" in {
-      val hyperbus = testHyperbus()
-      val tk = testKit()
-      import tk._
+  "HotRecoveryWorker" should "work" in {
+    val hyperbus = testHyperbus()
+    val tk = testKit()
+    import tk._
 
-      cleanUpCassandra()
+    cleanUpCassandra()
 
-      val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
-      val path = "incomplete-" + UUID.randomUUID().toString
-      val taskStr1 = ContentPut(path,
-        DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
-      ).serializeToString
-      worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskStr1)
-      val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
-      expectMsgType[ShardTaskComplete]
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
+    val path = "incomplete-" + UUID.randomUUID().toString
+    val taskStr1 = ContentPut(path,
+      DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
+    ).serializeToString
+    worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskStr1)
+    val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
+    expectMsgType[ShardTaskComplete]
 
-      val transactionUuids = whenReady(db.selectContent(path, "")) { result =>
-        result.get.transactionList
-      }
-
-      val processorProbe = TestProbe("processor")
-      val hotWorkerProps = HotRecoveryWorker.props(
-        (60 * 1000l, -60 * 1000l), db, processorProbe.ref, tracker, 1.seconds, 10.seconds
-      )
-
-      val hotWorker = TestActorRef(hotWorkerProps)
-      val selfAddress = Address("tcp", "127.0.0.1")
-      val shardData = ShardedClusterData(Map(
-        selfAddress → ShardMember(ActorSelection(self, ""), ShardMemberStatus.Active, ShardMemberStatus.Active)
-      ), selfAddress, ShardMemberStatus.Active)
-
-      // start recovery check
-      hotWorker ! UpdateShardStatus(self, Active, shardData)
-
-      val backgroundWorkerTask2 = processorProbe.expectMsgType[BackgroundContentTask](max = 30.seconds)
-      backgroundWorkerTask.documentUri should equal(backgroundWorkerTask2.documentUri)
-      processorProbe.reply(BackgroundContentTaskFailedException(backgroundWorkerTask2.documentUri, "Testing worker behavior"))
-      val backgroundWorkerTask3 = processorProbe.expectMsgType[BackgroundContentTask](max = 30.seconds)
-      hotWorker ! processorProbe.reply(BackgroundContentTaskResult(backgroundWorkerTask2.documentUri, transactionUuids))
-      gracefulStop(hotWorker, 30 seconds, ShutdownRecoveryWorker).futureValue(TestTimeout(30.seconds))
+    val transactionUuids = whenReady(db.selectContent(path, "")) { result =>
+      result.get.transactionList
     }
 
-    "StaleRecoveryWorker" in {
-      val hyperbus = testHyperbus()
-      val tk = testKit()
-      import tk._
+    val processorProbe = TestProbe("processor")
+    val hotWorkerProps = HotRecoveryWorker.props(
+      (60 * 1000l, -60 * 1000l), db, processorProbe.ref, tracker, 1.seconds, 10.seconds
+    )
 
-      cleanUpCassandra()
+    val hotWorker = TestActorRef(hotWorkerProps)
+    val selfAddress = Address("tcp", "127.0.0.1")
+    val shardData = ShardedClusterData(Map(
+      selfAddress → ShardMember(ActorSelection(self, ""), ShardMemberStatus.Active, ShardMemberStatus.Active)
+    ), selfAddress, ShardMemberStatus.Active)
 
-      val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
-      val path = "incomplete-" + UUID.randomUUID().toString
-      val taskStr1 = ContentPut(path,
-        DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
-      ).serializeToString
-      val millis = System.currentTimeMillis()
-      worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskStr1)
-      val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
-      expectMsgType[ShardTaskComplete]
+    // start recovery check
+    hotWorker ! UpdateShardStatus(self, Active, shardData)
 
-      val content = db.selectContent(path, "").futureValue.get
-      val newTransactionUuid = UUIDs.startOf(millis - 5 * 60 * 1000l)
-      val newContent = content.copy(
-        transactionList = List(newTransactionUuid) // original transaction becomes abandoned
-      )
-      val transaction = selectTransactions(content.transactionList, content.uri, db).head
-      val newTransaction = transaction.copy(
-        dtQuantum = TransactionLogic.getDtQuantum(UUIDs.unixTimestamp(newTransactionUuid)),
-        uuid = newTransactionUuid
-      )
-      db.insertContent(newContent).futureValue
-      db.insertTransaction(newTransaction).futureValue
+    val backgroundWorkerTask2 = processorProbe.expectMsgType[BackgroundContentTask](max = 30.seconds)
+    backgroundWorkerTask.documentUri should equal(backgroundWorkerTask2.documentUri)
+    processorProbe.reply(BackgroundContentTaskFailedException(backgroundWorkerTask2.documentUri, "Testing worker behavior"))
+    val backgroundWorkerTask3 = processorProbe.expectMsgType[BackgroundContentTask](max = 30.seconds)
+    hotWorker ! processorProbe.reply(BackgroundContentTaskResult(backgroundWorkerTask2.documentUri, transactionUuids))
+    gracefulStop(hotWorker, 30 seconds, ShutdownRecoveryWorker).futureValue(TestTimeout(30.seconds))
+  }
 
-      db.updateCheckpoint(transaction.partition, transaction.dtQuantum - 10) // checkpoint to - 10 minutes
+  "StaleRecoveryWorker" should "work" in {
+    val hyperbus = testHyperbus()
+    val tk = testKit()
+    import tk._
 
-      val processorProbe = TestProbe("processor")
-      val staleWorkerProps = StaleRecoveryWorker.props(
-        (60 * 1000l, -60 * 1000l), db, processorProbe.ref, tracker, 1.seconds, 2.seconds
-      )
+    cleanUpCassandra()
 
-      val hotWorker = TestActorRef(staleWorkerProps)
-      val selfAddress = Address("tcp", "127.0.0.1")
-      val shardData = ShardedClusterData(Map(
-        selfAddress → ShardMember(ActorSelection(self, ""), ShardMemberStatus.Active, ShardMemberStatus.Active)
-      ), selfAddress, ShardMemberStatus.Active)
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
+    val path = "incomplete-" + UUID.randomUUID().toString
+    val taskStr1 = ContentPut(path,
+      DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
+    ).serializeToString
+    val millis = System.currentTimeMillis()
+    worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskStr1)
+    val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
+    expectMsgType[ShardTaskComplete]
 
-      // start recovery check
-      hotWorker ! UpdateShardStatus(self, Active, shardData)
+    val content = db.selectContent(path, "").futureValue.get
+    val newTransactionUuid = UUIDs.startOf(millis - 5 * 60 * 1000l)
+    val newContent = content.copy(
+      transactionList = List(newTransactionUuid) // original transaction becomes abandoned
+    )
+    val transaction = selectTransactions(content.transactionList, content.uri, db).head
+    val newTransaction = transaction.copy(
+      dtQuantum = TransactionLogic.getDtQuantum(UUIDs.unixTimestamp(newTransactionUuid)),
+      uuid = newTransactionUuid
+    )
+    db.insertContent(newContent).futureValue
+    db.insertTransaction(newTransaction).futureValue
 
-      val backgroundWorkerTask2 = processorProbe.expectMsgType[BackgroundContentTask](max = 30.seconds)
-      backgroundWorkerTask.documentUri should equal(backgroundWorkerTask2.documentUri)
-      processorProbe.reply(BackgroundContentTaskFailedException(backgroundWorkerTask2.documentUri, "Testing worker behavior"))
+    db.updateCheckpoint(transaction.partition, transaction.dtQuantum - 10) // checkpoint to - 10 minutes
 
-      eventually {
-        db.selectCheckpoint(transaction.partition).futureValue shouldBe Some(newTransaction.dtQuantum - 1)
-      }
+    val processorProbe = TestProbe("processor")
+    val staleWorkerProps = StaleRecoveryWorker.props(
+      (60 * 1000l, -60 * 1000l), db, processorProbe.ref, tracker, 1.seconds, 2.seconds
+    )
 
-      val backgroundWorkerTask3 = processorProbe.expectMsgType[BackgroundContentTask](max = 30.seconds)
-      hotWorker ! processorProbe.reply(BackgroundContentTaskResult(backgroundWorkerTask2.documentUri, newContent.transactionList))
+    val hotWorker = TestActorRef(staleWorkerProps)
+    val selfAddress = Address("tcp", "127.0.0.1")
+    val shardData = ShardedClusterData(Map(
+      selfAddress → ShardMember(ActorSelection(self, ""), ShardMemberStatus.Active, ShardMemberStatus.Active)
+    ), selfAddress, ShardMemberStatus.Active)
 
-      eventually {
-        db.selectCheckpoint(transaction.partition).futureValue.get shouldBe >(newTransaction.dtQuantum)
-      }
+    // start recovery check
+    hotWorker ! UpdateShardStatus(self, Active, shardData)
 
-      val backgroundWorkerTask4 = processorProbe.expectMsgType[BackgroundContentTask](max = 30.seconds) // this is abandoned
-      hotWorker ! processorProbe.reply(BackgroundContentTaskResult(backgroundWorkerTask4.documentUri, List()))
+    val backgroundWorkerTask2 = processorProbe.expectMsgType[BackgroundContentTask](max = 30.seconds)
+    backgroundWorkerTask.documentUri should equal(backgroundWorkerTask2.documentUri)
+    processorProbe.reply(BackgroundContentTaskFailedException(backgroundWorkerTask2.documentUri, "Testing worker behavior"))
 
-      gracefulStop(hotWorker, 30 seconds, ShutdownRecoveryWorker).futureValue(TestTimeout(30.seconds))
+    eventually {
+      db.selectCheckpoint(transaction.partition).futureValue shouldBe Some(newTransaction.dtQuantum - 1)
     }
+
+    val backgroundWorkerTask3 = processorProbe.expectMsgType[BackgroundContentTask](max = 30.seconds)
+    hotWorker ! processorProbe.reply(BackgroundContentTaskResult(backgroundWorkerTask2.documentUri, newContent.transactionList))
+
+    eventually {
+      db.selectCheckpoint(transaction.partition).futureValue.get shouldBe >(newTransaction.dtQuantum)
+    }
+
+    val backgroundWorkerTask4 = processorProbe.expectMsgType[BackgroundContentTask](max = 30.seconds) // this is abandoned
+    hotWorker ! processorProbe.reply(BackgroundContentTaskResult(backgroundWorkerTask4.documentUri, List()))
+
+    gracefulStop(hotWorker, 30 seconds, ShutdownRecoveryWorker).futureValue(TestTimeout(30.seconds))
   }
 }
+

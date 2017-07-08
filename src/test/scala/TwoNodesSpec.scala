@@ -5,9 +5,8 @@ import org.scalatest.concurrent.ScalaFutures
 
 import scala.concurrent.duration._
 
-class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
-
-  "ShardProcessor should become Active" in {
+class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
+  "ShardProcessor" should "become Active" in {
     val (fsm1, actorSystem1, testKit1) = {
       implicit val actorSystem1 = testActorSystem(1)
       (createShardProcessor("test-group", waitWhileActivates = false), actorSystem1, testKit(1))
@@ -27,7 +26,7 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
     shutdownShardProcessor(fsm2)(actorSystem2)
   }
 
-  "ShardProcessor should become Active sequentially" in {
+  it should "become Active sequentially" in {
     val (fsm1, actorSystem1, testKit1) = {
       implicit val actorSystem1 = testActorSystem(1)
       (createShardProcessor("test-group", waitWhileActivates = false), actorSystem1, testKit(1))
@@ -50,7 +49,7 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
     shutdownShardProcessor(fsm2)(actorSystem2)
   }
 
-  "Tasks should distribute to corresponding actors" in {
+  "Tasks "should "distribute to corresponding actors" in {
     val (fsm1, actorSystem1, testKit1, address1) = {
       implicit val actorSystem1 = testActorSystem(1)
       (createShardProcessor("test-group", waitWhileActivates = false), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
@@ -75,7 +74,7 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
     task2.processorPath should include(address2)
   }
 
-  "Tasks should be forwarded to corresponding actors" in {
+  it should "be forwarded to corresponding actors" in {
     val (fsm1, actorSystem1, testKit1, address1) = {
       implicit val actorSystem1 = testActorSystem(1)
       (createShardProcessor("test-group", waitWhileActivates = false), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
@@ -100,7 +99,7 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
     task2.processorPath should include(address2)
   }
 
-  "Tasks for deactivating actor shouldn't be processed before deactivation complete" in {
+  it should "for deactivating actor shouldn't be processed before deactivation complete" in {
     val (fsm1, actorSystem1, testKit1, address1) = {
       implicit val actorSystem1 = testActorSystem(1)
       (createShardProcessor("test-group", waitWhileActivates = false), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
@@ -143,7 +142,7 @@ class TwoNodesSpec extends FreeSpec with ScalaFutures with TestHelpers {
     task2.processorPath should include(address2)
   }
 
-  "Processor should not confirm sync/activation until completes processing corresponding task" in {
+  "Processor" should "not confirm sync/activation until completes processing corresponding task" in {
     val (fsm1, actorSystem1, testKit1, address1) = {
       implicit val actorSystem1 = testActorSystem(1)
       (createShardProcessor("test-group"), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)

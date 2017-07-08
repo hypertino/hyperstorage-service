@@ -15,11 +15,13 @@ import com.hypertino.hyperstorage.db.{Db, Transaction}
 import com.hypertino.hyperstorage.indexing.IndexManager
 import com.hypertino.hyperstorage.sharding._
 import com.hypertino.hyperstorage._
-import com.hypertino.hyperstorage.modules.ModuleAggregator
+import com.hypertino.hyperstorage.modules.ModuleAggregator.{config, loadConfigInjectedModules}
+import com.hypertino.hyperstorage.modules.{ModuleAggregator, ServiceModule}
 import com.hypertino.hyperstorage.workers.primary.PrimaryWorker
 import com.hypertino.hyperstorage.workers.secondary.SecondaryWorker
 import com.hypertino.metrics.MetricsTracker
-import com.hypertino.metrics.modules.ConsoleReporterModule
+import com.hypertino.metrics.modules.{ConsoleReporterModule, MetricsModule}
+import com.hypertino.service.config.ConfigLoader
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.{BeforeAndAfterEach, Matchers}
 import org.slf4j.LoggerFactory
@@ -32,7 +34,8 @@ import scala.concurrent.{Await, ExecutionContext}
 trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures with Injectable {
   this: org.scalatest.BeforeAndAfterEach with org.scalatest.Suite =>
   private[this] val log = LoggerFactory.getLogger(getClass)
-  implicit val injector = ModuleAggregator.injector :: new ConsoleReporterModule(Duration.Inf).injector
+
+  implicit val injector =loadConfigInjectedModules(new ServiceModule(ConfigLoader())) :: new MetricsModule :: new ConsoleReporterModule(Duration.Inf).injector
   val tracker = inject[MetricsTracker]
   val reporter = inject[ScheduledReporter]
   val _actorSystems = TrieMap[Int, ActorSystem]()
