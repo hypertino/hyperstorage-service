@@ -5,6 +5,7 @@ import java.util.Date
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import akka.pattern.pipe
 import com.codahale.metrics.Timer
+import com.hypertino.binders.core.BindOptions
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperbus.transport.api.matchers.Specific
@@ -229,13 +230,18 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       case None ⇒ 1
       case Some(content) ⇒ content.revision + 1
     }
-    TransactionLogic.newTransaction(documentUri, itemId, revision, request.copy(
+
+    // always preserve null fields in transaction
+    // this is required to correctly publish patch events
+    implicit val bindOptions = BindOptions(skipOptionalFields=false)
+    val transactionBody = request.copy(
       headers = Headers.builder
         .++=(request.headers)
         .+=(Header.REVISION → Number(revision))
         .withMethod("feed:" + request.headers.method)
         .requestHeaders()
-    ).serializeToString)
+    ).serializeToString
+    TransactionLogic.newTransaction(documentUri, itemId, revision, transactionBody)
   }
 
   private def updateContent(documentUri: String,
@@ -350,9 +356,8 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       owner ! BackgroundContentTask(System.currentTimeMillis() + backgroundTaskTimeout.toMillis, transaction.documentUri)
       val transactionId = transaction.documentUri + ":" + transaction.uuid + ":" + transaction.revision
       val result: Response[Body] = if (created) {
-        // todo: add LOCATION!!! xxx !!!
         Created(HyperStorageTransactionCreated(transactionId,
-          path = request.path))
+          path = request.path), location=HRL(TransactionGet.location, Obj.from("transactionId"→transactionId)))
       }
       else {
         Ok(api.HyperStorageTransaction(transactionId))

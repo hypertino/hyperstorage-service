@@ -2,6 +2,7 @@ package com.hypertino.hyperstorage
 
 import akka.actor.ActorRef
 import akka.pattern.ask
+import com.hypertino.binders.core.BindOptions
 import com.hypertino.binders.value.{Lst, Null, Number, Obj, Value}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model._
@@ -42,6 +43,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
   final val DEFAULT_MAX_SKIPPED_ROWS = 10000
   final val MAX_COLLECTION_SELECTS = 20
   final val DEFAULT_PAGE_SIZE = 100
+  implicit val bindOptions = BindOptions(skipOptionalFields=false)
 
   private val subscriptions = Seq(
     hyperbus.commands[ContentGet].subscribe { implicit command ⇒
