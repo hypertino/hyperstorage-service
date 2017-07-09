@@ -1,6 +1,7 @@
 import java.util.UUID
 
 import akka.testkit.TestActorRef
+import com.hypertino.binders.core.BindOptions
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperstorage._
@@ -124,6 +125,7 @@ class HyperStorageSpec extends FlatSpec
     expectMsgType[BackgroundContentTask]
     expectMsgType[ShardTaskComplete]
 
+    implicit val bindOptions = BindOptions(false) // force null serialization
     val task = ContentPatch(path,
       DynamicBody(Obj.from("text1" → "efg", "text2" → Null, "text3" → "zzz"))
     )

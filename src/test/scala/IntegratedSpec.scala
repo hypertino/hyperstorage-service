@@ -2,6 +2,7 @@ import java.util.UUID
 
 import akka.testkit.TestActorRef
 import akka.util.Timeout
+import com.hypertino.binders.core.BindOptions
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperstorage._
@@ -125,7 +126,7 @@ class IntegratedSpec extends FlatSpec
     whenReady(hyperbus.ask(ContentGet(path)(mcx)).runAsync) { response ⇒
       response.headers.statusCode should equal(Status.OK)
       response.body.content should equal(Text("Hello"))
-      response.headers should contain("correlationId" → Seq("abc123"))
+      response.headers.correlationId shouldBe "abc123"
     }
   }
 
@@ -164,6 +165,7 @@ class IntegratedSpec extends FlatSpec
       response.headers.statusCode should equal(Status.CREATED)
     }
 
+    implicit val bindOptions = BindOptions(false) // force null serialization
     val f = hyperbus.ask(ContentPatch(path, DynamicBody(Obj.from("b" → Null)))).runAsync
     whenReady(f) { response ⇒
       response.headers.statusCode should equal(Status.OK)

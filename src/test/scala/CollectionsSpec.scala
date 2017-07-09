@@ -1,6 +1,7 @@
 import java.util.UUID
 
 import akka.testkit.TestActorRef
+import com.hypertino.binders.core.BindOptions
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model._
@@ -110,6 +111,7 @@ class CollectionsSpec extends FlatSpec
     val path = "collection-1~/test-resource-" + UUID.randomUUID().toString
     val ResourcePath(documentUri, itemId) = ContentLogic.splitPath(path)
 
+    implicit val bindOptions = BindOptions(false) // force null serialization
     val taskPutStr = ContentPut(path,
       DynamicBody(Obj.from("text1" → "abc", "text2" → "klmn"))
     ).serializeToString
