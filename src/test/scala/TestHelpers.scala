@@ -110,7 +110,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     hb
   }
 
-
+  // todo: !!!!! implement graceful shutdown in main service !!!!!!
   def shutdownCluster(index: Int = 0): Unit = {
     _hyperbuses.get(index).foreach { hb ⇒
       hb.shutdown(5.seconds)
@@ -118,7 +118,11 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
       _hyperbuses.remove(index)
     }
     _actorSystems.get(index).foreach { as ⇒
-      Await.result(as.terminate(), 1.seconds);
+      val cluster = Cluster(as)
+      val me = cluster.selfUniqueAddress
+      cluster.leave(me.address)
+      Thread.sleep(1000)
+      Await.result(as.terminate(), 1.seconds)
       _actorSystems.remove(index)
     }
   }

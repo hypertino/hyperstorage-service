@@ -68,7 +68,7 @@ class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
     testKit1.awaitCond(task1.isProcessed)
     task1.processorPath should include(address1)
 
-    val task2 = TestShardTask("klm", "t2")
+    val task2 = TestShardTask("klx", "t2")
     fsm2 ! task2
     testKit2.awaitCond(task2.isProcessed)
     task2.processorPath should include(address2)
@@ -93,7 +93,7 @@ class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
     testKit1.awaitCond(task1.isProcessed)
     task1.processorPath should include(address1)
 
-    val task2 = TestShardTask("klm", "t4")
+    val task2 = TestShardTask("klx", "t4")
     fsm1 ! task2
     testKit2.awaitCond(task2.isProcessed)
     task2.processorPath should include(address2)
@@ -148,9 +148,9 @@ class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
       (createShardProcessor("test-group"), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
     }
 
-    val task1 = TestShardTask("klm", "t7", sleep = 6000)
+    val task1 = TestShardTask("klx", "t7", sleep = 6000)
     fsm1 ! task1
-    val task2 = TestShardTask("klm", "t8")
+    val task2 = TestShardTask("klx", "t8")
     fsm1 ! task2
     testKit1.awaitCond(task1.isProcessingStarted)
 
