@@ -93,7 +93,7 @@ class QueryCollectionsSpec extends FlatSpec
       .futureValue
     res.headers.statusCode shouldBe Status.OK
     res.headers.correlationId shouldBe "abc123"
-    res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c3x)))
+    res.body.content shouldBe Lst.from(c3x)
     verify(db).selectContentCollection("collection-1~", 5, Some(("item3", FilterEq)), true)
   }
 
@@ -106,7 +106,7 @@ class QueryCollectionsSpec extends FlatSpec
       .runAsync
       .futureValue
     res.headers.statusCode shouldBe Status.OK
-    res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c3x)))
+    res.body.content shouldBe Lst.from(c3x)
     verify(db).selectContentCollection("collection-1~", 1, None, true)
     verify(db).selectContentCollection("collection-1~", 500, Some(("item1", FilterGt)), true)
   }
@@ -120,7 +120,7 @@ class QueryCollectionsSpec extends FlatSpec
       .runAsync
       .futureValue
     res.headers.statusCode shouldBe Status.OK
-    res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c1x, c2x, c3x)))
+    res.body.content shouldBe Lst.from(c1x, c2x, c3x)
     verify(db).selectContentCollection("collection-1~", 50, None, true)
   }
 
@@ -133,7 +133,7 @@ class QueryCollectionsSpec extends FlatSpec
       .runAsync
       .futureValue
     res.headers.statusCode shouldBe Status.OK
-    res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c3x, c2x, c1x)))
+    res.body.content shouldBe Lst.from(c3x, c2x, c1x)
     verify(db).selectContentCollection("collection-1~", 50, None, false)
   }
 
@@ -147,7 +147,7 @@ class QueryCollectionsSpec extends FlatSpec
       .futureValue
 
     res.headers.statusCode shouldBe Status.OK
-    res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c2x, c3x)))
+    res.body.content shouldBe Lst.from(c2x, c3x)
     verify(db).selectContentCollection("collection-1~", 50, Some(("item1", FilterGt)), true)
   }
 
@@ -161,7 +161,7 @@ class QueryCollectionsSpec extends FlatSpec
       .futureValue
 
     res.headers.statusCode shouldBe Status.OK
-    res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c2x, c1x)))
+    res.body.content shouldBe Lst.from(c2x, c1x)
     verify(db).selectContentCollection("collection-1~", 50, Some(("item3", FilterLt)), false)
   }
 
@@ -175,7 +175,7 @@ class QueryCollectionsSpec extends FlatSpec
       .futureValue
 
     res.headers.statusCode shouldBe Status.OK
-    res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c3x)))
+    res.body.content shouldBe Lst.from(c3x)
     verify(db).selectContentCollection("collection-1~", 2, None, true)
     verify(db).selectContentCollection("collection-1~", 501, Some(("item2", FilterGt)), true)
   }
@@ -190,7 +190,7 @@ class QueryCollectionsSpec extends FlatSpec
       .futureValue
 
     res.headers.statusCode shouldBe Status.OK
-    res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c1x)))
+    res.body.content shouldBe Lst.from(c1x)
     verify(db).selectContentCollection("collection-1~", 2, None, false)
     verify(db).selectContentCollection("collection-1~", 501, Some(("item2", FilterLt)), false)
   }
@@ -204,7 +204,7 @@ class QueryCollectionsSpec extends FlatSpec
       .futureValue
 
     res.headers.statusCode shouldBe Status.OK
-    res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c1x, c3x)))
+    res.body.content shouldBe Lst.from(c1x, c3x)
     verify(db).selectContentCollection("collection-1~", 10002, None, true)
   }
 
@@ -217,7 +217,7 @@ class QueryCollectionsSpec extends FlatSpec
       .futureValue
 
     res.headers.statusCode shouldBe Status.OK
-    res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c3x, c1x)))
+    res.body.content shouldBe Lst.from(c3x, c1x)
     verify(db).selectContentCollection("collection-1~", 10002, None, true)
   }
 
@@ -231,7 +231,7 @@ class QueryCollectionsSpec extends FlatSpec
       .futureValue
 
     res.headers.statusCode shouldBe Status.OK
-    res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c1x, c3x)))
+    res.body.content shouldBe Lst.from(c1x, c3x)
     verify(db).selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq(CkField("item_id", true)), 50)
 
     val res2 = hyperbus
@@ -240,7 +240,7 @@ class QueryCollectionsSpec extends FlatSpec
       .futureValue
 
     res2.statusCode shouldBe Status.OK
-    res2.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c1x, c3x)))
+    res2.body.content shouldBe Lst.from(c1x, c3x)
     verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq.empty, Seq(CkField("t0", true)), 50)
   }
 
@@ -254,7 +254,7 @@ class QueryCollectionsSpec extends FlatSpec
       .futureValue
 
     res.headers.statusCode shouldBe Status.OK
-    res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c3x, c1x)))
+    res.body.content shouldBe Lst.from(c3x, c1x)
     verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq.empty, Seq(CkField("t0", false)), 50)
 
     val res2 = hyperbus
@@ -263,7 +263,7 @@ class QueryCollectionsSpec extends FlatSpec
       .futureValue
 
     res2.statusCode shouldBe Status.OK
-    res2.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c3x, c1x)))
+    res2.body.content shouldBe Lst.from(c3x, c1x)
     verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq.empty, Seq(CkField("t0", false), CkField("item_id", false)), 50)
   }
 
@@ -277,7 +277,7 @@ class QueryCollectionsSpec extends FlatSpec
       .futureValue
 
     res.headers.statusCode shouldBe Status.OK
-    res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c1x)))
+    res.body.content shouldBe Lst.from(c1x)
     verify(db).selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq(CkField("item_id", true)), 50)
   }
 
@@ -291,7 +291,7 @@ class QueryCollectionsSpec extends FlatSpec
       .futureValue
 
     res.headers.statusCode shouldBe Status.OK
-    res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c3x)))
+    res.body.content shouldBe Lst.from(c3x)
     verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq(FieldFilter("t0", Text("hello"), FilterGt)), Seq(CkField("t0", true)), 50)
 
     val res2 = hyperbus
@@ -300,7 +300,7 @@ class QueryCollectionsSpec extends FlatSpec
       .futureValue
 
     res2.statusCode shouldBe Status.OK
-    res2.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.empty))
+    res2.body.content shouldBe Lst.empty
     verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq(FieldFilter("t0", Text("hello"), FilterEq), FieldFilter("item_id", Text("item2"), FilterGt)), Seq(CkField("t0", true), CkField("item_id", true)), 50)
   }
 
@@ -314,7 +314,7 @@ class QueryCollectionsSpec extends FlatSpec
       .futureValue
 
     res.headers.statusCode shouldBe Status.OK
-    res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c2x, c3x)))
+    res.body.content shouldBe Lst.from(c2x, c3x)
     verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq.empty, Seq(CkField("t0", true)), 2)
     verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("hello"), FilterEq), FieldFilter("item_id", Text("item1"), FilterGt)), Seq(CkField("t0", true)), 501)
   }
@@ -329,7 +329,7 @@ class QueryCollectionsSpec extends FlatSpec
       .futureValue
 
     res.headers.statusCode shouldBe Status.OK
-    res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c2x, c3x)))
+    res.body.content shouldBe Lst.from(c2x, c3x)
     verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("zzz"), FilterLt)), Seq(CkField("t0", true)), 2)
     verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("hello"), FilterEq), FieldFilter("item_id", Text("item1"), FilterGt)), Seq(CkField("t0", true)), 501)
   }
@@ -344,7 +344,7 @@ class QueryCollectionsSpec extends FlatSpec
       .futureValue
 
     res.headers.statusCode shouldBe Status.OK
-    res.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c3x, c2x)))
+    res.body.content shouldBe Lst.from(c3x, c2x)
     verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("aaa"), FilterGt)), Seq(CkField("t0", false)), 2)
     verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("hello"), FilterEq), FieldFilter("item_id", Text("item1"), FilterLt)), Seq(CkField("t0", false)), 501)
   }

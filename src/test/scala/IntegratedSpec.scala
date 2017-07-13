@@ -246,7 +246,7 @@ class IntegratedSpec extends FlatSpec
     whenReady(f4) { response ⇒
       response.headers.statusCode should equal(Status.OK)
       response.body.content should equal(
-        Obj.from("_embedded" -> Obj.from("els" → Lst.from(c1x, c2x)))
+        Lst.from(c1x, c2x)
       )
     }
 
@@ -260,7 +260,7 @@ class IntegratedSpec extends FlatSpec
     whenReady(f5) { response ⇒
       response.statusCode should equal(Status.OK)
       response.body.content should equal(
-        Obj.from("_embedded" -> Obj.from("els" → Lst.from(c2x, c1x)))
+        Lst.from(c2x, c1x)
       )
     }
   }
@@ -332,7 +332,7 @@ class IntegratedSpec extends FlatSpec
     whenReady(f4) { response ⇒
       response.headers.statusCode should equal(Status.OK)
       response.body.content should equal(
-        Obj.from("_embedded" -> Obj.from("els" → Lst.from(c1x, c2x)))
+        Lst.from(c1x, c2x)
       )
     }
 
@@ -346,7 +346,7 @@ class IntegratedSpec extends FlatSpec
     whenReady(f5) { response ⇒
       response.headers.statusCode should equal(Status.OK)
       response.body.content should equal(
-        Obj.from("_embedded" -> Obj.from("els" → Lst.from(c1x, c2x)))
+        Lst.from(c1x, c2x)
       )
     }
   }

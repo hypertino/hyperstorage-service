@@ -125,7 +125,7 @@ class IndexingSpec extends FlatSpec
     val rc4 = f4.futureValue
 
     rc4.headers.statusCode shouldBe Status.OK
-    rc4.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.from(c1x, c3x)))
+    rc4.body.content shouldBe Lst.from(c1x, c3x)
 
     val f5 = hyperbus.ask(ContentGet("collection-1~",
       filter = Some("b < 10"),
@@ -133,7 +133,7 @@ class IndexingSpec extends FlatSpec
     )).runAsync
     val rc5 = f5.futureValue
     rc5.headers.statusCode shouldBe Status.OK
-    rc5.body.content shouldBe Obj.from("_embedded" -> Obj.from("els" → Lst.empty))
+    rc5.body.content shouldBe Lst.empty
   }
 
   it should "Deleting item should remove it from index" in {

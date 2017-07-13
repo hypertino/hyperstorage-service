@@ -139,10 +139,9 @@ hyperbus <~ HyperStorageContentGet("collection-1~",
 Если-же запрос идет из фасада, то это будет соответственно:
 `/hyper-storage/content/collection-1~?size=50&sort=id&filter=b%3E10`
 
-Элементы из коллекции возвращаются согласно спецификации hal+json, пример в JSON:
+Элементы из коллекции возвращаются в виде массива, пример в JSON:
 ```json
-"_embedded": {
-  "els": [
+  [
     {
       "appId": "1",
       "name": "RF Online",
@@ -154,7 +153,6 @@ hyperbus <~ HyperStorageContentGet("collection-1~",
       "id": "1006"
     }
   ]
-}  
 ```
 
 ### Постраничный вывод коллекции

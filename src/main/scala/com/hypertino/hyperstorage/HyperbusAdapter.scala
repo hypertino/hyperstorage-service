@@ -128,10 +128,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
       (collectionStream, revisionOpt) ← selectCollection(resourcePath.documentUri, indexDefs, request.filter, sortBy, pageSize, skipMax)
     } yield {
       if (contentStatic.isDefined && contentStatic.forall(!_.isDeleted)) {
-        val result = Obj(Map("_embedded" →
-          Obj(Map("els" →
-            Lst(collectionStream)
-          ))))
+        val result = Lst(collectionStream)
 
         val headersMap: HeadersMap = HeadersMap(
           revisionOpt.map(r ⇒ Seq(Header.REVISION → Number(r))).toSeq.flatten : _*

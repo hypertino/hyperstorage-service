@@ -27,8 +27,8 @@ object BenchmarkTest {
     Thread.sleep(10000)
     println("Selecting...")
     try {
-      val lst = query(pageSize=1000000).body.content.__embedded.els
-      println("fetched: " + lst.asSeq.size)
+      val lst = query(pageSize=1000000).body.content
+      println("fetched: " + lst.toSeq.size)
     }
     catch {
       case NonFatal(e) ⇒
@@ -72,8 +72,8 @@ object BenchmarkTest {
       println(s"Total time to query $itemCount items: $queryTime")
 
       try {
-        val lst = query(pageSize=1000000).body.content.__embedded.els
-        println("fetched: " + lst.asSeq.size)
+        val lst = query(pageSize=1000000).body.content
+        println("fetched: " + lst.toSeq.size)
       }
       catch {
         case NonFatal(e) ⇒
