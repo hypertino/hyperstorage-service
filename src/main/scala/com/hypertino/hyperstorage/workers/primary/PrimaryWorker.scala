@@ -10,7 +10,7 @@ import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperbus.transport.api.matchers.Specific
 import com.hypertino.hyperbus.Hyperbus
-import com.hypertino.hyperbus.serialization.MessageReader
+import com.hypertino.hyperbus.serialization.{MessageReader, SerializationOptions}
 import com.hypertino.hyperbus.util.IdGenerator
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.api._
@@ -233,7 +233,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 
     // always preserve null fields in transaction
     // this is required to correctly publish patch events
-    implicit val bindOptions = BindOptions(skipOptionalFields=false)
+    implicit val so = SerializationOptions.forceOptionalFields
     val transactionBody = request.copy(
       headers = Headers.builder
         .++=(request.headers)

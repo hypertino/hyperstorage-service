@@ -5,6 +5,7 @@ import com.hypertino.binders.core.BindOptions
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model._
+import com.hypertino.hyperbus.serialization.SerializationOptions
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.api._
 import com.hypertino.hyperstorage.sharding._
@@ -111,7 +112,7 @@ class CollectionsSpec extends FlatSpec
     val path = "collection-1~/test-resource-" + UUID.randomUUID().toString
     val ResourcePath(documentUri, itemId) = ContentLogic.splitPath(path)
 
-    implicit val bindOptions = BindOptions(false) // force null serialization
+    implicit val so = SerializationOptions.forceOptionalFields
     val taskPutStr = ContentPut(path,
       DynamicBody(Obj.from("text1" → "abc", "text2" → "klmn"))
     ).serializeToString

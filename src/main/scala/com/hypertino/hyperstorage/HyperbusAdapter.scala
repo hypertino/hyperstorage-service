@@ -6,7 +6,7 @@ import com.hypertino.binders.core.BindOptions
 import com.hypertino.binders.value.{Lst, Null, Number, Obj, Value}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model._
-import com.hypertino.hyperbus.serialization.MessageReader
+import com.hypertino.hyperbus.serialization.{MessageReader, SerializationOptions}
 import com.hypertino.hyperbus.transport.api.CommandEvent
 import com.hypertino.hyperstorage.api.{HyperStorageIndexSortItem, _}
 import com.hypertino.hyperstorage.db._
@@ -44,7 +44,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
   final val DEFAULT_MAX_SKIPPED_ROWS = 10000
   final val MAX_COLLECTION_SELECTS = 20
   final val DEFAULT_PAGE_SIZE = 100
-  implicit val bindOptions = BindOptions(skipOptionalFields=false)
+  implicit val so = SerializationOptions.forceOptionalFields
   private val log = LoggerFactory.getLogger(getClass)
 
   private val subscriptions = hyperbus.subscribe(this, log)
