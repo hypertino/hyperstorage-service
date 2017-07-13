@@ -13,7 +13,7 @@ HyperStorage использует cassandra для оперативного хр
 
 ## Подключение RAML спецификации к своему проекту
 
-Интерфейс сервиса описан в файле [hyperstorage.raml](src/main/resources/hyperstorage.raml)
+Интерфейс сервиса описан в файле [hyperstorage.raml](api/hyper-storage-service-api/hyperstorage.raml)
 Для того, чтобы работать с HyperStorage используя типизированые классы, нужно подключить RAML файл содержащий спецификацию hyper-storage используя hyperbus плагин. Для этого, в `projects/plugin.sbt` добавить:
 
 ```scala

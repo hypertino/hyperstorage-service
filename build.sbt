@@ -8,9 +8,13 @@ scalaVersion := "2.11.8"
 
 crossScalaVersions := Seq("2.11.8")
 
-ramlHyperbusSource := file("hyperstorage.raml")
-
-ramlHyperbusPackageName := "com.hypertino.hyperstorage.api"
+ramlHyperbusSources := Seq(
+  ramlSource(
+    path = "api/hyper-storage-service-api/hyperstorage.raml",
+    packageName = "com.hypertino.hyperstorage.api",
+    isResource = false
+  )
+)
 
 buildInfoPackage := "com.hypertino.hyperstorage"
 
@@ -38,7 +42,7 @@ libraryDependencies ++= Seq(
   "com.hypertino"               %% "expression-parser"            % "0.1-SNAPSHOT",
 
   "com.typesafe.akka"           %% "akka-cluster"                 % "2.4.19",
-  "com.typesafe.akka"           %% "akka-slf4j"                 % "2.4.19",
+  "com.typesafe.akka"           %% "akka-slf4j"                   % "2.4.19",
 
   "com.datastax.cassandra"      % "cassandra-driver-core"         % "2.1.9",
   "ch.qos.logback"              % "logback-classic"               % "1.1.3",

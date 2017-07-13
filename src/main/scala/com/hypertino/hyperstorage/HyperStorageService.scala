@@ -3,7 +3,6 @@ package com.hypertino.hyperstorage
 import akka.actor.ActorSystem
 import akka.cluster.Cluster
 import com.hypertino.hyperbus.Hyperbus
-import com.hypertino.hyperbus.transport.api.{TransportConfigurationLoader, TransportManager}
 import com.hypertino.hyperstorage.db.Db
 import com.hypertino.hyperstorage.indexing.IndexManager
 import com.hypertino.hyperstorage.metrics.MetricsReporter
@@ -57,7 +56,7 @@ class HyperStorageService(console: Console,
 
   // initialize
   log.info(s"Initializing hyperbus...")
-  val hyperbus = new Hyperbus(config)
+  val hyperbus = inject[Hyperbus]
 
   // currently we rely on the name of system
   val actorSystem = ActorSystem("hyper-storage")// ActorSystemRegistry.get("eu-inn").get
@@ -128,12 +127,6 @@ class HyperStorageService(console: Console,
         log.error("ProcessorActor didn't stopped gracefully", t)
     }
 
-    try {
-      Await.result(hyperbus.shutdown(shutdownTimeout*4/5).runAsync, shutdownTimeout)
-    } catch {
-      case t: Throwable ⇒
-        log.error("Hyperbus didn't shutdown gracefully", t)
-    }
     db.close()
     log.info("HyperStorage stopped.")
   }

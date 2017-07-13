@@ -23,6 +23,7 @@ import monix.execution.{Ack, Scheduler}
 import monix.execution.Ack.Continue
 import com.hypertino.hyperstorage.utils.Sort._
 import com.hypertino.hyperstorage.utils.{Sort, SortBy}
+import org.slf4j.LoggerFactory
 
 import scala.concurrent.Future
 import scala.concurrent.duration._
@@ -44,56 +45,37 @@ class HyperbusAdapter(hyperbus: Hyperbus,
   final val MAX_COLLECTION_SELECTS = 20
   final val DEFAULT_PAGE_SIZE = 100
   implicit val bindOptions = BindOptions(skipOptionalFields=false)
+  private val log = LoggerFactory.getLogger(getClass)
 
-  private val subscriptions = Seq(
-    hyperbus.commands[ContentGet].subscribe { implicit command ⇒
-      val request = command.request
-      Task.fromFuture[ResponseBase] {
-        tracker.timeOfFuture(Metrics.RETRIEVE_TIME) {
-          val resourcePath = ContentLogic.splitPath(request.path)
-          val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
-          if (ContentLogic.isCollectionUri(resourcePath.documentUri) && resourcePath.itemId.isEmpty) {
-            queryCollection(resourcePath, request)
-          }
-          else {
-            queryDocument(resourcePath, request)
-          }
-        }
-      }.runOnComplete(command.reply)
-      Continue
-    },
+  private val subscriptions = hyperbus.subscribe(this, log)
 
-    hyperbus.commands[ContentPut].subscribe { implicit command ⇒
-      executeRequest(command, command.request.path)
-    },
-
-    hyperbus.commands[ContentPost].subscribe { implicit command ⇒
-      executeRequest(command, command.request.path)
-    },
-
-    hyperbus.commands[ContentPatch].subscribe { implicit command ⇒
-      executeRequest(command, command.request.path)
-    },
-
-    hyperbus.commands[ContentDelete].subscribe { implicit command ⇒
-      executeRequest(command, command.request.path)
-    },
-
-    hyperbus.commands[IndexPost].subscribe { implicit command ⇒
-      executeIndexRequest(command)
-    },
-
-    hyperbus.commands[IndexDelete].subscribe { implicit command ⇒
-      executeIndexRequest(command)
+  def onContentGet(implicit get: ContentGet) = Task.fromFuture[ResponseBase] {
+    tracker.timeOfFuture(Metrics.RETRIEVE_TIME) {
+      val resourcePath = ContentLogic.splitPath(get.path)
+      val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${get.path}' is not found")))
+      if (ContentLogic.isCollectionUri(resourcePath.documentUri) && resourcePath.itemId.isEmpty) {
+        queryCollection(resourcePath, get)
+      }
+      else {
+        queryDocument(resourcePath, get)
+      }
     }
-  )
+  }
+
+
+  def onContentPut(implicit request: ContentPut) = executeRequest(request, request.path)
+  def onContentPost(implicit request: ContentPost) = executeRequest(request, request.path)
+  def onContentPatch(implicit request: ContentPatch) = executeRequest(request, request.path)
+  def onContentDelete(implicit request: ContentDelete) = executeRequest(request, request.path)
+  def onIndexPost(implicit request: IndexPost) = executeIndexRequest(request)
+  def onIndexDelete(implicit request: IndexDelete) = executeIndexRequest(request)
 
   def off(): Task[Unit] = {
     Task.eval(subscriptions.foreach(_.cancel()))
   }
 
-  private def executeRequest(implicit command: CommandEvent[RequestBase], uri: String): Future[Ack] = {
-    val str = command.request.serializeToString
+  private def executeRequest(implicit request: RequestBase, uri: String): Task[ResponseBase] = {
+    val str = request.serializeToString
     val ttl = Math.max(requestTimeout.toMillis - 100, 100)
     val documentUri = ContentLogic.splitPath(uri).documentUri
     val task = PrimaryTask(documentUri, System.currentTimeMillis() + ttl, str)
@@ -105,17 +87,16 @@ class HyperbusAdapter(hyperbus: Hyperbus,
         case PrimaryWorkerTaskResult(content) ⇒
           MessageReader.fromString(content, StandardResponse.apply) // todo: we are deserializing just to serialize back here
       }
-    } runOnComplete command.reply
-    Continue
+    }
   }
 
-  private def executeIndexRequest(implicit command: CommandEvent[RequestBase]): Future[Ack] = {
+  private def executeIndexRequest(request: RequestBase): Task[ResponseBase] = {
     val ttl = Math.max(requestTimeout.toMillis - 100, 100)
-    val key = command.request match {
+    val key = request match {
       case post: IndexPost ⇒ post.path
       case delete: IndexDelete ⇒ delete.path
     }
-    val indexDefTask = IndexDefTask(System.currentTimeMillis() + ttl, key, command.request.serializeToString)
+    val indexDefTask = IndexDefTask(System.currentTimeMillis() + ttl, key, request.serializeToString)
     implicit val timeout: akka.util.Timeout = requestTimeout
 
     Task.fromFuture {
@@ -123,8 +104,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
         case r: ResponseBase ⇒
           r
       }
-    } runOnComplete command.reply
-    Continue
+    }
   }
 
   private def queryCollection(resourcePath: ResourcePath, request: ContentGet): Future[ResponseBase] = {

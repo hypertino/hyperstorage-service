@@ -10,7 +10,6 @@ import com.typesafe.config.ConfigFactory
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model.{DynamicBody, DynamicResponse, Response, StandardResponse}
 import com.hypertino.hyperbus.serialization.MessageReader
-import com.hypertino.hyperbus.transport.api.{TransportConfigurationLoader, TransportManager}
 import com.hypertino.hyperstorage.db.{Db, Transaction}
 import com.hypertino.hyperstorage.indexing.IndexManager
 import com.hypertino.hyperstorage.sharding._
