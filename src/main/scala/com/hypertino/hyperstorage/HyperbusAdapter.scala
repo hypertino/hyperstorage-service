@@ -2,7 +2,6 @@ package com.hypertino.hyperstorage
 
 import akka.actor.ActorRef
 import akka.pattern.ask
-import com.hypertino.binders.core.BindOptions
 import com.hypertino.binders.value.{Lst, Null, Number, Obj, Value}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model._

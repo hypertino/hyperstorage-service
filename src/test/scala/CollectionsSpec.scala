@@ -1,7 +1,6 @@
 import java.util.UUID
 
 import akka.testkit.TestActorRef
-import com.hypertino.binders.core.BindOptions
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model._

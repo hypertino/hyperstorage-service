@@ -2,7 +2,6 @@ import java.util.UUID
 
 import akka.testkit.TestActorRef
 import akka.util.Timeout
-import com.hypertino.binders.core.BindOptions
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperbus.serialization.SerializationOptions

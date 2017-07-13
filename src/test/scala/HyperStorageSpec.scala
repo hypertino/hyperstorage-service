@@ -1,7 +1,6 @@
 import java.util.UUID
 
 import akka.testkit.TestActorRef
-import com.hypertino.binders.core.BindOptions
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperbus.serialization.SerializationOptions
@@ -244,7 +243,7 @@ class HyperStorageSpec extends FlatSpec
     worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskStr1)
     expectMsgType[BackgroundContentTask]
     val result1 = expectMsgType[ShardTaskComplete]
-    transactionList += response(result1.result.asInstanceOf[PrimaryWorkerTaskResult].content).body.content.transactionId
+    transactionList += response(result1.result.asInstanceOf[PrimaryWorkerTaskResult].content).body.content.transaction_id
 
     val taskStr2 = ContentPatch(path,
       DynamicBody(Obj.from("text" → "abc", "text2" → "klmn"))
@@ -252,7 +251,7 @@ class HyperStorageSpec extends FlatSpec
     worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskStr2)
     expectMsgType[BackgroundContentTask]
     val result2 = expectMsgType[ShardTaskComplete]
-    transactionList += response(result2.result.asInstanceOf[PrimaryWorkerTaskResult].content).body.content.transactionId
+    transactionList += response(result2.result.asInstanceOf[PrimaryWorkerTaskResult].content).body.content.transaction_id
 
     val taskStr3 = ContentDelete(path).serializeToString
     worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskStr3)
@@ -260,7 +259,7 @@ class HyperStorageSpec extends FlatSpec
     val workerResult = expectMsgType[ShardTaskComplete]
     val r = response(workerResult.result.asInstanceOf[PrimaryWorkerTaskResult].content)
     r.headers.statusCode should equal(Status.OK)
-    transactionList += r.body.content.transactionId
+    transactionList += r.body.content.transaction_id
     // todo: list of transactions!s
 
     val transactionsC = whenReady(db.selectContent(path, "")) { result =>

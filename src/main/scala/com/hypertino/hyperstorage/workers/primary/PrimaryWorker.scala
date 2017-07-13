@@ -5,7 +5,6 @@ import java.util.Date
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import akka.pattern.pipe
 import com.codahale.metrics.Timer
-import com.hypertino.binders.core.BindOptions
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperbus.transport.api.matchers.Specific
