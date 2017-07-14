@@ -166,7 +166,9 @@ class IntegratedSpec extends FlatSpec
     }
     implicit val so = SerializationOptions.forceOptionalFields
     import so._
-    val f = hyperbus.ask(ContentPatch(path, DynamicBody(Obj.from("b" → Null)))).runAsync
+    val r = ContentPatch(path, DynamicBody(Obj.from("b" → Null)))
+    //println(s"making request ${r.serializeToString}")
+    val f = hyperbus.ask(r).runAsync
     whenReady(f) { response ⇒
       response.headers.statusCode should equal(Status.OK)
     }
