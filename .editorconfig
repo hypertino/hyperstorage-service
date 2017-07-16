@@ -21,3 +21,7 @@ indent_size = 4
 [*.raml]
 indent_style = space
 indent_size = 2
+
+[*.cql]
+indent_style = space
+indent_size = 8

@@ -2,6 +2,7 @@ package com.hypertino.hyperstorage.workers.secondary
 
 import akka.actor.ActorRef
 import akka.event.LoggingAdapter
+import com.hypertino.binders.value.Null
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.db._
@@ -123,7 +124,9 @@ trait IndexContentTaskWorker {
 
     if (write) {
       val indexContent = IndexContent(
-        item.documentUri, indexDef.indexId, item.itemId, item.revision, item.body, item.createdAt, item.modifiedAt
+        item.documentUri, indexDef.indexId, item.itemId, item.revision,
+        if (indexDef.materialize) item.body else None,
+        item.createdAt, item.modifiedAt
       )
       db.insertIndexItem(indexDef.tableName, sortBy, indexContent) map { _ ⇒
         item.itemId

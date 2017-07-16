@@ -215,7 +215,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
         )
 
       case Some(indexDef) ⇒
-        db.selectIndexCollection(
+        val si = db.selectIndexCollection(
           indexDef.tableName,
           ops.documentUri,
           indexDef.indexId,
@@ -223,6 +223,21 @@ class HyperbusAdapter(hyperbus: Hyperbus,
           ops.ckFields,
           ops.limit
         )
+
+        if (!indexDef.materialize) {
+          si.flatMap { iterator ⇒
+            Future.sequence {
+              iterator.toSeq.map { c ⇒ // todo: optimize, we are fetching all page every time, when materialize is true
+                db.selectContent(c.documentUri, c.itemId)
+              }
+            }.map { seq ⇒
+              seq.flatten.toIterator
+            }
+          }
+        }
+        else {
+          si
+        }
     }
 
     f.map { iterator ⇒

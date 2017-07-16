@@ -23,6 +23,7 @@ class IndexingSpec extends FlatSpec
     val hyperbus = integratedHyperbus(db)
 
     val c1 = Obj.from("a" → "hello", "b" → 100500)
+    val c1x = c1 + Obj.from("id" → "item1")
     val f1 = hyperbus.ask(ContentPut("collection-1~/item1", DynamicBody(c1))).runAsync
     f1.futureValue.headers.statusCode should equal(Status.CREATED)
 
@@ -34,6 +35,7 @@ class IndexingSpec extends FlatSpec
     indexDef shouldBe defined
     indexDef.get.documentUri shouldBe "collection-1~"
     indexDef.get.indexId shouldBe "index1"
+    indexDef.get.materialize shouldBe true
 
     eventually {
       val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
@@ -50,6 +52,7 @@ class IndexingSpec extends FlatSpec
     }
 
     val c3 = Obj.from("a" → "goodbye", "b" → 123456)
+    val c3x = c3 + Obj.from("id" → "item2")
     val f3 = hyperbus.ask(ContentPut("collection-1~/item2", DynamicBody(c3))).runAsync
     f3.futureValue.headers.statusCode should equal(Status.CREATED)
 
@@ -59,6 +62,61 @@ class IndexingSpec extends FlatSpec
       indexContent(1).documentUri shouldBe "collection-1~"
       indexContent(1).itemId shouldBe "item2"
       indexContent(1).body.get should include("\"item2\"")
+    }
+
+    val f4 = hyperbus.ask(ContentGet(
+      path = "collection-1~",
+      filter = None,
+      size = Some(50)
+    )).runAsync
+    val rc4 = f4.futureValue
+
+    rc4.headers.statusCode shouldBe Status.OK
+    rc4.body.content shouldBe Lst.from(c1x, c3x)
+  }
+
+  it should "Create index without materialization and NO sorting or filtering" in {
+    cleanUpCassandra()
+    val hyperbus = integratedHyperbus(db)
+
+    val c1 = Obj.from("a" → "hello", "b" → 100500)
+    val f1 = hyperbus.ask(ContentPut("collection-1~/item1", DynamicBody(c1))).runAsync
+    f1.futureValue.headers.statusCode should equal(Status.CREATED)
+
+    val path = "collection-1~"
+    val f2 = hyperbus.ask(IndexPost(path, HyperStorageIndexNew(Some("index1"), Seq.empty, None, materialize=Some(false)))).runAsync
+    f2.futureValue.headers.statusCode should equal(Status.CREATED)
+
+    val indexDef = db.selectIndexDef("collection-1~", "index1").futureValue
+    indexDef shouldBe defined
+    indexDef.get.documentUri shouldBe "collection-1~"
+    indexDef.get.indexId shouldBe "index1"
+    indexDef.get.materialize shouldBe false
+
+    eventually {
+      val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+      indexDefUp shouldBe defined
+      indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
+    }
+
+    eventually {
+      val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+      indexContent.size shouldBe 1
+      indexContent.head.documentUri shouldBe "collection-1~"
+      indexContent.head.itemId shouldBe "item1"
+      indexContent.head.body shouldBe None
+    }
+
+    val c3 = Obj.from("a" → "goodbye", "b" → 123456)
+    val f3 = hyperbus.ask(ContentPut("collection-1~/item2", DynamicBody(c3))).runAsync
+    f3.futureValue.headers.statusCode should equal(Status.CREATED)
+
+    eventually {
+      val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+      indexContent.size shouldBe 2
+      indexContent(1).documentUri shouldBe "collection-1~"
+      indexContent(1).itemId shouldBe "item2"
+      indexContent(1).body shouldBe None
     }
   }
 
@@ -95,7 +153,7 @@ class IndexingSpec extends FlatSpec
     }
 
     val c2 = Obj.from("a" → "goodbye", "b" → 1)
-    val c2x = Obj(c2.toMap + "id" → "item2")
+    val c2x = c2 + Obj.from("id" → "item2")
     val f2 = hyperbus.ask(ContentPut("collection-1~/item2", DynamicBody(c2))).runAsync
     f2.futureValue.headers.statusCode should equal(Status.CREATED)
 

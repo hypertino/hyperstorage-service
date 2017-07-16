@@ -36,12 +36,14 @@ create table index_def(
     filter_by text,					-- filter expression
     table_name text,					-- table name with index content
     def_transaction_id timeuuid,			-- identifies ID of transaction creating index (see pending index)
+    materialize boolean,                                -- copy data into the index to avoid access to main table when selecting
+    unique boolean,                                     -- unique index
     primary key (document_uri, index_id)
 );
 
 create table pending_index(
-    partition int,					
-    document_uri text,					
+    partition int,
+    document_uri text,
     index_id text,
     last_item_id text,					-- last item that was indexed (this applies when we index collection first time)
     def_transaction_id timeuuid,			-- should match to index_def.def_transaction_id
