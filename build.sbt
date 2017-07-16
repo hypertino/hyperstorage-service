@@ -58,6 +58,8 @@ testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-h", "target/test-repor
 
 parallelExecution in Test := false
 
+fork in Test := true
+
 resolvers ++= Seq(
   Resolver.sonatypeRepo("public")
 )

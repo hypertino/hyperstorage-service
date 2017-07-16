@@ -227,12 +227,10 @@ class HyperbusAdapter(hyperbus: Hyperbus,
         if (!indexDef.materialize) {
           si.flatMap { iterator ⇒
             Future.sequence {
-              iterator.toSeq.map { c ⇒ // todo: optimize, we are fetching all page every time, when materialize is true
+              iterator.map { c ⇒ // todo: optimize, we are fetching all page every time, when materialize is true
                 db.selectContent(c.documentUri, c.itemId)
               }
-            }.map { seq ⇒
-              seq.flatten.toIterator
-            }
+            }.map(_.flatten)
           }
         }
         else {
