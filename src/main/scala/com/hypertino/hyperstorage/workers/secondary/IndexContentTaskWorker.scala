@@ -6,10 +6,11 @@ import com.hypertino.binders.value.Null
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.db._
-import com.hypertino.hyperstorage.indexing.{IndexDefTransaction, IndexLogic}
+import com.hypertino.hyperstorage.indexing.{IndexDefTransaction, IndexLogic, ItemIndexer}
 import com.hypertino.hyperstorage.sharding.ShardTaskComplete
 import com.hypertino.hyperstorage.utils.FutureUtils
 import com.hypertino.metrics.MetricsTracker
+import monix.execution.Scheduler
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
@@ -22,18 +23,13 @@ import scala.util.control.NonFatal
 
 @SerialVersionUID(1L) case class IndexContentTaskFailed(processId: Long, reason: String) extends RuntimeException(s"Index content task for process $processId is failed with reason $reason")
 
-trait IndexContentTaskWorker {
+trait IndexContentTaskWorker extends ItemIndexer {
   def hyperbus: Hyperbus
-
   def db: Db
-
   def tracker: MetricsTracker
-
   def log: LoggingAdapter
-
   def indexManager: ActorRef
-
-  implicit def executionContext: ExecutionContext
+  implicit def scheduler: Scheduler
 
   def validateCollectionUri(uri: String)
 
@@ -96,45 +92,6 @@ trait IndexContentTaskWorker {
         db.deletePendingIndex(
           TransactionLogic.partitionFromUri(indexDef.documentUri), indexDef.documentUri, indexDef.indexId, indexDef.defTransactionId
         )
-      }
-    }
-  }
-
-  def indexItem(indexDef: IndexDef, item: Content): Future[String] = {
-    val contentValue = item.bodyValue
-    val sortBy = IndexLogic.extractSortFieldValues(indexDef.sortByParsed, contentValue)
-
-    val write: Boolean = !item.isDeleted && (indexDef.filterBy.map { filterBy ⇒
-      try {
-        IndexLogic.evaluateFilterExpression(filterBy, contentValue)
-      } catch {
-        case NonFatal(e) ⇒
-          if (log.isDebugEnabled) {
-            log.debug(s"Can't evaluate expression: `$filterBy` for $item", e)
-          }
-          false
-      }
-    } getOrElse {
-      true
-    })
-
-    if (log.isDebugEnabled) {
-      log.debug(s"Indexing item $item with $indexDef ... ${if (write) "Accepted" else "Rejected"}")
-    }
-
-    if (write) {
-      val indexContent = IndexContent(
-        item.documentUri, indexDef.indexId, item.itemId, item.revision,
-        if (indexDef.materialize) item.body else None,
-        item.createdAt, item.modifiedAt
-      )
-      db.insertIndexItem(indexDef.tableName, sortBy, indexContent) map { _ ⇒
-        item.itemId
-      }
-    }
-    else {
-      Future.successful {
-        item.itemId
       }
     }
   }

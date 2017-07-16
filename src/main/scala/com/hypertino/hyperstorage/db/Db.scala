@@ -83,8 +83,7 @@ case class IndexDef(
                      filterBy: Option[String],
                      tableName: String,
                      defTransactionId: UUID,
-                     materialize: Boolean,
-                     unique: Boolean
+                     materialize: Boolean
                    ) {
   lazy val sortByParsed: Seq[HyperStorageIndexSortItem] = sortBy.map{ str ⇒
     import com.hypertino.binders.json.JsonBinders._
@@ -275,20 +274,20 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     """.bind(pendingIndex).execute()
 
   def selectIndexDef(documentUri: String, indexId: String): Future[Option[IndexDef]] = cql"""
-      select document_uri, index_id, status, sort_by, filter_by, table_name, def_transaction_id, materialize, unique
+      select document_uri, index_id, status, sort_by, filter_by, table_name, def_transaction_id, materialize
       from index_def
       where document_uri = $documentUri and index_id=$indexId
     """.oneOption[IndexDef]
 
   def selectIndexDefs(documentUri: String): Future[Iterator[IndexDef]] = cql"""
-      select document_uri, index_id, status, sort_by, filter_by, table_name, def_transaction_id, materialize, unique
+      select document_uri, index_id, status, sort_by, filter_by, table_name, def_transaction_id, materialize
       from index_def
       where document_uri = $documentUri
     """.all[IndexDef]
 
   def insertIndexDef(indexDef: IndexDef): Future[Unit] = cql"""
-      insert into index_def(document_uri, index_id, status, sort_by, filter_by, table_name, def_transaction_id, materialize, unique)
-      values (?,?,?,?,?,?,?,?,?)
+      insert into index_def(document_uri, index_id, status, sort_by, filter_by, table_name, def_transaction_id, materialize)
+      values (?,?,?,?,?,?,?,?)
     """.bind(indexDef).execute()
 
   def updateIndexDefStatus(documentUri: String, indexId: String, newStatus: Int, defTransactionId: UUID): Future[Unit] = cql"""

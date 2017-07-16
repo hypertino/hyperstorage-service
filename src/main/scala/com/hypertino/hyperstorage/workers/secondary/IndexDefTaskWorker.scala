@@ -89,8 +89,7 @@ trait IndexDefTaskWorker {
       }
       val indexDef = IndexDef(post.path, indexId, IndexDef.STATUS_INDEXING,
         IndexLogic.serializeSortByFields(post.body.sortBy), post.body.filterBy, tableName, defTransactionId = UUIDs.timeBased(),
-        post.body.materialize.getOrElse(true),
-        post.body.unique.getOrElse(false)
+        post.body.materialize.getOrElse(true)
       )
       val pendingIndex = PendingIndex(TransactionLogic.partitionFromUri(post.path), post.path, indexId, None, indexDef.defTransactionId)
 

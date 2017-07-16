@@ -37,7 +37,6 @@ create table index_def(
     table_name text,					-- table name with index content
     def_transaction_id timeuuid,			-- identifies ID of transaction creating index (see pending index)
     materialize boolean,                                -- copy data into the index to avoid access to main table when selecting
-    unique boolean,                                     -- unique index
     primary key (document_uri, index_id)
 );
 

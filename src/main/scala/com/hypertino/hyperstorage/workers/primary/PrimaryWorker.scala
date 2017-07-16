@@ -7,7 +7,6 @@ import akka.pattern.pipe
 import com.codahale.metrics.Timer
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model._
-import com.hypertino.hyperbus.transport.api.matchers.Specific
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.serialization.{MessageReader, SerializationOptions}
 import com.hypertino.hyperbus.util.IdGenerator
@@ -170,12 +169,12 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     val newTransaction = createNewTransaction(documentUri, itemId, request, existingContentStatic)
     val newContent = updateContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic)
     val obsoleteIndexItems = if (request.headers.method != Method.POST && ContentLogic.isCollectionUri(documentUri) && !itemId.isEmpty) {
-      findObsoleteIndexItems(existingContent,newContent,indexDefs)
+      findObsoleteIndexItems(existingContent, newContent, indexDefs)
     }
     else {
       None
     }
-    val newTransactionWithOI = newTransaction.copy(obsoleteIndexItems=obsoleteIndexItems)
+    val newTransactionWithOI = newTransaction.copy(obsoleteIndexItems = obsoleteIndexItems)
     db.insertTransaction(newTransactionWithOI) flatMap { _ ⇒ {
       if (!itemId.isEmpty && newContent.isDeleted) {
         // deleting item
@@ -356,7 +355,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       val transactionId = transaction.documentUri + ":" + transaction.uuid + ":" + transaction.revision
       val result: Response[Body] = if (created) {
         Created(HyperStorageTransactionCreated(transactionId,
-          path = request.path), location=HRL(TransactionGet.location, Obj.from("transactionId"→transactionId)))
+          path = request.path), location=HRL(TransactionGet.location, Obj.from("transaction_id"→transactionId)))
       }
       else {
         Ok(api.HyperStorageTransaction(transactionId))

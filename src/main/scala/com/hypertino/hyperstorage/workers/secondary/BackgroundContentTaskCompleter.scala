@@ -10,6 +10,7 @@ import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model.{DynamicRequest, _}
 import com.hypertino.hyperbus.serialization.MessageReader
 import com.hypertino.hyperstorage.db.{Transaction, _}
+import com.hypertino.hyperstorage.indexing.ItemIndexer
 import com.hypertino.hyperstorage.metrics.Metrics
 import com.hypertino.hyperstorage.sharding.ShardTaskComplete
 import com.hypertino.hyperstorage.utils.FutureUtils
@@ -31,7 +32,7 @@ import scala.util.control.NonFatal
 
 @SerialVersionUID(1L) case class BackgroundContentTaskFailedException(documentUri: String, reason: String) extends RuntimeException(s"Background task for $documentUri is failed: $reason")
 
-trait BackgroundContentTaskCompleter {
+trait BackgroundContentTaskCompleter extends ItemIndexer {
   def hyperbus: Hyperbus
   def db: Db
   def tracker: MetricsTracker
@@ -39,7 +40,6 @@ trait BackgroundContentTaskCompleter {
   implicit def scheduler: Scheduler
 
   def deleteIndexDefAndData(indexDef: IndexDef): Future[Unit]
-  def indexItem(indexDef: IndexDef, item: Content): Future[String]
 
   def executeBackgroundTask(owner: ActorRef, task: BackgroundContentTask): Future[ShardTaskComplete] = {
     try {
