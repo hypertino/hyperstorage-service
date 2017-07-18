@@ -1,4 +1,4 @@
-name := "hyper-storage"
+name := "hyperstorage"
 
 organization := "com.hypertino"
 
