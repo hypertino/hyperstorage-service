@@ -3,38 +3,38 @@ import java.util.UUID
 import akka.actor._
 import akka.cluster.Cluster
 import akka.testkit.{TestActorRef, _}
-import akka.util.Timeout
 import com.codahale.metrics.ScheduledReporter
 import com.datastax.driver.core.utils.UUIDs
-import com.typesafe.config.ConfigFactory
 import com.hypertino.hyperbus.Hyperbus
-import com.hypertino.hyperbus.model.{DynamicBody, DynamicResponse, Response, StandardResponse}
+import com.hypertino.hyperbus.model.{DynamicResponse, StandardResponse}
 import com.hypertino.hyperbus.serialization.MessageReader
+import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.db.{Db, Transaction}
 import com.hypertino.hyperstorage.indexing.IndexManager
+import com.hypertino.hyperstorage.modules.{HyperStorageServiceModule, SystemServiceModule}
 import com.hypertino.hyperstorage.sharding._
-import com.hypertino.hyperstorage._
-import com.hypertino.hyperstorage.modules.ModuleAggregator.{config, loadConfigInjectedModules}
-import com.hypertino.hyperstorage.modules.{ModuleAggregator, ServiceModule}
 import com.hypertino.hyperstorage.workers.primary.PrimaryWorker
 import com.hypertino.hyperstorage.workers.secondary.SecondaryWorker
 import com.hypertino.metrics.MetricsTracker
 import com.hypertino.metrics.modules.{ConsoleReporterModule, MetricsModule}
-import com.hypertino.service.config.ConfigLoader
+import com.hypertino.service.config.ConfigModule
+import com.typesafe.config.ConfigFactory
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.{BeforeAndAfterEach, Matchers}
 import org.slf4j.LoggerFactory
 import scaldi.Injectable
 
 import scala.collection.concurrent.TrieMap
+import scala.concurrent.Await
 import scala.concurrent.duration._
-import scala.concurrent.{Await, ExecutionContext}
 
 trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures with Injectable {
   this: org.scalatest.BeforeAndAfterEach with org.scalatest.Suite =>
   private[this] val log = LoggerFactory.getLogger(getClass)
 
-  implicit val injector =loadConfigInjectedModules(new ServiceModule(ConfigLoader())) :: new MetricsModule :: new ConsoleReporterModule(Duration.Inf).injector
+  implicit val injector = new SystemServiceModule :: new HyperStorageServiceModule :: new MetricsModule ::
+    new ConsoleReporterModule(Duration.Inf).injector :: ConfigModule()
+
   val tracker = inject[MetricsTracker]
   val reporter = inject[ScheduledReporter]
   val _actorSystems = TrieMap[Int, ActorSystem]()
