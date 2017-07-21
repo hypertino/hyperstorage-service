@@ -231,7 +231,7 @@ TODO: path:* не актуален, изменить доку
 
 Задача, пока ее кто-то придержал или форвардил другому может стать устаревшей `ShardTask.isExpired`, в этом случае она выбрасывается.
 
-> В Akka Cluster, все ноды HyperStorage должны иметь роль `"hyper-storage"` (параметр akka.cluster.roles)
+> В Akka Cluster, все ноды HyperStorage должны иметь роль `"hyperstorage"` (параметр akka.cluster.roles)
 
 ### Активация
 
