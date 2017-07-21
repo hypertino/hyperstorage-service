@@ -10,7 +10,7 @@ crossScalaVersions := Seq("2.11.8")
 
 ramlHyperbusSources := Seq(
   ramlSource(
-    path = "api/hyper-storage-service-api/hyperstorage.raml",
+    path = "api/hyperstorage-service-api/hyperstorage.raml",
     packageName = "com.hypertino.hyperstorage.api",
     isResource = false
   )

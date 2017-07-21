@@ -36,7 +36,7 @@ class IntegratedSpec extends FlatSpec
 
   import MessagingContext.Implicits.emptyContext
 
-  "HyperStorageIntegrated" should "Test hyper-storage PUT+GET simple example" in {
+  "HyperStorageIntegrated" should "Test hyperstorage PUT+GET simple example" in {
     val hyperbus = testHyperbus()
     val tk = testKit()
     import tk._
@@ -46,8 +46,8 @@ class IntegratedSpec extends FlatSpec
     val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
     val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
     val workerSettings = Map(
-      "hyper-storage-primary-worker" → (workerProps, 1, "pgw-"),
-      "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+      "hyperstorage-primary-worker" → (workerProps, 1, "pgw-"),
+      "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
     )
 
     val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))
@@ -80,7 +80,7 @@ class IntegratedSpec extends FlatSpec
     } futureValue
   }
 
-  it should "Test hyper-storage PUT+GET+Event" in {
+  it should "Test hyperstorage PUT+GET+Event" in {
     val hyperbus = testHyperbus()
     val tk = testKit()
     import tk._
@@ -90,8 +90,8 @@ class IntegratedSpec extends FlatSpec
     val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
     val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
     val workerSettings = Map(
-      "hyper-storage-primary-worker" → (workerProps, 1, "pgw-"),
-      "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+      "hyperstorage-primary-worker" → (workerProps, 1, "pgw-"),
+      "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
     )
 
     val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))
@@ -130,7 +130,7 @@ class IntegratedSpec extends FlatSpec
     }
   }
 
-  it should "Null patch with hyper-storage (integrated)" in {
+  it should "Null patch with hyperstorage (integrated)" in {
     val hyperbus = testHyperbus()
     val tk = testKit()
     import tk._
@@ -140,8 +140,8 @@ class IntegratedSpec extends FlatSpec
     val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
     val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
     val workerSettings = Map(
-      "hyper-storage-primary-worker" → (workerProps, 1, "pgw-"),
-      "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+      "hyperstorage-primary-worker" → (workerProps, 1, "pgw-"),
+      "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
     )
 
     val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))
@@ -186,7 +186,7 @@ class IntegratedSpec extends FlatSpec
     }
   }
 
-  it should "Test hyper-storage PUT+GET+GET Collection+Event" in {
+  it should "Test hyperstorage PUT+GET+GET Collection+Event" in {
     val hyperbus = testHyperbus()
     val tk = testKit()
     import tk._
@@ -196,8 +196,8 @@ class IntegratedSpec extends FlatSpec
     val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
     val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
     val workerSettings = Map(
-      "hyper-storage-primary-worker" → (workerProps, 1, "pgw-"),
-      "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+      "hyperstorage-primary-worker" → (workerProps, 1, "pgw-"),
+      "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
     )
 
     val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))
@@ -267,7 +267,7 @@ class IntegratedSpec extends FlatSpec
     }
   }
 
-  it should "Test hyper-storage POST+GET+GET Collection+Event" in {
+  it should "Test hyperstorage POST+GET+GET Collection+Event" in {
     val hyperbus = testHyperbus()
     val tk = testKit()
     import tk._
@@ -277,8 +277,8 @@ class IntegratedSpec extends FlatSpec
     val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
     val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
     val workerSettings = Map(
-      "hyper-storage-primary-worker" → (workerProps, 1, "pgw-"),
-      "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+      "hyperstorage-primary-worker" → (workerProps, 1, "pgw-"),
+      "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
     )
 
     val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))

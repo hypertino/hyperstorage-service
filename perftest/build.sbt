@@ -1,6 +1,6 @@
 import sbt.Keys._
 
-name := "hyper-storage-perftest"
+name := "hyperstorage-perftest"
 
 organization := "eu.inn"
 

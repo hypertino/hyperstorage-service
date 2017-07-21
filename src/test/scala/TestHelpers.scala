@@ -68,8 +68,8 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
     val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, indexManager, scheduler)
     val workerSettings = Map(
-      "hyper-storage-primary-worker" → (workerProps, 1, "pgw-"),
-      "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+      "hyperstorage-primary-worker" → (workerProps, 1, "pgw-"),
+      "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
     )
 
     val processor = new TestFSMRef[ShardMemberStatus, ShardedClusterData, ShardProcessor](system,
@@ -95,7 +95,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
   def testActorSystem(index: Int = 0) = {
     testHyperbus(index)
     _actorSystems.getOrElseUpdate(index, {
-      val config = ConfigFactory.load().getConfig(s"actor-system-registry.hyper-storage-$index")
+      val config = ConfigFactory.load().getConfig(s"actor-system-registry.hyperstorage-$index")
       ActorSystem(config.getString("actor-system-name"), config)
     })
   }

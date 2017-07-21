@@ -19,7 +19,7 @@ trait SecondaryTaskTrait extends ShardTask {
 
   def isExpired = ttl < System.currentTimeMillis()
 
-  def group = "hyper-storage-secondary-worker"
+  def group = "hyperstorage-secondary-worker"
 }
 
 @SerialVersionUID(1L) case class SecondaryTaskFailed(key: String, reason: String) extends RuntimeException(s"Secondary task for '$key' is failed with reason $reason")

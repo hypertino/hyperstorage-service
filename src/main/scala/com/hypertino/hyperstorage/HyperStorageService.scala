@@ -86,8 +86,8 @@ class HyperStorageService(implicit val scheduler: Scheduler,
   private val primaryWorkerProps = PrimaryWorker.props(hyperbus, db, tracker, backgroundTaskTimeout)
   private val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, indexManagerRef, scheduler)
   private val workerSettings = Map(
-    "hyper-storage-primary-worker" → (primaryWorkerProps, maxWorkers, "pgw-"),
-    "hyper-storage-secondary-worker" → (secondaryWorkerProps, maxWorkers, "sgw-")
+    "hyperstorage-primary-worker" → (primaryWorkerProps, maxWorkers, "pgw-"),
+    "hyperstorage-secondary-worker" → (secondaryWorkerProps, maxWorkers, "sgw-")
   )
 
   // shard processor actor
