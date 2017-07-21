@@ -11,7 +11,7 @@ import com.hypertino.hyperbus.serialization.MessageReader
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.db.{Db, Transaction}
 import com.hypertino.hyperstorage.indexing.IndexManager
-import com.hypertino.hyperstorage.modules.{HyperStorageServiceModule, SystemServiceModule}
+import com.hypertino.hyperstorage.modules.{HyperStorageServiceModule, SystemServicesModule}
 import com.hypertino.hyperstorage.sharding._
 import com.hypertino.hyperstorage.workers.primary.PrimaryWorker
 import com.hypertino.hyperstorage.workers.secondary.SecondaryWorker
@@ -32,7 +32,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
   this: org.scalatest.BeforeAndAfterEach with org.scalatest.Suite =>
   private[this] val log = LoggerFactory.getLogger(getClass)
 
-  implicit val injector = new SystemServiceModule :: new HyperStorageServiceModule :: new MetricsModule ::
+  implicit val injector = new SystemServicesModule :: new HyperStorageServiceModule :: new MetricsModule ::
     new ConsoleReporterModule(Duration.Inf).injector :: ConfigModule()
 
   val tracker = inject[MetricsTracker]
