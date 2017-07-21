@@ -8,7 +8,7 @@ import scaldi.Module
 class HyperStorageServiceModule extends Module {
   bind[CassandraConnector] to new CassandraConnector {
     override def connect(): Session = {
-      CassandraConnector.createCassandraSession(inject[Config].getConfig("cassandra"))
+      CassandraConnector.createCassandraSession(inject[Config].getConfig("hyper-storage.cassandra"))
     }
   }
   bind[HyperStorageService] to injected[HyperStorageService]

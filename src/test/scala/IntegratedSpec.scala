@@ -50,7 +50,7 @@ class IntegratedSpec extends FlatSpec
       "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
     )
 
-    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
+    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
     Thread.sleep(2000)
@@ -94,7 +94,7 @@ class IntegratedSpec extends FlatSpec
       "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
     )
 
-    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
+    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
     Thread.sleep(2000)
@@ -144,7 +144,7 @@ class IntegratedSpec extends FlatSpec
       "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
     )
 
-    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
+    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
     Thread.sleep(2000)
@@ -200,7 +200,7 @@ class IntegratedSpec extends FlatSpec
       "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
     )
 
-    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
+    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
     Thread.sleep(2000)
@@ -281,7 +281,7 @@ class IntegratedSpec extends FlatSpec
       "hyper-storage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
     )
 
-    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyper-storage", tracker))
+    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
     Thread.sleep(2000)

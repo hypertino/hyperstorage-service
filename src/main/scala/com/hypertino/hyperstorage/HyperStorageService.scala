@@ -12,15 +12,14 @@ import com.hypertino.hyperstorage.sharding.{ShardProcessor, ShutdownProcessor, S
 import com.hypertino.hyperstorage.workers.primary.PrimaryWorker
 import com.hypertino.hyperstorage.workers.secondary.SecondaryWorker
 import com.hypertino.metrics.MetricsTracker
-import com.hypertino.service.control.api.{Console, Service}
+import com.hypertino.service.control.api.Service
 import com.typesafe.config.Config
-import monix.eval.Task
 import monix.execution.Scheduler
 import org.slf4j.LoggerFactory
 import scaldi.{Injectable, Injector}
 
+import scala.concurrent.Future
 import scala.concurrent.duration.FiniteDuration
-import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.util.control.NonFatal
 
 case class HyperStorageConfig(
@@ -48,7 +47,7 @@ class HyperStorageService(implicit val scheduler: Scheduler,
 
   import com.hypertino.binders.config.ConfigBinders._
 
-  private val serviceConfig = config.getValue("hyper-storage").read[HyperStorageConfig]
+  private val serviceConfig = config.getValue("hyperstorage").read[HyperStorageConfig]
 
   log.info(s"HyperStorage configuration: $config")
 
@@ -63,7 +62,7 @@ class HyperStorageService(implicit val scheduler: Scheduler,
   private val hyperbus = inject[Hyperbus]
 
   // currently we rely on the name of system
-  private val actorSystem = ActorSystem("hyper-storage")
+  private val actorSystem = ActorSystem("hyperstorage", config.getConfig("actor-system"))
   // ActorSystemRegistry.get("eu-inn").get
   private val cluster = Cluster(actorSystem)
 
@@ -93,7 +92,7 @@ class HyperStorageService(implicit val scheduler: Scheduler,
 
   // shard processor actor
   private val shardProcessorRef = actorSystem.actorOf(
-    ShardProcessor.props(workerSettings, "hyper-storage", tracker, shardSyncTimeout), "hyper-storage"
+    ShardProcessor.props(workerSettings, "hyperstorage", tracker, shardSyncTimeout), "hyperstorage"
   )
 
   private val hyperbusAdapter = new HyperbusAdapter(hyperbus, shardProcessorRef, db, tracker, requestTimeout)
