@@ -62,7 +62,7 @@ class HyperStorageService(implicit val scheduler: Scheduler,
   private val hyperbus = inject[Hyperbus]
 
   // currently we rely on the name of system
-  private val actorSystem = ActorSystem("hyperstorage", config.getConfig("actor-system"))
+  private val actorSystem = ActorSystem("hyperstorage", config.getConfig("hyperstorage.actor-system"))
   // ActorSystemRegistry.get("eu-inn").get
   private val cluster = Cluster(actorSystem)
 

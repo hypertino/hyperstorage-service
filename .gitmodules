@@ -1,3 +1,6 @@
 [submodule "api/hyper-storage-service-api"]
 	path = api/hyper-storage-service-api
 	url = git@github.com:hypertino/hyper-storage-service-api.git
+[submodule "api/hyperstorage-service-api"]
+	path = api/hyperstorage-service-api
+	url = git@github.com:hypertino/hyperstorage-service-api.git
