@@ -39,7 +39,7 @@ class HyperStorageService(implicit val scheduler: Scheduler,
                           implicit val injector: Injector) extends Service with Injectable {
 
   private var log = LoggerFactory.getLogger(getClass)
-  log.info(s"Starting HyperStorage service v${BuildInfo.version}...")
+  log.info(s"Starting Hyperstorage service v${BuildInfo.version}...")
 
   // configuration
   private val config: Config = inject[Config]
@@ -49,7 +49,7 @@ class HyperStorageService(implicit val scheduler: Scheduler,
 
   private val serviceConfig = config.getValue("hyperstorage").read[HyperStorageConfig]
 
-  log.info(s"HyperStorage configuration: $config")
+  log.info(s"Hyperstorage configuration: $config")
 
   // metrics tracker
   private val tracker = inject[MetricsTracker]
@@ -112,7 +112,7 @@ class HyperStorageService(implicit val scheduler: Scheduler,
   log.info(s"Launching index manager")
   shardProcessorRef ! SubscribeToShardStatus(indexManagerRef)
 
-  log.info("HyperStorage started!")
+  log.info("Hyperstorage started!")
 
   // shutdown
   override def stopService(controlBreak: Boolean, timeout: FiniteDuration): Future[Unit] = {
@@ -122,7 +122,7 @@ class HyperStorageService(implicit val scheduler: Scheduler,
       hyperbusAdapter.off().timeout(timeout / 2).runAsync
     )
 
-    log.info("Stopping HyperStorage service...")
+    log.info("Stopping Hyperstorage service...")
     Future.sequence(step1)
       .recover(logException("Service didn't stopped gracefully"))
       .flatMap { _ ⇒
@@ -140,7 +140,7 @@ class HyperStorageService(implicit val scheduler: Scheduler,
       }
       .recover(logException("ActorSystem didn't stopped gracefully"))
       .map { _ ⇒
-        log.info("HyperStorage stopped.")
+        log.info("Hyperstorage stopped.")
       }
   }
 
