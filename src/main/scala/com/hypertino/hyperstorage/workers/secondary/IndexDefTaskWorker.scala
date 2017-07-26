@@ -7,10 +7,9 @@ import akka.event.LoggingAdapter
 import akka.pattern.ask
 import akka.util.Timeout
 import com.datastax.driver.core.utils.UUIDs
-import com.fasterxml.jackson.core.JsonParser
-import com.hypertino.hyperbus.model._
-import com.hypertino.hyperbus.serialization.{MessageDeserializer, MessageReader, RequestDeserializer}
 import com.hypertino.hyperbus.Hyperbus
+import com.hypertino.hyperbus.model._
+import com.hypertino.hyperbus.serialization.{MessageReader, RequestDeserializer}
 import com.hypertino.hyperbus.util.IdGenerator
 import com.hypertino.hyperstorage.api.{IndexPost, _}
 import com.hypertino.hyperstorage.db._
@@ -18,7 +17,6 @@ import com.hypertino.hyperstorage.indexing.{IndexDefTransaction, IndexLogic, Ind
 import com.hypertino.hyperstorage.sharding.ShardTaskComplete
 import com.hypertino.hyperstorage.{ResourcePath, _}
 import com.hypertino.metrics.MetricsTracker
-import org.apache.kafka.common.requests.RequestHeader
 
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}

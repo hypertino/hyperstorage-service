@@ -34,9 +34,8 @@ libraryDependencies ++= Seq(
   "com.hypertino"               %% "typesafe-config-binders"      % "0.13-SNAPSHOT",
 
   "com.hypertino"               %% "hyperbus"                     % "0.2-SNAPSHOT",
-  "com.hypertino"               %% "hyperbus-t-inproc"            % "0.2-SNAPSHOT",
-  "com.hypertino"               %% "hyperbus-t-kafka"             % "0.2-SNAPSHOT",
-  "com.hypertino"               %% "hyperbus-t-zeromq"            % "0.2-SNAPSHOT",
+//  "com.hypertino"               %% "hyperbus-t-kafka"             % "0.2-SNAPSHOT",
+//  "com.hypertino"               %% "hyperbus-t-zeromq"            % "0.2-SNAPSHOT",
 
   "com.hypertino"               %% "cassandra-binders"            % "0.2-SNAPSHOT",
   "com.hypertino"               %% "expression-parser"            % "0.1-SNAPSHOT",
@@ -46,9 +45,10 @@ libraryDependencies ++= Seq(
 
   "com.datastax.cassandra"      % "cassandra-driver-core"         % "2.1.9",
   "ch.qos.logback"              % "logback-classic"               % "1.1.3",
+  "com.hypertino"               %% "hyperbus-t-inproc"            % "0.2-SNAPSHOT"  % "test",
   "org.scalamock"               %% "scalamock-scalatest-support"  % "3.5.0"         % "test",
   "org.mockito"                 % "mockito-all"                   % "1.10.19"       % "test",
-  "com.typesafe.akka"           %% "akka-testkit"                 % "2.4.19"         % "test",
+  "com.typesafe.akka"           %% "akka-testkit"                 % "2.4.19"        % "test",
   "org.cassandraunit"           % "cassandra-unit"                % "2.2.2.1"       % "test",
   "junit"                       % "junit"                         % "4.12"          % "test",
   "org.pegdown"                 % "pegdown"                       % "1.6.0"         % "test"
