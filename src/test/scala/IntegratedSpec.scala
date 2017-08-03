@@ -352,6 +352,16 @@ class IntegratedSpec extends FlatSpec
         Lst.from(c1x, c2x)
       )
     }
+
+    val f6 = hyperbus.ask(ContentGet("collection-2~", size = Some(0))).runAsync
+
+    whenReady(f6) { response ⇒
+      response.headers.statusCode should equal(Status.OK)
+      response.body.content should equal(
+        Lst.empty
+      )
+      response.headers.get(Header.COUNT) shouldBe Some(Number(2))
+    }
   }
 }
 

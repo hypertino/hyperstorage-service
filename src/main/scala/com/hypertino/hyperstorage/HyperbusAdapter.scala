@@ -124,13 +124,20 @@ class HyperbusAdapter(hyperbus: Hyperbus,
     for {
       contentStatic ← db.selectContentStatic(resourcePath.documentUri)
       indexDefs ← indexDefsFuture
-      (collectionStream, revisionOpt) ← selectCollection(resourcePath.documentUri, indexDefs, request.filter, sortBy, pageSize, skipMax)
+      (collectionStream, revisionOpt) ←
+        if (pageSize > 0) {
+          selectCollection(resourcePath.documentUri, indexDefs, request.filter, sortBy, pageSize, skipMax)
+        }
+        else {
+          Future{(List.empty, None)}
+        }
     } yield {
       if (contentStatic.isDefined && contentStatic.forall(!_.isDeleted)) {
         val result = Lst(collectionStream)
+        val revision = if (pageSize == 0) Some(contentStatic.get.revision) else revisionOpt
 
         val headersMap: HeadersMap = HeadersMap(
-          revisionOpt.map(r ⇒ Header.REVISION → Number(r)).toSeq ++
+          revision.map(r ⇒ Header.REVISION → Number(r)).toSeq ++
             contentStatic.get.count.map(count ⇒ Header.COUNT → Number(count)).toSeq
             : _*
         )
