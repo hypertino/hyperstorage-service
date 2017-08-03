@@ -4,6 +4,7 @@ create table content (
 	revision bigint static,				-- revision of document
 	transaction_list list<timeuuid> static,		-- transactions in progress
 	is_deleted boolean static,			-- flag that document is deleted (collection items removed from table)
+	count bigint static,                            -- count of items in collection
 	body text,					-- body content
 	created_at timestamp,
 	modified_at timestamp,

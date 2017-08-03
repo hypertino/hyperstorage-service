@@ -165,8 +165,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
                              existingContentStatic: Option[ContentBase],
                              indexDefs: Seq[IndexDef]
                             ): Future[Transaction] = {
-
-    val newTransaction = createNewTransaction(documentUri, itemId, request, existingContentStatic)
+    val newTransaction = createNewTransaction(documentUri, itemId, request, existingContent, existingContentStatic)
     val newContent = updateContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic)
     val obsoleteIndexItems = if (request.headers.method != Method.POST && ContentLogic.isCollectionUri(documentUri) && !itemId.isEmpty) {
       findObsoleteIndexItems(existingContent, newContent, indexDefs)
@@ -223,11 +222,17 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     }
   }
 
-  private def createNewTransaction(documentUri: String, itemId: String, request: DynamicRequest, existingContent: Option[ContentBase]): Transaction = {
-    val revision = existingContent match {
+  private def createNewTransaction(documentUri: String,
+                                   itemId: String,
+                                   request: DynamicRequest,
+                                   existingContent: Option[Content],
+                                   existingContentStatic: Option[ContentBase]): Transaction = {
+    val revision = existingContentStatic match {
       case None ⇒ 1
       case Some(content) ⇒ content.revision + 1
     }
+
+    val recordCount = existingContent.map(_ ⇒ 0 ).getOrElse(1)
 
     // always preserve null fields in transaction
     // this is required to correctly publish patch events
@@ -236,6 +241,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       headers = Headers.builder
         .++=(request.headers)
         .+=(Header.REVISION → Number(revision))
+        .+=(Header.COUNT → Number(recordCount))
         .withMethod("feed:" + request.headers.method)
         .requestHeaders()
     ).serializeToString
@@ -262,7 +268,8 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
                          existingContentStatic: Option[ContentBase]): Content = {
     implicit val mcx = request
 
-    if (ContentLogic.isCollectionUri(documentUri) && itemId.isEmpty) {
+    val isCollection = ContentLogic.isCollectionUri(documentUri)
+    if (isCollection && itemId.isEmpty) {
       throw Conflict(ErrorBody("collection-put-not-implemented", Some(s"Currently you can't put the whole collection")))
     }
 
@@ -270,17 +277,24 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       case None ⇒
         Content(documentUri, itemId, newTransaction.revision,
           transactionList = List(newTransaction.uuid),
-          body = Some(request.body.serializeToString),
           isDeleted = false,
+          count = if (isCollection) Some(1) else None,
+          body = Some(request.body.serializeToString),
           createdAt = existingContent.map(_.createdAt).getOrElse(new Date),
           modifiedAt = existingContent.flatMap(_.modifiedAt)
         )
 
       case Some(static) ⇒
+        val newCount = if (isCollection) {
+          static.count.map(_ + (if (existingContent.isEmpty) 1 else 0))
+        } else {
+          None
+        }
         Content(documentUri, itemId, newTransaction.revision,
           transactionList = newTransaction.uuid +: static.transactionList,
-          body = Some(request.body.serializeToString),
           isDeleted = false,
+          count = newCount,
+          body = Some(request.body.serializeToString),
           createdAt = existingContent.map(_.createdAt).getOrElse(new Date),
           modifiedAt = existingContent.flatMap(_.modifiedAt)
         )
@@ -300,6 +314,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       case Some(content) if !content.isDeleted ⇒
         Content(documentUri, itemId, newTransaction.revision,
           transactionList = newTransaction.uuid +: content.transactionList,
+          count = content.count,
           body = mergeBody(content.bodyValue, request.body.content),
           isDeleted = false,
           createdAt = content.createdAt,
@@ -338,6 +353,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     case Some(content) ⇒
       Content(documentUri, itemId, newTransaction.revision,
         transactionList = newTransaction.uuid +: content.transactionList,
+        count = content.count.map(_ - 1),
         body = None,
         isDeleted = true,
         createdAt = existingContent.map(_.createdAt).getOrElse(new Date()),

@@ -21,12 +21,15 @@ trait ContentBase {
   def transactionList: List[UUID]
 
   def isDeleted: Boolean
+
+  def count: Option[Long]
 }
 
 trait CollectionContent {
   def documentUri: String
   def itemId: String
   def revision: Long
+  def count: Option[Long]
   def body: Option[String]
   def createdAt: Date
   def modifiedAt: Option[Date]
@@ -42,8 +45,9 @@ case class Content(
                     itemId: String,
                     revision: Long,
                     transactionList: List[UUID],
-                    body: Option[String],
+                    count: Option[Long],
                     isDeleted: Boolean,
+                    body: Option[String],
                     createdAt: Date,
                     modifiedAt: Option[Date]
                   ) extends ContentBase with CollectionContent
@@ -52,7 +56,8 @@ case class ContentStatic(
                           documentUri: String,
                           revision: Long,
                           transactionList: List[UUID],
-                          isDeleted: Boolean
+                          isDeleted: Boolean,
+                          count: Option[Long]
                         ) extends ContentBase
 
 case class Transaction(
@@ -99,7 +104,9 @@ case class IndexContent(
                          body: Option[String],
                          createdAt: Date,
                          modifiedAt: Option[Date]
-                       ) extends CollectionContent
+                       ) extends CollectionContent {
+  def count = None
+}
 
 object IndexDef {
   val STATUS_INDEXING = 0
@@ -140,7 +147,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
   }
 
   def selectContent(documentUri: String, itemId: String): Future[Option[Content]] = cql"""
-      select document_uri,item_id,revision,transaction_list,is_deleted,body,created_at,modified_at from content
+      select document_uri,item_id,revision,transaction_list,is_deleted,count,body,created_at,modified_at from content
       where document_uri=$documentUri and item_id=$itemId
     """.oneOption[Content]
 
@@ -161,7 +168,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     }.getOrElse(""))
 
     val c = cql"""
-      select document_uri,item_id,revision,transaction_list,is_deleted,body,created_at,modified_at from content
+      select document_uri,item_id,revision,transaction_list,is_deleted,count,body,created_at,modified_at from content
       where document_uri=? $itemIdFilterDynamic
       $orderClause
       limit ?
@@ -178,20 +185,20 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
   }
 
   def selectContentStatic(documentUri: String): Future[Option[ContentStatic]] = cql"""
-      select document_uri,revision,transaction_list,is_deleted from content
+      select document_uri,revision,transaction_list,is_deleted,count from content
       where document_uri=$documentUri
       limit 1
     """.oneOption[ContentStatic]
 
   def insertContent(content: Content): Future[Unit] = cql"""
-      insert into content(document_uri,item_id,revision,transaction_list,is_deleted,body,created_at,modified_at)
-      values(?,?,?,?,?,?,?,?)
+      insert into content(document_uri,item_id,revision,transaction_list,is_deleted,count,body,created_at,modified_at)
+      values(?,?,?,?,?,?,?,?,?)
     """.bind(content).execute()
 
   def deleteContentItem(content: ContentBase, itemId: String): Future[Unit] = cql"""
       begin batch
         update content
-        set transaction_list = ${content.transactionList}, revision = ${content.revision}
+        set transaction_list = ${content.transactionList}, revision = ${content.revision}, count = ${content.count}
         where document_uri = ${content.documentUri};
         delete from content
         where document_uri = ${content.documentUri} and item_id = $itemId;
@@ -307,8 +314,8 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     val sortFieldPlaces = if (sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_ ⇒ "?").mkString(",", ",", ""))
 
     val cql = cql"""
-      insert into $tableName(document_uri,index_id,item_id,revision,body,created_at,modified_at$sortFieldNames)
-      values(?,?,?,?,?,?,?$sortFieldPlaces)
+      insert into $tableName(document_uri,index_id,item_id,revision,count,body,created_at,modified_at$sortFieldNames)
+      values(?,?,?,?,?,?,?,?$sortFieldPlaces)
     """.bindPartial(indexContent)
 
     bindSortFields(cql, sortFields)
@@ -391,7 +398,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     val tableName = Dynamic(indexTable)
     cql"""
       update $tableName
-      set revision = ${revision}
+      set revision = $revision
       where document_uri = $documentUri and index_id = $indexId
     """.execute()
   }

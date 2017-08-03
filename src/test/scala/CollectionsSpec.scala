@@ -5,6 +5,7 @@ import com.hypertino.binders.value._
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperbus.serialization.SerializationOptions
+import com.hypertino.hyperbus.util.SeqGenerator
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.api._
 import com.hypertino.hyperstorage.sharding._
@@ -36,49 +37,55 @@ class CollectionsSpec extends FlatSpec
 
     val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
 
+    val collection = SeqGenerator.create() + "~"
+    val item1 = SeqGenerator.create()
+
     val task = ContentPut(
-      path = "collection-1~/test-resource-1",
+      path = s"$collection/$item1",
       DynamicBody(Obj.from("text" → "Test item value", "null" → Null))
     )
 
-    db.selectContent("collection-1~", "test-resource-1").futureValue shouldBe None
+    db.selectContent(collection, item1).futureValue shouldBe None
 
     val taskStr = task.serializeToString
-    worker ! PrimaryTask("collection-1~", System.currentTimeMillis() + 10000, taskStr)
+    worker ! PrimaryTask(collection, System.currentTimeMillis() + 10000, taskStr)
     val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
-    backgroundWorkerTask.documentUri should equal("collection-1~")
+    backgroundWorkerTask.documentUri should equal(collection)
     val workerResult = expectMsgType[ShardTaskComplete]
     val r = response(workerResult.result.asInstanceOf[PrimaryWorkerTaskResult].content)
     r.headers.statusCode should equal(Status.CREATED)
     r.headers.correlationId should equal(task.correlationId)
 
-    val content = db.selectContent("collection-1~", "test-resource-1").futureValue
+    val content = db.selectContent(collection, item1).futureValue
     content shouldNot equal(None)
-    content.get.body should equal(Some("""{"text":"Test item value","id":"test-resource-1"}"""))
+    content.get.body should equal(Some(s"""{"text":"Test item value","id":"$item1"}"""))
     content.get.transactionList.size should equal(1)
     content.get.revision should equal(1)
+    content.get.count should equal(Some(1))
     val uuid = content.get.transactionList.head
 
+    val item2 = SeqGenerator.create()
     val task2 = ContentPut(
-      path = "collection-1~/test-resource-2",
+      path = s"$collection/$item2",
       DynamicBody(Obj.from("text" → "Test item value 2"))
     )
     val task2Str = task2.serializeToString
-    worker ! PrimaryTask("collection-1~", System.currentTimeMillis() + 10000, task2Str)
+    worker ! PrimaryTask(collection, System.currentTimeMillis() + 10000, task2Str)
     val backgroundWorkerTask2 = expectMsgType[BackgroundContentTask]
-    backgroundWorkerTask2.documentUri should equal("collection-1~")
+    backgroundWorkerTask2.documentUri should equal(collection)
     val workerResult2 = expectMsgType[ShardTaskComplete]
     val r2 = response(workerResult2.result.asInstanceOf[PrimaryWorkerTaskResult].content)
     r2.headers.statusCode should equal(Status.CREATED)
     r2.headers.correlationId should equal(task2.correlationId)
 
-    val content2 = db.selectContent("collection-1~", "test-resource-2").futureValue
+    val content2 = db.selectContent(collection, item2).futureValue
     content2 shouldNot equal(None)
-    content2.get.body should equal(Some("""{"text":"Test item value 2","id":"test-resource-2"}"""))
+    content2.get.body should equal(Some(s"""{"text":"Test item value 2","id":"$item2"}"""))
     content2.get.transactionList.size should equal(2)
     content2.get.revision should equal(2)
+    content2.get.count should equal(Some(2))
 
-    val transactions = selectTransactions(content2.get.transactionList, "collection-1~", db)
+    val transactions = selectTransactions(content2.get.transactionList, collection, db)
     transactions.size should equal(2)
     transactions.foreach {
       _.completedAt shouldBe None
@@ -90,13 +97,13 @@ class CollectionsSpec extends FlatSpec
     backgroundWorker ! backgroundWorkerTask
     val backgroundWorkerResult = expectMsgType[ShardTaskComplete]
     val rc = backgroundWorkerResult.result.asInstanceOf[BackgroundContentTaskResult]
-    rc.documentUri should equal("collection-1~")
+    rc.documentUri should equal(collection)
     rc.transactions should equal(content2.get.transactionList.reverse)
 
     eventually {
-      db.selectContentStatic("collection-1~").futureValue.get.transactionList shouldBe empty
+      db.selectContentStatic(collection).futureValue.get.transactionList shouldBe empty
     }
-    selectTransactions(content2.get.transactionList, "collection-1~", db).foreach {
+    selectTransactions(content2.get.transactionList, collection, db).foreach {
       _.completedAt shouldNot be(None)
     }
   }
@@ -108,7 +115,8 @@ class CollectionsSpec extends FlatSpec
 
     val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
 
-    val path = "collection-1~/test-resource-" + UUID.randomUUID().toString
+    val collection = SeqGenerator.create() + "~"
+    val path = s"$collection/${SeqGenerator.create()}"
     val ResourcePath(documentUri, itemId) = ContentLogic.splitPath(path)
 
     implicit val so = SerializationOptions.forceOptionalFields
@@ -139,6 +147,7 @@ class CollectionsSpec extends FlatSpec
       result.get.modifiedAt shouldNot be(None)
       result.get.documentUri should equal(documentUri)
       result.get.itemId should equal(itemId)
+      result.get.count should equal(Some(1))
     }
 
     // delete element
@@ -166,7 +175,9 @@ class CollectionsSpec extends FlatSpec
 
     val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
 
-    val path = "collection-1~/test-resource-" + UUID.randomUUID().toString
+    val collection = SeqGenerator.create() + "~"
+    val item1 = SeqGenerator.create()
+    val path = s"$collection/$item1"
     val ResourcePath(documentUri, itemId) = ContentLogic.splitPath(path)
 
     val taskPutStr = ContentPut(path,
@@ -190,6 +201,7 @@ class CollectionsSpec extends FlatSpec
     }
 
     db.selectContent(documentUri, itemId).futureValue shouldBe None
+    db.selectContentStatic(collection).futureValue.get.count shouldBe Some(0)
   }
 
   it should "Delete collection" in {

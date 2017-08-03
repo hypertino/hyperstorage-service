@@ -336,6 +336,7 @@ class IntegratedSpec extends FlatSpec
       response.body.content should equal(
         Lst.from(c1x, c2x)
       )
+      response.headers.get(Header.COUNT) shouldBe Some(Number(2))
     }
 
     import com.hypertino.hyperstorage.utils.Sort._

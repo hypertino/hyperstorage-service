@@ -136,6 +136,7 @@ object AstComparator {
       case UnaryOperation(_, argument) ⇒ isConstantExpression(argument)
       case BinaryOperation(left, _, right) ⇒ isConstantExpression(left) && isConstantExpression(right)
       case Function(_, args) ⇒ args.forall(isConstantExpression)
+      case StringInterpolation(args) ⇒ args.forall(isConstantExpression)
     }
   }
 

@@ -130,7 +130,9 @@ class HyperbusAdapter(hyperbus: Hyperbus,
         val result = Lst(collectionStream)
 
         val headersMap: HeadersMap = HeadersMap(
-          revisionOpt.map(r ⇒ Seq(Header.REVISION → Number(r))).toSeq.flatten : _*
+          revisionOpt.map(r ⇒ Header.REVISION → Number(r)).toSeq ++
+            contentStatic.get.count.map(count ⇒ Header.COUNT → Number(count)).toSeq
+            : _*
         )
 
         Ok(DynamicBody(result), headersMap)
