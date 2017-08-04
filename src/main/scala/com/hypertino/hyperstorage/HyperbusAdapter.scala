@@ -118,7 +118,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
       db.selectIndexDefs(resourcePath.documentUri)
     }
 
-    val pageSize = request.size.getOrElse(DEFAULT_PAGE_SIZE)
+    val pageSize = request.perPage.getOrElse(DEFAULT_PAGE_SIZE)
     val skipMax = request.skipMax.getOrElse(DEFAULT_MAX_SKIPPED_ROWS)
 
     for {

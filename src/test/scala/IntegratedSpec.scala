@@ -243,7 +243,7 @@ class IntegratedSpec extends FlatSpec
       response.headers.statusCode should equal(Status.CREATED)
     }
 
-    val f4 = hyperbus.ask(ContentGet("collection-1~", size = Some(50))).runAsync
+    val f4 = hyperbus.ask(ContentGet("collection-1~", perPage = Some(50))).runAsync
 
     whenReady(f4) { response ⇒
       response.headers.statusCode should equal(Status.OK)
@@ -255,7 +255,7 @@ class IntegratedSpec extends FlatSpec
     import com.hypertino.hyperstorage.utils.Sort._
 
     val f5 = hyperbus.ask(ContentGet("collection-1~",
-      size = Some(50),
+      perPage = Some(50),
       sortBy = Some(generateQueryParam(Seq(SortBy("id", true)))))
     ).runAsync
 
@@ -329,7 +329,7 @@ class IntegratedSpec extends FlatSpec
     val id2 = tr2.path.split('/').tail.head
     val c2x = c2 + Obj.from("id" → id2)
 
-    val f4 = hyperbus.ask(ContentGet("collection-2~", size = Some(50))).runAsync
+    val f4 = hyperbus.ask(ContentGet("collection-2~", perPage = Some(50))).runAsync
 
     whenReady(f4) { response ⇒
       response.headers.statusCode should equal(Status.OK)
@@ -342,7 +342,7 @@ class IntegratedSpec extends FlatSpec
     import com.hypertino.hyperstorage.utils.Sort._
 
     val f5 = hyperbus.ask(ContentGet("collection-2~",
-      size = Some(50),
+      perPage = Some(50),
       sortBy = Some(generateQueryParam(Seq(SortBy("id", false)))))
     ).runAsync
 
@@ -353,7 +353,7 @@ class IntegratedSpec extends FlatSpec
       )
     }
 
-    val f6 = hyperbus.ask(ContentGet("collection-2~", size = Some(0))).runAsync
+    val f6 = hyperbus.ask(ContentGet("collection-2~", perPage = Some(0))).runAsync
 
     whenReady(f6) { response ⇒
       response.headers.statusCode should equal(Status.OK)

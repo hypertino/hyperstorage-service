@@ -102,7 +102,7 @@ object BenchmarkTest {
 
   def query(sort: Seq[SortBy] = Seq.empty, filter: Option[String] = None, pageSize: Int = 50): Response[DynamicBody] = {
     import com.hypertino.hyperbus.model.utils.Sort._
-    val qb = new QueryBuilder() add("size", pageSize)
+    val qb = new QueryBuilder() add("per_page", pageSize)
     if (sort.nonEmpty) qb.sortBy(sort)
     filter.foreach(qb.add("filter", _))
 

@@ -87,7 +87,7 @@ abstract class IndexingSpec extends FlatSpec
     val f4 = hyperbus.ask(ContentGet(
       path = "collection-1~",
       filter = None,
-      size = Some(50)
+      perPage = Some(50)
     )).runAsync
     val rc4 = f4.futureValue
 
@@ -166,7 +166,7 @@ abstract class IndexingSpec extends FlatSpec
     val f4 = hyperbus.ask(ContentGet(
       path = "collection-1~",
       filter = Some("b > 10"),
-      size = Some(50)
+      perPage = Some(50)
     )).runAsync
     val rc4 = f4.futureValue
 
@@ -175,7 +175,7 @@ abstract class IndexingSpec extends FlatSpec
 
     val f5 = hyperbus.ask(ContentGet("collection-1~",
       filter = Some("b < 10"),
-      size = Some(50)
+      perPage = Some(50)
     )).runAsync
     val rc5 = f5.futureValue
     rc5.headers.statusCode shouldBe Status.OK

@@ -86,7 +86,7 @@ class QueryCollectionsSpec extends FlatSpec
     // setupIndexes(hyperbus)
     // query by id asc
     implicit val mcx = MessagingContext("abc123")
-    val get = ContentGet("collection-1~", size = Some(5), filter = Some("id =\"item3\""))(mcx)
+    val get = ContentGet("collection-1~", perPage = Some(5), filter = Some("id =\"item3\""))(mcx)
     val res = hyperbus
       .ask(get)
       .runAsync
@@ -102,7 +102,7 @@ class QueryCollectionsSpec extends FlatSpec
     // setupIndexes(hyperbus)
     // query by id asc
     val res = hyperbus
-      .ask(ContentGet("collection-1~", size = Some(1), filter = Some("a =\"way way\"")))
+      .ask(ContentGet("collection-1~", perPage = Some(1), filter = Some("a =\"way way\"")))
       .runAsync
       .futureValue
     res.headers.statusCode shouldBe Status.OK
@@ -116,7 +116,7 @@ class QueryCollectionsSpec extends FlatSpec
     setupIndexes(hyperbus)
     // query by id asc
     val res = hyperbus
-      .ask(ContentGet("collection-1~", size = Some(50), sortBy = Some("id")))
+      .ask(ContentGet("collection-1~", perPage = Some(50), sortBy = Some("id")))
       .runAsync
       .futureValue
     res.headers.statusCode shouldBe Status.OK
@@ -129,7 +129,7 @@ class QueryCollectionsSpec extends FlatSpec
     setupIndexes(hyperbus)
 
     val res = hyperbus
-      .ask(ContentGet("collection-1~", size = Some(50), sortBy = Some("-id")))
+      .ask(ContentGet("collection-1~", perPage = Some(50), sortBy = Some("-id")))
       .runAsync
       .futureValue
     res.headers.statusCode shouldBe Status.OK
@@ -142,7 +142,7 @@ class QueryCollectionsSpec extends FlatSpec
     setupIndexes(hyperbus)
 
     val res = hyperbus
-      .ask(ContentGet("collection-1~", size = Some(50), sortBy = Some("id"), filter = Some("id >\"item1\"")))
+      .ask(ContentGet("collection-1~", perPage = Some(50), sortBy = Some("id"), filter = Some("id >\"item1\"")))
       .runAsync
       .futureValue
 
@@ -156,7 +156,7 @@ class QueryCollectionsSpec extends FlatSpec
     setupIndexes(hyperbus)
 
     val res = hyperbus
-      .ask(ContentGet("collection-1~", size = Some(50), sortBy = Some("-id"), filter = Some("id <\"item3\"")))
+      .ask(ContentGet("collection-1~", perPage = Some(50), sortBy = Some("-id"), filter = Some("id <\"item3\"")))
       .runAsync
       .futureValue
 
@@ -170,7 +170,7 @@ class QueryCollectionsSpec extends FlatSpec
     setupIndexes(hyperbus)
 
     val res = hyperbus
-      .ask(ContentGet("collection-1~", size = Some(2), filter = Some("a =\"way way\"")))
+      .ask(ContentGet("collection-1~", perPage = Some(2), filter = Some("a =\"way way\"")))
       .runAsync
       .futureValue
 
@@ -185,7 +185,7 @@ class QueryCollectionsSpec extends FlatSpec
     setupIndexes(hyperbus)
 
     val res = hyperbus
-      .ask(ContentGet("collection-1~", size = Some(2), sortBy = Some("-id"), filter = Some("a =\"hello\"")))
+      .ask(ContentGet("collection-1~", perPage = Some(2), sortBy = Some("-id"), filter = Some("a =\"hello\"")))
       .runAsync
       .futureValue
 
@@ -199,7 +199,7 @@ class QueryCollectionsSpec extends FlatSpec
     val hyperbus = setup()
 
     val res = hyperbus
-      .ask(ContentGet("collection-1~", size = Some(2), sortBy = Some("a"), filter = Some("a >\"goodbye\"")))
+      .ask(ContentGet("collection-1~", perPage = Some(2), sortBy = Some("a"), filter = Some("a >\"goodbye\"")))
       .runAsync
       .futureValue
 
@@ -212,7 +212,7 @@ class QueryCollectionsSpec extends FlatSpec
     val hyperbus = setup()
 
     val res = hyperbus
-      .ask(ContentGet("collection-1~", size = Some(2), sortBy = Some("-a"), filter = Some("a >\"goodbye\"")))
+      .ask(ContentGet("collection-1~", perPage = Some(2), sortBy = Some("-a"), filter = Some("a >\"goodbye\"")))
       .runAsync
       .futureValue
 
@@ -226,7 +226,7 @@ class QueryCollectionsSpec extends FlatSpec
     setupIndexes(hyperbus)
 
     val res = hyperbus
-      .ask(ContentGet("collection-1~", size = Some(50), sortBy = Some("id"), filter = Some("b > 10")))
+      .ask(ContentGet("collection-1~", perPage = Some(50), sortBy = Some("id"), filter = Some("b > 10")))
       .runAsync
       .futureValue
 
@@ -235,7 +235,7 @@ class QueryCollectionsSpec extends FlatSpec
     verify(db).selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq(CkField("item_id", true)), 50)
 
     val res2 = hyperbus
-      .ask(ContentGet("collection-1~", size = Some(50), sortBy = Some("a"), filter = Some("b > 10")))
+      .ask(ContentGet("collection-1~", perPage = Some(50), sortBy = Some("a"), filter = Some("b > 10")))
       .runAsync
       .futureValue
 
@@ -249,7 +249,7 @@ class QueryCollectionsSpec extends FlatSpec
     setupIndexes(hyperbus)
 
     val res = hyperbus
-      .ask(ContentGet("collection-1~", size = Some(50), sortBy = Some("-a"), filter = Some("b > 10")))
+      .ask(ContentGet("collection-1~", perPage = Some(50), sortBy = Some("-a"), filter = Some("b > 10")))
       .runAsync
       .futureValue
 
@@ -258,7 +258,7 @@ class QueryCollectionsSpec extends FlatSpec
     verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq.empty, Seq(CkField("t0", false)), 50)
 
     val res2 = hyperbus
-      .ask(ContentGet("collection-1~", size = Some(50), sortBy = Some("-a,-id"), filter = Some("b > 10")))
+      .ask(ContentGet("collection-1~", perPage = Some(50), sortBy = Some("-a,-id"), filter = Some("b > 10")))
       .runAsync
       .futureValue
 
@@ -272,7 +272,7 @@ class QueryCollectionsSpec extends FlatSpec
     setupIndexes(hyperbus)
 
     val res = hyperbus
-      .ask(ContentGet("collection-1~", size = Some(50), sortBy = Some("id"), filter = Some("b > 12")))
+      .ask(ContentGet("collection-1~", perPage = Some(50), sortBy = Some("id"), filter = Some("b > 12")))
       .runAsync
       .futureValue
 
@@ -286,7 +286,7 @@ class QueryCollectionsSpec extends FlatSpec
     setupIndexes(hyperbus)
 
     val res = hyperbus
-      .ask(ContentGet("collection-1~", size = Some(50), sortBy = Some("a"), filter = Some("b > 10 and a > \"hello\"")))
+      .ask(ContentGet("collection-1~", perPage = Some(50), sortBy = Some("a"), filter = Some("b > 10 and a > \"hello\"")))
       .runAsync
       .futureValue
 
@@ -295,7 +295,7 @@ class QueryCollectionsSpec extends FlatSpec
     verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq(FieldFilter("t0", Text("hello"), FilterGt)), Seq(CkField("t0", true)), 50)
 
     val res2 = hyperbus
-      .ask(ContentGet("collection-1~", size = Some(50), sortBy = Some("a,id"), filter = Some("b > 10 and a = \"hello\" and id > \"item2\"")))
+      .ask(ContentGet("collection-1~", perPage = Some(50), sortBy = Some("a,id"), filter = Some("b > 10 and a = \"hello\" and id > \"item2\"")))
       .runAsync
       .futureValue
 
@@ -309,7 +309,7 @@ class QueryCollectionsSpec extends FlatSpec
     setupIndexes(hyperbus)
 
     val res = hyperbus
-      .ask(ContentGet("collection-1~", size = Some(2), sortBy = Some("a"), filter = Some("b < 50")))
+      .ask(ContentGet("collection-1~", perPage = Some(2), sortBy = Some("a"), filter = Some("b < 50")))
       .runAsync
       .futureValue
 
@@ -324,7 +324,7 @@ class QueryCollectionsSpec extends FlatSpec
     setupIndexes(hyperbus)
 
     val res = hyperbus
-      .ask(ContentGet("collection-1~", size = Some(2), sortBy = Some("a"), filter = Some("b < 50 and a < \"zzz\"")))
+      .ask(ContentGet("collection-1~", perPage = Some(2), sortBy = Some("a"), filter = Some("b < 50 and a < \"zzz\"")))
       .runAsync
       .futureValue
 
@@ -339,7 +339,7 @@ class QueryCollectionsSpec extends FlatSpec
     setupIndexes(hyperbus)
 
     val res = hyperbus
-      .ask(ContentGet("collection-1~", size = Some(2), sortBy = Some("-a"), filter = Some("b < 50 and a > \"aaa\"")))
+      .ask(ContentGet("collection-1~", perPage = Some(2), sortBy = Some("-a"), filter = Some("b < 50 and a > \"aaa\"")))
       .runAsync
       .futureValue
 
