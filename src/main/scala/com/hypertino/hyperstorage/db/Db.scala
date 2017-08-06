@@ -314,8 +314,8 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     val sortFieldPlaces = if (sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_ ⇒ "?").mkString(",", ",", ""))
 
     val cql = cql"""
-      insert into $tableName(document_uri,index_id,item_id,revision,count,body,created_at,modified_at$sortFieldNames)
-      values(?,?,?,?,?,?,?,?$sortFieldPlaces)
+      insert into $tableName(document_uri,index_id,item_id,revision,body,created_at,modified_at$sortFieldNames)
+      values(?,?,?,?,?,?,?$sortFieldPlaces)
     """.bindPartial(indexContent)
 
     bindSortFields(cql, sortFields)

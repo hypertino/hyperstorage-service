@@ -124,6 +124,33 @@ class QueryCollectionsSpec extends FlatSpec
     verify(db).selectContentCollection("collection-1~", 50, None, true)
   }
 
+  it should "Query by id asc and return Link header if there are more" in {
+    val hyperbus = setup()
+    setupIndexes(hyperbus)
+    // query by id asc
+    val res = hyperbus
+      .ask(ContentGet("collection-1~", perPage = Some(1), sortBy = Some("id")))
+      .runAsync
+      .futureValue
+    res.headers.statusCode shouldBe Status.OK
+    res.headers.link shouldBe Map("next_page_url" → HRL(
+      location = "hb://hyperstorage/content/{path}",
+      query =
+        Obj.from(
+          "path" → "collection-1~",
+          "skip_max" → Null,
+          "per_page" → 1,
+          "filter" → "id > \"item1\"",
+          "sort_by" → "id"
+        )
+    ))
+
+    // println(res.headers.link("next_page_url").toURL())
+
+    res.body.content shouldBe Lst.from(c1x)
+    verify(db).selectContentCollection("collection-1~", 1, None, true)
+  }
+
   it should "Query by id desc" in {
     val hyperbus = setup()
     setupIndexes(hyperbus)
