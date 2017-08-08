@@ -1,7 +1,5 @@
 language: scala
 scala:
-- 2.10.6
-- 2.12.1
 - 2.11.8
 sudo: false
 script: $TRAVIS_BUILD_DIR/travis/build.sh
