@@ -63,12 +63,12 @@ class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
     testKit1.awaitCond(fsm1.stateName == ShardMemberStatus.Active && fsm1.stateData.members.nonEmpty, 5 second)
     testKit2.awaitCond(fsm2.stateName == ShardMemberStatus.Active && fsm2.stateData.members.nonEmpty, 5 second)
 
-    val task1 = TestShardTask("abc", "t1")
+    val task1 = TestShardTask("abc1", "t1")
     fsm1 ! task1
     testKit1.awaitCond(task1.isProcessed)
     task1.processorPath should include(address1)
 
-    val task2 = TestShardTask("klx", "t2")
+    val task2 = TestShardTask("klx1", "t2")
     fsm2 ! task2
     testKit2.awaitCond(task2.isProcessed)
     task2.processorPath should include(address2)
@@ -88,12 +88,12 @@ class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
     testKit1.awaitCond(fsm1.stateName == ShardMemberStatus.Active && fsm1.stateData.members.nonEmpty, 5 second)
     testKit2.awaitCond(fsm2.stateName == ShardMemberStatus.Active && fsm2.stateData.members.nonEmpty, 5 second)
 
-    val task1 = TestShardTask("abc", "t3")
+    val task1 = TestShardTask("abc1", "t3")
     fsm2 ! task1
     testKit1.awaitCond(task1.isProcessed)
     task1.processorPath should include(address1)
 
-    val task2 = TestShardTask("klx", "t4")
+    val task2 = TestShardTask("klx1", "t4")
     fsm1 ! task2
     testKit2.awaitCond(task2.isProcessed)
     task2.processorPath should include(address2)
@@ -119,10 +119,10 @@ class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
       fsm1.stateName == ShardMemberStatus.Deactivating
     }, 10.second)
 
-    val task1 = TestShardTask("abc", "t5", sleep = 500)
+    val task1 = TestShardTask("abc1", "t5", sleep = 500)
     fsm1 ! task1
 
-    val task2 = TestShardTask("abc", "t6", sleep = 500)
+    val task2 = TestShardTask("abc1", "t6", sleep = 500)
     fsm2 ! task2
 
     val c1 = Cluster(actorSystem1)
@@ -148,9 +148,9 @@ class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
       (createShardProcessor("test-group"), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
     }
 
-    val task1 = TestShardTask("klx", "t7", sleep = 6000)
+    val task1 = TestShardTask("klx1", "t7", sleep = 6000)
     fsm1 ! task1
-    val task2 = TestShardTask("klx", "t8")
+    val task2 = TestShardTask("klx1", "t8")
     fsm1 ! task2
     testKit1.awaitCond(task1.isProcessingStarted)
 
