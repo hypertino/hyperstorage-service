@@ -10,6 +10,11 @@ cache:
   - $HOME/.m2
   - $HOME/.ivy2
   - $HOME/.sbt
+git:
+  submodules: false
+before_install:
+- sed -i 's/git@github.com:/https:\/\/github.com\//' .gitmodules
+- git submodule update --init --recursive
 env:
   global:
   - secure: wML88eATztut1NMEBF2Er3832bXc8knACwn2ZHWpEasVmxuyrG5ZCKcx7SYyiLRmJDTDiedYGGNsZ/SEz5THkjGV+g4Mnux6DFJ+5P6h+EopgPsFfxFe3oOUeqT8rrCzjAL579OaUKVNqLnIjdeNt6i+vE4G2m3/sj7/HDASMzaqB1le38HXon7t348zIaXAZ5/pdqkJpziT4bK1JLPAvs+U+rT/+BVMhrBqyT+CxYWz9I0W+W3U9oS1lIjs/IRXZQ3j0HtNp3AfyDx3Co4j8J0wUDc1Qcw6O1nqcjkmI1d8UYUnLzNzlewydGjh9LQ75m2bmdbDwlTN9kQ377HppGDhXPsXnMTCk5zNX365aYn6tDoIYd76tItbDxVXz5YxwedizEqK7NBTa8apVnitwKhsqyyiYLQCYAUdme9af4Qel7NyOpIQKTwrLBqMevuUf+C9XfVLuGMMSq+pTSEuS+O8/Oca7lVq8LsuTHyPtyU3GpLkPLhnhe/cWz7rtKiXnGANs0Mx9y1y+9MrswFNlZRF98BPXLl94yilXMqz0pZ9GL0rRAwzxFhUEUZQF7mEvUwcVI21n6AD8aiyFZTLWVyW6Q0cRcEewJ2Ps490SjopM/evVpAL78Bw5yOgsmsb+/BdC1L9PLN9VWEK7jGfIFPv9f2eoNZLxu1YaWJGAI8=
