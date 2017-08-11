@@ -19,7 +19,7 @@ create table transaction (
 	uuid timeuuid,					-- unique identifier of transaction, included into content.transaction_list
 	revision bigint,				-- revision that corresponds to content.revision
 	body text,					-- transaction body
-	obsolete_index_items text,			-- identifies items become obsole for each index by this transaction, JSON encoded
+	obsolete_index_items text,			-- identifies items become obsolete for each index by this transaction, JSON encoded
 	completed_at timestamp,				-- null until transaction is complete
 	primary key ((dt_quantum, partition), document_uri, uuid)
 );
