@@ -12,9 +12,9 @@ trait ItemIndexer {
   def db: Db
   implicit def scheduler: Scheduler
 
-  def indexItem(indexDef: IndexDef, item: Content): Future[String] = {
+  def indexItem(indexDef: IndexDef, item: Content, idFieldName: String): Future[String] = {
     val contentValue = item.bodyValue
-    val sortBy = IndexLogic.extractSortFieldValues(indexDef.sortByParsed, contentValue)
+    val sortBy = IndexLogic.extractSortFieldValues(idFieldName, indexDef.sortByParsed, contentValue)
 
     val write: Boolean = !item.isDeleted && (indexDef.filterBy.map { filterBy ⇒
       try {

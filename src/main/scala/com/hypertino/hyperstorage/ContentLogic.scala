@@ -1,6 +1,8 @@
 package com.hypertino.hyperstorage
 
+import com.hypertino.hyperbus.utils.uri.{SlashToken, TextToken, Token, UriPathParser}
 import com.hypertino.hyperstorage.db.{Content, ContentStatic}
+import com.hypertino.inflector.English
 
 case class ResourcePath(documentUri: String, itemId: String)
 
@@ -54,5 +56,27 @@ object ContentLogic {
 
   implicit class ContentStaticWrapper(val content: ContentStatic) {
     def partition = TransactionLogic.partitionFromUri(content.documentUri)
+  }
+
+  def getIdFieldName(path: String): String = {
+    val tokens = UriPathParser.tokens(path)
+    var slashCount = 0
+    var lastToken: Option[Token] = None
+    while(tokens.hasNext) {
+      lastToken = Some(tokens.next())
+      if (lastToken.get == SlashToken) {
+        slashCount += 1
+      }
+    }
+    if (slashCount > 0 && lastToken.exists {
+      case TextToken(s) if s.forall(c ⇒ c == '~' || (c >= 'a' && c <= 'z')) ⇒ true
+      case _ ⇒ false
+    }) {
+      val s = lastToken.get.asInstanceOf[TextToken].value
+      English.singular(s.substring(0, s.length-1)) + "_id"
+    }
+    else {
+      "id"
+    }
   }
 }

@@ -5,11 +5,11 @@ import com.hypertino.hyperstorage.db._
 import com.hypertino.parser.ast.{BinaryOperation, Expression, Identifier}
 import com.hypertino.parser.{HEval, HParser}
 
-class FieldFiltersExtractor(sortByFields: Seq[HyperStorageIndexSortItem]) {
+class FieldFiltersExtractor(idFieldName: String, sortByFields: Seq[HyperStorageIndexSortItem]) {
   private final val size = sortByFields.size
   private final val sortByFieldsMap = sortByFields.zipWithIndex.map{
     case (s,index) ⇒ (parseIdentifier(s.fieldName), (s,index,
-        IndexLogic.tableFieldName(s, size, index)
+        IndexLogic.tableFieldName(idFieldName, s, size, index)
       ))
   }.toMap
   final val compareOps = Set(">", ">=", "<", "<=", "=").map(Identifier(_))

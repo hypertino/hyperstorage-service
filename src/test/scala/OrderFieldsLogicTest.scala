@@ -44,33 +44,33 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
 
     "extractIndexSortFields" - {
       "equal orders should be extracted totally" in {
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a", descending = false)), Seq(HyperStorageIndexSortItem("a", None, None))) shouldBe (Seq(CkField("t0", ascending = true)), false)
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a", descending = false)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.ASC)))) shouldBe (Seq(CkField("t0", ascending = true)), false)
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a"), SortBy("b", descending = true)), Seq(HyperStorageIndexSortItem("a", None, None), HyperStorageIndexSortItem("b", Some(HyperStorageIndexSortFieldType.DECIMAL), Some(HyperStorageIndexSortOrder.DESC)))) shouldBe (Seq(CkField("t0", ascending = true), CkField("d1", ascending = false)), false)
+        OrderFieldsLogic.extractIndexSortFields("id", Seq(SortBy("a", descending = false)), Seq(HyperStorageIndexSortItem("a", None, None))) shouldBe (Seq(CkField("t0", ascending = true)), false)
+        OrderFieldsLogic.extractIndexSortFields("id", Seq(SortBy("a", descending = false)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.ASC)))) shouldBe (Seq(CkField("t0", ascending = true)), false)
+        OrderFieldsLogic.extractIndexSortFields("id", Seq(SortBy("a"), SortBy("b", descending = true)), Seq(HyperStorageIndexSortItem("a", None, None), HyperStorageIndexSortItem("b", Some(HyperStorageIndexSortFieldType.DECIMAL), Some(HyperStorageIndexSortOrder.DESC)))) shouldBe (Seq(CkField("t0", ascending = true), CkField("d1", ascending = false)), false)
       }
 
       "empty query orders should be Seq.empty" in {
-        OrderFieldsLogic.extractIndexSortFields(Seq.empty, Seq(HyperStorageIndexSortItem("a", None, None))) shouldBe (Seq.empty, false)
+        OrderFieldsLogic.extractIndexSortFields("id", Seq.empty, Seq(HyperStorageIndexSortItem("a", None, None))) shouldBe (Seq.empty, false)
       }
 
       "reverse index order be extracted totally" in {
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a", descending = true)), Seq(HyperStorageIndexSortItem("a", None, None))) shouldBe (Seq(CkField("t0", ascending = false)), true)
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a", descending = true)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.ASC)))) shouldBe (Seq(CkField("t0", ascending = false)), true)
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a", descending = true), SortBy("b")), Seq(HyperStorageIndexSortItem("a", None, None), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.DESC)))) shouldBe (Seq(CkField("t0", ascending = false), CkField("t1", ascending = true)), true)
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a")), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.DESC)))) shouldBe (Seq(CkField("t0", ascending = true)), true)
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a"), SortBy("b", descending = true)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.DESC)), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.ASC)))) shouldBe (Seq(CkField("t0", ascending = true), CkField("t1", ascending = false)), true)
+        OrderFieldsLogic.extractIndexSortFields("id", Seq(SortBy("a", descending = true)), Seq(HyperStorageIndexSortItem("a", None, None))) shouldBe (Seq(CkField("t0", ascending = false)), true)
+        OrderFieldsLogic.extractIndexSortFields("id", Seq(SortBy("a", descending = true)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.ASC)))) shouldBe (Seq(CkField("t0", ascending = false)), true)
+        OrderFieldsLogic.extractIndexSortFields("id", Seq(SortBy("a", descending = true), SortBy("b")), Seq(HyperStorageIndexSortItem("a", None, None), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.DESC)))) shouldBe (Seq(CkField("t0", ascending = false), CkField("t1", ascending = true)), true)
+        OrderFieldsLogic.extractIndexSortFields("id", Seq(SortBy("a")), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.DESC)))) shouldBe (Seq(CkField("t0", ascending = true)), true)
+        OrderFieldsLogic.extractIndexSortFields("id", Seq(SortBy("a"), SortBy("b", descending = true)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.DESC)), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.ASC)))) shouldBe (Seq(CkField("t0", ascending = true), CkField("t1", ascending = false)), true)
       }
 
       "partially equal order should be extracted partially" in {
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a", descending = true), SortBy("b")), Seq(HyperStorageIndexSortItem("a", None, None), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.ASC)))) shouldBe (Seq(CkField("t0", ascending = false)),true)
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a"), SortBy("b", descending = true)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.DESC)), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.DESC)))) shouldBe (Seq(CkField("t0", ascending = true)), true)
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("a"), SortBy("b", descending = true)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.DESC)))) shouldBe (Seq(CkField("t0", ascending = true)), true)
+        OrderFieldsLogic.extractIndexSortFields("id", Seq(SortBy("a", descending = true), SortBy("b")), Seq(HyperStorageIndexSortItem("a", None, None), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.ASC)))) shouldBe (Seq(CkField("t0", ascending = false)),true)
+        OrderFieldsLogic.extractIndexSortFields("id", Seq(SortBy("a"), SortBy("b", descending = true)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.DESC)), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.DESC)))) shouldBe (Seq(CkField("t0", ascending = true)), true)
+        OrderFieldsLogic.extractIndexSortFields("id", Seq(SortBy("a"), SortBy("b", descending = true)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.DESC)))) shouldBe (Seq(CkField("t0", ascending = true)), true)
       }
 
       "unequal order should extract Seq.empty" in {
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("z", descending = false)), Seq(HyperStorageIndexSortItem("a", None, None))) shouldBe (Seq.empty, false)
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("x", descending = true), SortBy("b")), Seq(HyperStorageIndexSortItem("a", None, None), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.ASC)))) shouldBe (Seq.empty, false)
-        OrderFieldsLogic.extractIndexSortFields(Seq(SortBy("y"), SortBy("b", descending = true)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.DESC)), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.DESC)))) shouldBe (Seq.empty, false)
+        OrderFieldsLogic.extractIndexSortFields("id", Seq(SortBy("z", descending = false)), Seq(HyperStorageIndexSortItem("a", None, None))) shouldBe (Seq.empty, false)
+        OrderFieldsLogic.extractIndexSortFields("id", Seq(SortBy("x", descending = true), SortBy("b")), Seq(HyperStorageIndexSortItem("a", None, None), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.ASC)))) shouldBe (Seq.empty, false)
+        OrderFieldsLogic.extractIndexSortFields("id", Seq(SortBy("y"), SortBy("b", descending = true)), Seq(HyperStorageIndexSortItem("a", None, Some(HyperStorageIndexSortOrder.DESC)), HyperStorageIndexSortItem("b", None, Some(HyperStorageIndexSortOrder.DESC)))) shouldBe (Seq.empty, false)
       }
     }
 
@@ -95,7 +95,7 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
         val filterFields = Seq.empty[FieldFilter]
         val previousValue = None
         val currentValue = Obj.from("a" → 5, "b" → 1, "c" → 2, "d" → 2)
-        val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 0, false, currentValue, false)
+        val res = IndexLogic.leastRowsFilterFields("id", indexSortedBy, filterFields, 0, false, currentValue, false)
         res shouldBe Seq(
           FieldFilter("t0", Number(5), FilterEq),
           FieldFilter("t1", Number(1), FilterEq),
@@ -114,7 +114,7 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
         val filterFields = Seq.empty[FieldFilter]
         val previousValue = None
         val currentValue = Obj.from("a" → 5, "b" → 1, "c" → 2, "d" → 2)
-        val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 0, false, currentValue, true)
+        val res = IndexLogic.leastRowsFilterFields("id", indexSortedBy, filterFields, 0, false, currentValue, true)
         res shouldBe Seq(
           FieldFilter("t0", Number(5), FilterEq),
           FieldFilter("t1", Number(1), FilterEq),
@@ -135,7 +135,7 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
         )
         val previousValue = None
         val currentValue = Obj.from("a" → 5, "b" → 1, "c" → 2, "d" → 2)
-        val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 0, false, currentValue, false)
+        val res = IndexLogic.leastRowsFilterFields("id", indexSortedBy, filterFields, 0, false, currentValue, false)
         res shouldBe Seq(
           FieldFilter("t1", Number(1), FilterEq),
           FieldFilter("t2", Number(2), FilterEq),
@@ -155,7 +155,7 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
         )
         val previousValue = None
         val currentValue = Obj.from("a" → 18, "b" → 1, "c" → 2, "d" → 2)
-        val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 4, true, currentValue, false)
+        val res = IndexLogic.leastRowsFilterFields("id", indexSortedBy, filterFields, 4, true, currentValue, false)
         res shouldBe Seq(
           FieldFilter("t1", Number(1), FilterEq),
           FieldFilter("t2", Number(2), FilterGt)
@@ -174,7 +174,7 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
         )
         val previousValue = None
         val currentValue = Obj.from("a" → 18, "b" → 1, "c" → 2, "d" → 2)
-        val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 4, false, currentValue, false)
+        val res = IndexLogic.leastRowsFilterFields("id", indexSortedBy, filterFields, 4, false, currentValue, false)
         res shouldBe Seq(
           FieldFilter("t1", Number(1), FilterEq),
           FieldFilter("t2", Number(2), FilterEq),
@@ -195,7 +195,7 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
         )
         val previousValue = None
         val currentValue = Obj.from("a" → 5, "b" → 1, "c" → 2, "d" → 2)
-        val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 0, false, currentValue, false)
+        val res = IndexLogic.leastRowsFilterFields("id", indexSortedBy, filterFields, 0, false, currentValue, false)
         res shouldBe Seq(
           FieldFilter("t1", Number(1), FilterEq),
           FieldFilter("t2", Number(2), FilterEq),
@@ -223,7 +223,7 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
         )
         val previousValue = None
         val currentValue = Obj.from("a" → 5, "b" → 1, "c" → 2, "d" → 2)
-        val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 4, true, currentValue, false)
+        val res = IndexLogic.leastRowsFilterFields("id", indexSortedBy, filterFields, 4, true, currentValue, false)
         res shouldBe Seq(
           FieldFilter("t1", Number(1), FilterEq),
           FieldFilter("t2", Number(2), FilterGt)
@@ -249,7 +249,7 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
         )
         val previousValue = None
         val currentValue = Obj.from("a" → 5, "b" → 2, "c" → 2, "d" → 2)
-        val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 4, true, currentValue, true)
+        val res = IndexLogic.leastRowsFilterFields("id", indexSortedBy, filterFields, 4, true, currentValue, true)
         res shouldBe Seq(
           FieldFilter("t1", Number(2), FilterEq),
           FieldFilter("t2", Number(2), FilterLt)
@@ -274,7 +274,7 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
           FieldFilter("t1", Number(1), FilterLt)
         )
         val currentValue = Obj.from("a" → 5, "b" → 2, "c" → 1, "d" → 1)
-        val res = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 0, false, currentValue, false)
+        val res = IndexLogic.leastRowsFilterFields("id", indexSortedBy, filterFields, 0, false, currentValue, false)
         res shouldBe Seq.empty
 
         val filterFields2 = Seq(
@@ -282,7 +282,7 @@ class OrderFieldsLogicTest extends FreeSpec with Matchers {
           FieldFilter("t1", Number(3), FilterLt)
         )
         val currentValue2 = Obj.from("a" → 5, "b" → 2, "c" → 1, "d" → 1)
-        val res2 = IndexLogic.leastRowsFilterFields(indexSortedBy, filterFields, 0, false, currentValue, true)
+        val res2 = IndexLogic.leastRowsFilterFields("id", indexSortedBy, filterFields, 0, false, currentValue, true)
         res2 shouldBe Seq.empty
       }
     }

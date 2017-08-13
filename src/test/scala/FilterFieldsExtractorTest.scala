@@ -11,56 +11,56 @@ class FilterFieldsExtractorTest extends FlatSpec with Matchers {
   "FilterFieldsExtractor" should "single gt filter field" in {
     val expression = HParser(s""" id > "10" """)
     val sortByFields = Seq(HyperStorageIndexSortItem("id", None, Some(HyperStorageIndexSortOrder.ASC)))
-    val ff = new FieldFiltersExtractor(sortByFields).extract(expression)
+    val ff = new FieldFiltersExtractor("id", sortByFields).extract(expression)
     ff shouldBe Seq(FieldFilter("item_id", Text("10"), FilterGt))
   }
 
   it should "single lt filter field" in {
     val expression = HParser(s""" id < "10" """)
     val sortByFields = Seq(HyperStorageIndexSortItem("id", None, Some(HyperStorageIndexSortOrder.ASC)))
-    val ff = new FieldFiltersExtractor(sortByFields).extract(expression)
+    val ff = new FieldFiltersExtractor("id", sortByFields).extract(expression)
     ff shouldBe Seq(FieldFilter("item_id", Text("10"), FilterLt))
   }
 
   it should "single gteq filter field" in {
     val expression = HParser(s""" id >= "10" """)
     val sortByFields = Seq(HyperStorageIndexSortItem("id", None, Some(HyperStorageIndexSortOrder.ASC)))
-    val ff = new FieldFiltersExtractor(sortByFields).extract(expression)
+    val ff = new FieldFiltersExtractor("id", sortByFields).extract(expression)
     ff shouldBe Seq(FieldFilter("item_id", Text("10"), FilterGtEq))
   }
 
   it should "single lteq filter field" in {
     val expression = HParser(s""" id <= "10" """)
     val sortByFields = Seq(HyperStorageIndexSortItem("id", None, Some(HyperStorageIndexSortOrder.ASC)))
-    val ff = new FieldFiltersExtractor(sortByFields).extract(expression)
+    val ff = new FieldFiltersExtractor("id", sortByFields).extract(expression)
     ff shouldBe Seq(FieldFilter("item_id", Text("10"), FilterLtEq))
   }
 
   it should "single eq filter field" in {
     val expression = HParser(s""" id = "10" """)
     val sortByFields = Seq(HyperStorageIndexSortItem("id", None, Some(HyperStorageIndexSortOrder.ASC)))
-    val ff = new FieldFiltersExtractor(sortByFields).extract(expression)
+    val ff = new FieldFiltersExtractor("id", sortByFields).extract(expression)
     ff shouldBe Seq(FieldFilter("item_id", Text("10"), FilterEq))
   }
 
   it should "single gt reversed filter field" in {
     val expression = HParser(s""" "10" < id """)
     val sortByFields = Seq(HyperStorageIndexSortItem("id", None, Some(HyperStorageIndexSortOrder.ASC)))
-    val ff = new FieldFiltersExtractor(sortByFields).extract(expression)
+    val ff = new FieldFiltersExtractor("id", sortByFields).extract(expression)
     ff shouldBe Seq(FieldFilter("item_id", Text("10"), FilterGt))
   }
 
   it should "gt filter field with some other field" in {
     val expression = HParser(s""" id > "10" and x < 5 """)
     val sortByFields = Seq(HyperStorageIndexSortItem("id", None, Some(HyperStorageIndexSortOrder.ASC)))
-    val ff = new FieldFiltersExtractor(sortByFields).extract(expression)
+    val ff = new FieldFiltersExtractor("id", sortByFields).extract(expression)
     ff shouldBe Seq(FieldFilter("item_id", Text("10"), FilterGt))
   }
 
   it should "eq filter field with some other fields" in {
     val expression = HParser(s""" id = "10" and x < 5 and z*3 > 24""")
     val sortByFields = Seq(HyperStorageIndexSortItem("id", None, Some(HyperStorageIndexSortOrder.ASC)))
-    val ff = new FieldFiltersExtractor(sortByFields).extract(expression)
+    val ff = new FieldFiltersExtractor("id", sortByFields).extract(expression)
     ff shouldBe Seq(FieldFilter("item_id", Text("10"), FilterEq))
   }
 
@@ -70,14 +70,14 @@ class FilterFieldsExtractorTest extends FlatSpec with Matchers {
       HyperStorageIndexSortItem("id", None, Some(HyperStorageIndexSortOrder.ASC)),
       HyperStorageIndexSortItem("x", Some(HyperStorageIndexSortFieldType.DECIMAL), Some(HyperStorageIndexSortOrder.ASC))
     )
-    val ff = new FieldFiltersExtractor(sortByFields).extract(expression)
+    val ff = new FieldFiltersExtractor("id", sortByFields).extract(expression)
     ff shouldBe Seq(FieldFilter("t0", Text("10"), FilterEq), FieldFilter("d1", Number(5), FilterLt))
   }
 
   it should "gt filter field with or expression shouldn't match" in {
     val expression = HParser(s""" id > "10" or x < 5 """)
     val sortByFields = Seq(HyperStorageIndexSortItem("id", None, Some(HyperStorageIndexSortOrder.ASC)))
-    val ff = new FieldFiltersExtractor(sortByFields).extract(expression)
+    val ff = new FieldFiltersExtractor("id", sortByFields).extract(expression)
     ff shouldBe Seq.empty
   }
 }

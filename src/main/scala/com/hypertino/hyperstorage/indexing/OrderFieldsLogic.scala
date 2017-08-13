@@ -43,7 +43,7 @@ object OrderFieldsLogic {
     }
   }
 
-  def extractIndexSortFields(querySortBy: Seq[SortBy], indexSortedBy: Seq[HyperStorageIndexSortItem]): (Seq[CkField], Boolean) = {
+  def extractIndexSortFields(idFieldName: String, querySortBy: Seq[SortBy], indexSortedBy: Seq[HyperStorageIndexSortItem]): (Seq[CkField], Boolean) = {
     val v = indexSortedBy.toVector
     var reversed = false
     val size = querySortBy.size
@@ -52,16 +52,16 @@ object OrderFieldsLogic {
         val is = indexSortedBy(index)
         if (is.fieldName == q.fieldName) {
           if (is.order.forall(_ == HyperStorageIndexSortOrder.ASC) != q.descending && !reversed) {
-            Some(CkField(IndexLogic.tableFieldName(is, size, index),ascending = !q.descending))
+            Some(CkField(IndexLogic.tableFieldName(idFieldName, is, size, index),ascending = !q.descending))
           }
           else {
             if (is.order.forall(_ == HyperStorageIndexSortOrder.ASC) == q.descending && reversed) {
-              Some(CkField(IndexLogic.tableFieldName(is, size, index),ascending = !q.descending))
+              Some(CkField(IndexLogic.tableFieldName(idFieldName, is, size, index),ascending = !q.descending))
             }
             else {
               if (index == 0) {
                 reversed = true
-                Some(CkField(IndexLogic.tableFieldName(is, size, index),ascending = !q.descending))
+                Some(CkField(IndexLogic.tableFieldName(idFieldName, is, size, index),ascending = !q.descending))
               }
               else {
                 None

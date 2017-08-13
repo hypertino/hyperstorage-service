@@ -36,6 +36,7 @@ trait IndexContentTaskWorker extends ItemIndexer {
   def indexNextBucket(task: IndexContentTask): Future[ShardTaskComplete] = {
     try {
       validateCollectionUri(task.key)
+      val idFieldName = ContentLogic.getIdFieldName(task.indexDefTransaction.documentUri)
       // todo: cache indexDef
       db.selectIndexDef(task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId) flatMap {
         case Some(indexDef) if indexDef.defTransactionId == task.indexDefTransaction.defTransactionId ⇒ indexDef.status match {
@@ -44,7 +45,7 @@ trait IndexContentTaskWorker extends ItemIndexer {
 
             db.selectContentCollection(task.indexDefTransaction.documentUri, bucketSize, task.lastItemId.map((_, FilterGt))) flatMap { collectionItems ⇒
               FutureUtils.serial(collectionItems.toSeq) { item ⇒
-                indexItem(indexDef, item)
+                indexItem(indexDef, item, idFieldName)
               } flatMap { insertedItemIds ⇒
 
                 if (insertedItemIds.isEmpty) {

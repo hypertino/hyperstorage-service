@@ -120,13 +120,14 @@ class HyperbusAdapter(hyperbus: Hyperbus,
 
     val pageSize = request.perPage.getOrElse(DEFAULT_PAGE_SIZE)
     val skipMax = request.skipMax.getOrElse(DEFAULT_MAX_SKIPPED_ROWS)
+    val idFieldName = ContentLogic.getIdFieldName(resourcePath.documentUri)
 
     for {
       contentStatic ← db.selectContentStatic(resourcePath.documentUri)
       indexDefs ← indexDefsFuture
       (collectionStream, revisionOpt, nextPageFieldFilter) ←
         if (pageSize > 0) {
-          selectCollection(resourcePath.documentUri, indexDefs, request.filter, sortBy, pageSize, skipMax)
+          selectCollection(resourcePath.documentUri, indexDefs, request.filter, sortBy, pageSize, skipMax, idFieldName)
         }
         else {
           Future{(List.empty, None, Seq.empty)}
@@ -139,7 +140,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
         val nextPageUrl: Option[HRL] = if (nextPageFieldFilter.nonEmpty) Some {
           ContentGet(path = resourcePath.documentUri,
             sortBy = Some(Sort.generateQueryParam(sortBy)),
-            filter = Some(FieldFiltersExpression.toExpresion(nextPageFieldFilter)),
+            filter = Some(FieldFiltersExpression.toExpresion(idFieldName, nextPageFieldFilter)),
             perPage = Some(pageSize)
           ).headers.hrl
         }
@@ -166,12 +167,12 @@ class HyperbusAdapter(hyperbus: Hyperbus,
                                queryFilter: Option[String],
                                querySortBy: Seq[SortBy],
                                pageSize: Int,
-                               skipMax: Int)
+                               skipMax: Int,
+                               idFieldName: String)
                               (implicit messagingContext: MessagingContext): Future[(List[Value], Option[Long], Seq[FieldFilter])] = {
 
     val queryFilterExpression = queryFilter.flatMap(Option.apply).map(HParser(_))
-
-    val defIdSort = HyperStorageIndexSortItem("id", Some(HyperStorageIndexSortFieldType.TEXT), Some(HyperStorageIndexSortOrder.ASC))
+    val defIdSort = HyperStorageIndexSortItem(idFieldName, Some(HyperStorageIndexSortFieldType.TEXT), Some(HyperStorageIndexSortOrder.ASC))
 
     // todo: this should be cached, heavy operations here
     val sources = indexDefs.flatMap { indexDef ⇒
@@ -188,17 +189,17 @@ class HyperbusAdapter(hyperbus: Hyperbus,
 
     val (weight,indexSortFields,indexDefOpt) = sources.reduceLeft((left,right) ⇒ if (left._1 > right._1) left else right)
 
-    val ffe = new FieldFiltersExtractor(indexSortFields)
+    val ffe = new FieldFiltersExtractor(idFieldName, indexSortFields)
     val queryFilterFields = queryFilterExpression.map(ffe.extract).getOrElse(Seq.empty)
     // todo: detect filter exact match
 
-    val (ckFields,reversed) = OrderFieldsLogic.extractIndexSortFields(querySortBy, indexSortFields)
+    val (ckFields,reversed) = OrderFieldsLogic.extractIndexSortFields(idFieldName, querySortBy, indexSortFields)
     val sortMatchIsExact = ckFields.size == querySortBy.size || querySortBy.isEmpty
     val endOfTime = System.currentTimeMillis + requestTimeout.toMillis
 
     if (sortMatchIsExact) {
       queryUntilFetched(
-        CollectionQueryOptions(documentUri, indexDefOpt, indexSortFields, reversed, pageSize, skipMax, endOfTime, queryFilterFields, ckFields, queryFilterExpression, sortMatchIsExact),
+        CollectionQueryOptions(documentUri, indexDefOpt, indexSortFields, reversed, pageSize, skipMax, endOfTime, queryFilterFields, ckFields, queryFilterExpression, sortMatchIsExact, idFieldName),
         Seq.empty,0,0,None
       )  map { case (list, revisionOpt, nextPageFieldFilter) ⇒
         (list.take(pageSize), revisionOpt, nextPageFieldFilter)
@@ -206,7 +207,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
     }
     else {
       queryUntilFetched(
-        CollectionQueryOptions(documentUri, indexDefOpt, indexSortFields, reversed, pageSize + skipMax, pageSize + skipMax, endOfTime, queryFilterFields, ckFields, queryFilterExpression, sortMatchIsExact),
+        CollectionQueryOptions(documentUri, indexDefOpt, indexSortFields, reversed, pageSize + skipMax, pageSize + skipMax, endOfTime, queryFilterFields, ckFields, queryFilterExpression, sortMatchIsExact, idFieldName),
         Seq.empty,0,0,None
       ) map { case (list, revisionOpt, nextPageFieldFilter) ⇒
         if (list.size==(pageSize+skipMax)) {
@@ -330,7 +331,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
             ((leastFieldFilter.isEmpty || (leastFieldFilter.size==1 && leastFieldFilter.head.op != FilterEq)) && totalFetched < fetchLimit)) {
             val nextLeastFieldFilter = if (taken.nonEmpty) {
               val l = taken.reverse.head.asInstanceOf[Obj]
-              IndexLogic.leastRowsFilterFields(ops.indexSortBy, ops.filterFields, leastFieldFilter.size, totalFetched < fetchLimit, l, ops.reversed)
+              IndexLogic.leastRowsFilterFields(ops.idFieldName, ops.indexSortBy, ops.filterFields, leastFieldFilter.size, totalFetched < fetchLimit, l, ops.reversed)
             }
             else {
               Seq.empty
@@ -342,7 +343,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
             val l = newLastValueOpt.orElse(lastValueOpt)
             if (l.isEmpty) Future.successful((stream, revisionOpt, Seq.empty))
             else {
-              val nextLeastFieldFilter = IndexLogic.leastRowsFilterFields(ops.indexSortBy, ops.filterFields, leastFieldFilter.size, totalFetched < fetchLimit, l.get, ops.reversed)
+              val nextLeastFieldFilter = IndexLogic.leastRowsFilterFields(ops.idFieldName, ops.indexSortBy, ops.filterFields, leastFieldFilter.size, totalFetched < fetchLimit, l.get, ops.reversed)
               if (nextLeastFieldFilter.isEmpty) Future.successful((stream, revisionOpt, nextLeastFieldFilter))
               else {
                 queryUntilFetched(ops, nextLeastFieldFilter, recursionCounter + 1, skippedRows + totalFetched - totalAccepted, l) map {
@@ -383,7 +384,8 @@ case class CollectionQueryOptions(documentUri: String,
                                   filterFields: Seq[FieldFilter],
                                   ckFields: Seq[CkField],
                                   queryFilterExpression: Option[Expression],
-                                  exactSortMatch: Boolean
+                                  exactSortMatch: Boolean,
+                                  idFieldName: String
                                  )
 
 class CollectionOrdering(querySortBy: Seq[SortBy]) extends Ordering[Value] {

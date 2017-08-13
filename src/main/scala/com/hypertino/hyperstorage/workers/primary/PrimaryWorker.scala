@@ -90,7 +90,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
                 .withMethod(Method.PUT)
                 .withHRL(newHrl)
                 .requestHeaders(), // POST becomes PUT with auto Id
-              body = appendId(filterNulls(request.body), id)
+              body = appendId(filterNulls(request.body), id, ContentLogic.getIdFieldName(documentUri))
             ))
           }
           else {
@@ -102,7 +102,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
           if (itemId.isEmpty)
             (itemId, request.copy(body = filterNulls(request.body)))
           else
-            (itemId, request.copy(body = appendId(filterNulls(request.body), itemId)))
+            (itemId, request.copy(body = appendId(filterNulls(request.body), itemId, ContentLogic.getIdFieldName(documentUri))))
         case _ ⇒
           (itemId, request)
       }
@@ -202,10 +202,11 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       }
 
       indexDefs.flatMap { indexDef ⇒
-        val sortByExisting = IndexLogic.extractSortFieldValues(indexDef.sortByParsed, existingContentValue)
+        val idFieldName = ContentLogic.getIdFieldName(newContent.documentUri)
+        val sortByExisting = IndexLogic.extractSortFieldValues(idFieldName, indexDef.sortByParsed, existingContentValue)
 
         val sortByNew = newContentValueOption.map { newContentValue ⇒
-          IndexLogic.extractSortFieldValues(indexDef.sortByParsed, newContentValue)
+          IndexLogic.extractSortFieldValues(idFieldName, indexDef.sortByParsed, newContentValue)
         }
 
         if (sortByExisting != sortByNew) {
@@ -404,8 +405,8 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     body.copy(content = body.content ~~ filterNullsVisitor)
   }
 
-  private def appendId(body: DynamicBody, id: Value): DynamicBody = {
-    body.copy(content = Obj(body.content.toMap + ("id" → id)))
+  private def appendId(body: DynamicBody, id: Value, idFieldName: String): DynamicBody = {
+    body.copy(content = Obj(body.content.toMap + (idFieldName → id)))
   }
 
   implicit class RequestWrapper(val request: DynamicRequest) {

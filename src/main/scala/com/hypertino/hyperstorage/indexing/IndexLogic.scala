@@ -44,14 +44,14 @@ object IndexLogic {
     if (sortBy.nonEmpty) Some(sortBy.toJson) else None
   }
 
-  def extractSortFieldValues(sortBy: Seq[HyperStorageIndexSortItem], value: Value): Seq[(String, Value)] = {
+  def extractSortFieldValues(idFieldName: String, sortBy: Seq[HyperStorageIndexSortItem], value: Value): Seq[(String, Value)] = {
     val valueContext = value match {
       case obj: Obj ⇒ ValueContext(obj)
       case _ ⇒ ValueContext(Obj.empty)
     }
     val size = sortBy.size
     sortBy.zipWithIndex.map { case (sortItem, index) ⇒
-      val fieldName = tableFieldName(sortItem, size, index)
+      val fieldName = tableFieldName(idFieldName, sortItem, size, index)
       val fieldValue = HParser(sortItem.fieldName) match {
         case identifier: Identifier if valueContext.identifier.isDefinedAt(identifier) ⇒
           valueContext.identifier(identifier)
@@ -61,8 +61,8 @@ object IndexLogic {
     }
   }
 
-  def tableFieldName(sortItem: HyperStorageIndexSortItem, sortItemSize: Int, index: Int) = {
-    if(index == (sortItemSize-1) && sortItem.fieldName == "id")
+  def tableFieldName(idFieldName: String, sortItem: HyperStorageIndexSortItem, sortItemSize: Int, index: Int) = {
+    if(index == (sortItemSize-1) && sortItem.fieldName == idFieldName)
       "item_id"
     else
       tableFieldType(sortItem) + index.toString
@@ -105,7 +105,8 @@ object IndexLogic {
     orderWeight + filterWeight
   }
 
-  def leastRowsFilterFields(indexSortedBy: Seq[HyperStorageIndexSortItem],
+  def leastRowsFilterFields(idFieldName: String,
+                            indexSortedBy: Seq[HyperStorageIndexSortItem],
                             queryFilterFields: Seq[FieldFilter],
                             prevFilterFieldsSize: Int,
                             prevFilterReachedEnd: Boolean,
@@ -116,7 +117,7 @@ object IndexLogic {
     val size = indexSortedBy.size
     val isbIdx = indexSortedBy.zipWithIndex.map {
       case (sortItem, index) ⇒
-        val fieldName = tableFieldName(sortItem, size, index)
+        val fieldName = tableFieldName(idFieldName, sortItem, size, index)
         val fieldValue = HParser(sortItem.fieldName) match {
           case identifier: Identifier if valueContext.identifier.isDefinedAt(identifier) ⇒
             valueContext.identifier(identifier)

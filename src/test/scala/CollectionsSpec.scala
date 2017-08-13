@@ -237,4 +237,84 @@ class CollectionsSpec extends FlatSpec
     db.selectContent(documentUri, itemId).futureValue.get.isDeleted shouldBe true
     db.selectContent(documentUri, "").futureValue.get.isDeleted shouldBe true
   }
+
+  "Collection" should "Put item with smart id" in {
+    val hyperbus = testHyperbus()
+    val tk = testKit()
+    import tk._
+
+    cleanUpCassandra()
+
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
+
+    val collection = SeqGenerator.create() + "/users~"
+    val item1 = SeqGenerator.create()
+
+    val task = ContentPut(
+      path = s"$collection/$item1",
+      DynamicBody(Obj.from("text" → "Test item value", "null" → Null))
+    )
+
+    db.selectContent(collection, item1).futureValue shouldBe None
+
+    val taskStr = task.serializeToString
+    worker ! PrimaryTask(collection, System.currentTimeMillis() + 10000, taskStr)
+    val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
+    backgroundWorkerTask.documentUri should equal(collection)
+    val workerResult = expectMsgType[ShardTaskComplete]
+    val r = response(workerResult.result.asInstanceOf[PrimaryWorkerTaskResult].content)
+    r.headers.statusCode should equal(Status.CREATED)
+    r.headers.correlationId should equal(task.correlationId)
+
+    val content = db.selectContent(collection, item1).futureValue
+    content shouldNot equal(None)
+    content.get.body should equal(Some(s"""{"text":"Test item value","user_id":"$item1"}"""))
+    content.get.transactionList.size should equal(1)
+    content.get.revision should equal(1)
+    content.get.count should equal(Some(1))
+    val uuid = content.get.transactionList.head
+
+    val item2 = SeqGenerator.create()
+    val task2 = ContentPut(
+      path = s"$collection/$item2",
+      DynamicBody(Obj.from("text" → "Test item value 2"))
+    )
+    val task2Str = task2.serializeToString
+    worker ! PrimaryTask(collection, System.currentTimeMillis() + 10000, task2Str)
+    val backgroundWorkerTask2 = expectMsgType[BackgroundContentTask]
+    backgroundWorkerTask2.documentUri should equal(collection)
+    val workerResult2 = expectMsgType[ShardTaskComplete]
+    val r2 = response(workerResult2.result.asInstanceOf[PrimaryWorkerTaskResult].content)
+    r2.headers.statusCode should equal(Status.CREATED)
+    r2.headers.correlationId should equal(task2.correlationId)
+
+    val content2 = db.selectContent(collection, item2).futureValue
+    content2 shouldNot equal(None)
+    content2.get.body should equal(Some(s"""{"text":"Test item value 2","user_id":"$item2"}"""))
+    content2.get.transactionList.size should equal(2)
+    content2.get.revision should equal(2)
+    content2.get.count should equal(Some(2))
+
+    val transactions = selectTransactions(content2.get.transactionList, collection, db)
+    transactions.size should equal(2)
+    transactions.foreach {
+      _.completedAt shouldBe None
+    }
+    transactions.head.revision should equal(2)
+    transactions.tail.head.revision should equal(1)
+
+    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
+    backgroundWorker ! backgroundWorkerTask
+    val backgroundWorkerResult = expectMsgType[ShardTaskComplete]
+    val rc = backgroundWorkerResult.result.asInstanceOf[BackgroundContentTaskResult]
+    rc.documentUri should equal(collection)
+    rc.transactions should equal(content2.get.transactionList.reverse)
+
+    eventually {
+      db.selectContentStatic(collection).futureValue.get.transactionList shouldBe empty
+    }
+    selectTransactions(content2.get.transactionList, collection, db).foreach {
+      _.completedAt shouldNot be(None)
+    }
+  }
 }

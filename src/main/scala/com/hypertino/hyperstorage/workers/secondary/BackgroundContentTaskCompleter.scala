@@ -127,6 +127,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
 
   private def updateIndexes(content: ContentStatic, incompleteTransactions: Seq[UnwrappedTransaction]): Future[Unit] = {
     if (ContentLogic.isCollectionUri(content.documentUri)) {
+      val idFieldName = ContentLogic.getIdFieldName(content.documentUri)
       val isCollectionDelete = incompleteTransactions.exists { it ⇒
         it.transaction.itemId.isEmpty && it.unwrappedBody.headers.method == Method.FEED_DELETE
       }
@@ -171,7 +172,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
 
                 contentOption match {
                   case Some(item) if !item.isDeleted ⇒
-                    deleteObsoleteFuture.flatMap(_ ⇒ indexItem(indexDef, item))
+                    deleteObsoleteFuture.flatMap(_ ⇒ indexItem(indexDef, item, idFieldName))
 
                   case _ ⇒
                     deleteObsoleteFuture.flatMap { _ ⇒
