@@ -1,8 +1,10 @@
 package com.hypertino.hyperstorage
 
-import com.hypertino.hyperbus.utils.uri.{SlashToken, TextToken, Token, UriPathParser}
+import com.hypertino.hyperbus.utils.uri._
 import com.hypertino.hyperstorage.db.{Content, ContentStatic}
 import com.hypertino.inflector.English
+
+import scala.collection.mutable
 
 case class ResourcePath(documentUri: String, itemId: String)
 
@@ -77,6 +79,39 @@ object ContentLogic {
     }
     else {
       "id"
+    }
+  }
+
+  def pathAndTemplateToId(path: String, template: String): Option[String] = {
+    val templateTokens = UriPathParser.tokens(template)
+    val pathTokens = UriPathParser.tokens(path)
+    var matches = true
+    val idElements = mutable.MutableList[String]()
+    while (pathTokens.hasNext && templateTokens.hasNext) {
+      val pt = pathTokens.next()
+      val tt = templateTokens.next()
+      tt match {
+        case ParameterToken(_) ⇒ pt match {
+          case TextToken(s) ⇒
+            idElements += s
+          case other ⇒
+            matches = false
+        }
+
+        case _ ⇒
+          if (pt != tt) {
+            matches = false
+          }
+      }
+    }
+    if (pathTokens.hasNext || templateTokens.hasNext) {
+      matches = false
+    }
+    if (matches) {
+      Some(idElements.mkString(":"))
+    }
+    else {
+      None
     }
   }
 }

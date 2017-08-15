@@ -11,7 +11,7 @@ import com.hypertino.hyperstorage.api._
 import com.hypertino.hyperstorage.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
 import com.hypertino.hyperstorage.sharding.ShardMemberStatus.Active
 import com.hypertino.hyperstorage.sharding._
-import com.hypertino.hyperstorage.workers.primary.{PrimaryTask, PrimaryWorker}
+import com.hypertino.hyperstorage.workers.primary.{PrimaryContentTask, PrimaryWorker}
 import com.hypertino.hyperstorage.workers.secondary.{BackgroundContentTask, BackgroundContentTaskFailedException, BackgroundContentTaskResult}
 import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
@@ -45,7 +45,7 @@ class RecoveryWorkersSpec extends FlatSpec
     val taskStr1 = ContentPut(path,
       DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
     ).serializeToString
-    worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskStr1)
+    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr1)
     val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
     expectMsgType[ShardTaskComplete]
 
@@ -88,7 +88,7 @@ class RecoveryWorkersSpec extends FlatSpec
       DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
     ).serializeToString
     val millis = System.currentTimeMillis()
-    worker ! PrimaryTask(path, System.currentTimeMillis() + 10000, taskStr1)
+    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr1)
     val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
     expectMsgType[ShardTaskComplete]
 

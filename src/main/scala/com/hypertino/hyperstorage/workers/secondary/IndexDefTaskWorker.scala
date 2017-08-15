@@ -29,12 +29,17 @@ import scala.util.control.NonFatal
 
 @SerialVersionUID(1L) case class IndexDefTaskTaskResult(content: String)
 
-trait IndexDefTaskWorker {
+trait IndexDefTaskWorker extends SecondaryWorkerBase {
   def hyperbus: Hyperbus
+
   def db: Db
+
   def tracker: MetricsTracker
+
   def log: LoggingAdapter
+
   def indexManager: ActorRef
+
   implicit def executionContext: ExecutionContext
 
   def executeIndexDefTask(task: IndexDefTask): Future[ShardTaskComplete] = {
@@ -58,16 +63,6 @@ trait IndexDefTaskWorker {
           Future.failed(e)
       }
     } recover withHyperbusException(task)
-  }
-
-  def validateCollectionUri(uri: String) = {
-    val ResourcePath(documentUri, itemId) = ContentLogic.splitPath(uri)
-    if (!ContentLogic.isCollectionUri(uri) || !itemId.isEmpty) {
-      throw new IllegalArgumentException(s"Task key '$uri' isn't a collection URI.")
-    }
-    if (documentUri != uri) {
-      throw new IllegalArgumentException(s"Task key '$uri' doesn't correspond to $documentUri")
-    }
   }
 
   private def startCreatingNewIndex(task: SecondaryTaskTrait, post: IndexPost): Future[ShardTaskComplete] = {
@@ -134,15 +129,5 @@ trait IndexDefTaskWorker {
     } map { result ⇒
       ShardTaskComplete(task, result)
     }
-  }
-
-  private def withHyperbusException(task: SecondaryTaskTrait): PartialFunction[Throwable, ShardTaskComplete] = {
-    case NonFatal(e) ⇒
-      log.error(e, s"Can't execute $task")
-      val he = e match {
-        case h: HyperbusError[ErrorBody] ⇒ h
-        case other ⇒ InternalServerError(ErrorBody("failed", Some(e.toString)))(MessagingContext.empty)
-      }
-      ShardTaskComplete(task, IndexDefTaskTaskResult(he.serializeToString))
   }
 }

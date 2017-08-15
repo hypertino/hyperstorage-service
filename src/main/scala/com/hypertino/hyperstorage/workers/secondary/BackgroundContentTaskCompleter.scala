@@ -5,19 +5,23 @@ import java.util.UUID
 import akka.actor.ActorRef
 import akka.event.LoggingAdapter
 import com.datastax.driver.core.utils.UUIDs
-import com.hypertino.binders.value.Value
+import com.hypertino.binders.value.{Null, Value}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model.{DynamicRequest, _}
 import com.hypertino.hyperbus.serialization.MessageReader
+import com.hypertino.hyperbus.utils.uri._
+import com.hypertino.hyperstorage.api.{ViewDelete, ViewPut}
 import com.hypertino.hyperstorage.db.{Transaction, _}
-import com.hypertino.hyperstorage.indexing.ItemIndexer
+import com.hypertino.hyperstorage.indexing.{IndexLogic, ItemIndexer}
 import com.hypertino.hyperstorage.metrics.Metrics
 import com.hypertino.hyperstorage.sharding.ShardTaskComplete
 import com.hypertino.hyperstorage.utils.FutureUtils
 import com.hypertino.hyperstorage.{ResourcePath, _}
 import com.hypertino.metrics.MetricsTracker
+import monix.eval.Task
 import monix.execution.Scheduler
 
+import scala.collection.mutable
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Success
 import scala.util.control.NonFatal
@@ -74,6 +78,35 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
     }
   }
 
+  def updateViewsTask(event: DynamicRequest): Task[Unit] = {
+    // todo: cache viewDefs!
+    val path = event.headers.hrl.query.path.toString
+    db.selectViewDefs("*").map { viewDefsIterator ⇒
+      viewDefsIterator
+        .map(viewDef ⇒ viewDef → ContentLogic.pathAndTemplateToId(path, viewDef.templateUri))
+        .filter(_._2.isDefined)
+        .map {
+          case (viewDef, Some(id)) ⇒
+            val write: Boolean = !item.isDeleted && (indexDef.filterBy.map { filterBy ⇒
+              try {
+                IndexLogic.evaluateFilterExpression(filterBy, contentValue)
+              } catch {
+                case NonFatal(e) ⇒
+                  if (log.isDebugEnabled) {
+                    log.debug(s"Can't evaluate expression: `$filterBy` for $item", e)
+                  }
+                  false
+              }
+            } getOrElse {
+              true
+            })
+        }
+    }
+  }
+
+
+
+  // todo: split & refactor method
   private def completeTransactions(task: BackgroundContentTask, content: ContentStatic): Future[ShardTaskComplete] = {
     if (content.transactionList.isEmpty) {
       Future.successful(ShardTaskComplete(task, BackgroundContentTaskResult(task.documentUri, Seq.empty)))
@@ -84,7 +117,24 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
         updateIndexFuture.flatMap { _ ⇒
           FutureUtils.serial(incompleteTransactions) { it ⇒
             val event = it.unwrappedBody
-            hyperbus.publish(event).runAsync.flatMap { publishResult ⇒
+            val viewTask: Task[Unit] = event.headers.hrl.location match {
+              case ViewPut.location ⇒
+                val templateUri = event.headers.getOrElse(TransactionLogic.HB_HEADER_TEMPLATE_URI, Null).toString
+                val filterBy = event.headers.getOrElse(TransactionLogic.HB_HEADER_TEMPLATE_URI, Null) match {
+                  case Null ⇒ None
+                  case other ⇒ Some(other.toString)
+                }
+                Task.fromFuture(db.insertViewDef(ViewDef(key="*", task.documentUri, templateUri, filterBy)))
+              case ViewDelete.location ⇒
+                Task.fromFuture(db.deleteViewDef(key="*", task.documentUri))
+              case _ ⇒
+                updateViewsTask(event)
+            }
+
+            viewTask
+              .flatMap( _ ⇒ hyperbus.publish(event))
+              .runAsync
+              .flatMap{ publishResult ⇒
               if (log.isDebugEnabled) {
                 log.debug(s"Event $event is published with result $publishResult")
               }

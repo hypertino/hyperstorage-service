@@ -11,7 +11,7 @@ import com.hypertino.hyperstorage.api.{HyperStorageIndexSortItem, _}
 import com.hypertino.hyperstorage.db._
 import com.hypertino.hyperstorage.indexing.{FieldFiltersExpression, FieldFiltersExtractor, IndexLogic, OrderFieldsLogic}
 import com.hypertino.hyperstorage.metrics.Metrics
-import com.hypertino.hyperstorage.workers.primary.{PrimaryTask, PrimaryWorkerTaskResult}
+import com.hypertino.hyperstorage.workers.primary.{PrimaryContentTask, PrimaryWorkerTaskResult}
 import com.hypertino.hyperstorage.workers.secondary.IndexDefTask
 import com.hypertino.metrics.MetricsTracker
 import com.hypertino.parser.ast.{Expression, Identifier}
@@ -77,7 +77,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
     val str = request.serializeToString
     val ttl = Math.max(requestTimeout.toMillis - 100, 100)
     val documentUri = ContentLogic.splitPath(uri).documentUri
-    val task = PrimaryTask(documentUri, System.currentTimeMillis() + ttl, str)
+    val task = PrimaryContentTask(documentUri, System.currentTimeMillis() + ttl, str)
     implicit val timeout: akka.util.Timeout = requestTimeout
 
     // todo: what happens when error is returned

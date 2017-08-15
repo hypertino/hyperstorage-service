@@ -24,10 +24,9 @@ import scala.concurrent.duration.FiniteDuration
 import scala.util.Try
 import scala.util.control.NonFatal
 
-@SerialVersionUID(1L) case class PrimaryTask(key: String, ttl: Long, content: String) extends ShardTask {
-  def isExpired = ttl < System.currentTimeMillis()
-
+@SerialVersionUID(1L) case class PrimaryContentTask(key: String, ttl: Long, content: String) extends ShardTask {
   def group = "hyperstorage-primary-worker"
+  def isExpired = ttl < System.currentTimeMillis()
 }
 
 @SerialVersionUID(1L) case class PrimaryWorkerTaskResult(content: String)
@@ -36,6 +35,7 @@ case class PrimaryWorkerTaskFailed(task: ShardTask, inner: Throwable)
 
 case class PrimaryWorkerTaskCompleted(task: ShardTask, transaction: Transaction, resourceCreated: Boolean)
 
+// todo: Protect from direct view items updates!!!
 class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgroundTaskTimeout: FiniteDuration) extends Actor with ActorLogging {
 
   import ContentLogic._
@@ -59,11 +59,11 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
   }
 
   def receive = {
-    case task: PrimaryTask ⇒
+    case task: PrimaryContentTask ⇒
       executeTask(sender(), task)
   }
 
-  def executeTask(owner: ActorRef, task: PrimaryTask): Unit = {
+  def executeTask(owner: ActorRef, task: PrimaryContentTask): Unit = {
     val trackProcessTime = tracker.timer(Metrics.PRIMARY_PROCESS_TIME).time()
 
     Try {
@@ -99,10 +99,24 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
           }
 
         case Method.PUT ⇒
-          if (itemId.isEmpty)
-            (itemId, request.copy(body = filterNulls(request.body)))
-          else
+          if (itemId.isEmpty) {
+            if (ContentLogic.isCollectionUri(documentUri) && itemId.isEmpty && request.headers.hrl.location == ViewPut.location) {
+              // todo: validate template_uri & filter_by
+              val newHeaders = Headers
+                .builder
+                .++=(request.headers)
+                .+=(TransactionLogic.HB_HEADER_TEMPLATE_URI → request.body.content.template_uri)
+                .+=(TransactionLogic.HB_HEADER_FILTER → request.body.content.filter_by)
+                .requestHeaders()
+              (itemId, request.copy(body=DynamicBody(Null), headers=newHeaders))
+            }
+            else {
+              (itemId, request.copy(body = filterNulls(request.body)))
+            }
+          }
+          else {
             (itemId, request.copy(body = appendId(filterNulls(request.body), itemId, ContentLogic.getIdFieldName(documentUri))))
+          }
         case _ ⇒
           (itemId, request)
       }
@@ -120,7 +134,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     }
   }
 
-  private def executeResourceUpdateTask(owner: ActorRef, documentUri: String, itemId: String, task: PrimaryTask, request: DynamicRequest) = {
+  private def executeResourceUpdateTask(owner: ActorRef, documentUri: String, itemId: String, task: PrimaryContentTask, request: DynamicRequest) = {
     val futureExisting : Future[(Option[Content], Option[ContentBase], List[IndexDef])] =
       if (request.headers.method == Method.POST) {
         Future.successful((None, None, List.empty))
@@ -270,22 +284,44 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     implicit val mcx = request
 
     val isCollection = ContentLogic.isCollectionUri(documentUri)
-    if (isCollection && itemId.isEmpty) {
-      throw Conflict(ErrorBody("collection-put-not-implemented", Some(s"Currently you can't put the whole collection")))
-    }
+    val newBody =
+      if (isCollection && itemId.isEmpty) {
+        if (!request.body.content.isEmpty)
+          throw Conflict(ErrorBody("collection-put-not-implemented", Some(s"Can't put non-empty collection")))
+        else
+          None
+      }
+      else {
+        Some(request.body.serializeToString)
+      }
 
     existingContentStatic match {
       case None ⇒
+        val newCount = if (isCollection) {
+          if (itemId.isEmpty) {
+            Some(0l)
+          }
+          else {
+            Some(1l)
+          }
+        }
+        else {
+          None
+        }
         Content(documentUri, itemId, newTransaction.revision,
           transactionList = List(newTransaction.uuid),
           isDeleted = false,
-          count = if (isCollection) Some(1) else None,
-          body = Some(request.body.serializeToString),
+          count = newCount,
+          isView = request.headers.hrl.location == ViewPut.location,
+          body = newBody,
           createdAt = existingContent.map(_.createdAt).getOrElse(new Date),
           modifiedAt = existingContent.flatMap(_.modifiedAt)
         )
 
       case Some(static) ⇒
+        if (request.headers.hrl.location == ViewPut.location && !static.isView) {
+          throw Conflict(ErrorBody("collection-view-conflict", Some(s"Can't put view over existing collection")))
+        }
         val newCount = if (isCollection) {
           static.count.map(_ + (if (existingContent.isEmpty) 1 else 0))
         } else {
@@ -295,7 +331,8 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
           transactionList = newTransaction.uuid +: static.transactionList,
           isDeleted = false,
           count = newCount,
-          body = Some(request.body.serializeToString),
+          isView = static.isView,
+          body = newBody,
           createdAt = existingContent.map(_.createdAt).getOrElse(new Date),
           modifiedAt = existingContent.flatMap(_.modifiedAt)
         )
@@ -307,23 +344,25 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
                            newTransaction: Transaction,
                            request: DynamicRequest,
                            existingContent: Option[Content]): Content = {
+    implicit val mcx = request
+
     if (ContentLogic.isCollectionUri(documentUri) && itemId.isEmpty) {
-      throw new IllegalArgumentException(s"PATCH is not allowed for a collection~")
+      throw Conflict(ErrorBody("collection-patch-not-implemented", Some(s"PATCH is not allowed for a collection~")))
     }
 
     existingContent match {
       case Some(content) if !content.isDeleted ⇒
         Content(documentUri, itemId, newTransaction.revision,
           transactionList = newTransaction.uuid +: content.transactionList,
-          count = content.count,
-          body = mergeBody(content.bodyValue, request.body.content),
           isDeleted = false,
+          count = content.count,
+          isView = content.isView,
+          body = mergeBody(content.bodyValue, request.body.content),
           createdAt = content.createdAt,
           modifiedAt = Some(new Date())
         )
 
       case _ ⇒
-        implicit val mcx = request
         throw NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
     }
   }
@@ -352,17 +391,22 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       throw NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
 
     case Some(content) ⇒
+      if (content.isView && request.headers.hrl.location != ViewDelete.location) {
+        throw Conflict(ErrorBody("collection-is-view", Some(s"Can't delete view collection directly")))
+      }
+
       Content(documentUri, itemId, newTransaction.revision,
         transactionList = newTransaction.uuid +: content.transactionList,
-        count = content.count.map(_ - 1),
-        body = None,
         isDeleted = true,
+        count = content.count.map(_ - 1),
+        isView = content.isView,
+        body = None,
         createdAt = existingContent.map(_.createdAt).getOrElse(new Date()),
         modifiedAt = Some(new Date())
       )
   }
 
-  private def taskWaitResult(owner: ActorRef, originalTask: PrimaryTask, request: DynamicRequest, trackProcessTime: Timer.Context)
+  private def taskWaitResult(owner: ActorRef, originalTask: PrimaryContentTask, request: DynamicRequest, trackProcessTime: Timer.Context)
                             (implicit mcf: MessagingContext): Receive = {
     case PrimaryWorkerTaskCompleted(task, transaction, created) if task == originalTask ⇒
       if (log.isDebugEnabled) {

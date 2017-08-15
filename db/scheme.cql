@@ -5,6 +5,7 @@ create table content (
 	transaction_list list<timeuuid> static,		-- transactions in progress
 	is_deleted boolean static,			-- flag that document is deleted (collection items removed from table)
 	count bigint static,                            -- count of items in collection
+	is_view boolean static,                         -- view, can't be updated directly
 	body text,					-- body content
 	created_at timestamp,
 	modified_at timestamp,
@@ -39,6 +40,14 @@ create table index_def(
     def_transaction_id timeuuid,			-- identifies ID of transaction creating index (see pending index)
     materialize boolean,                                -- copy data into the index to avoid access to main table when selecting
     primary key (document_uri, index_id)
+);
+
+create table view_def(
+    key text,                                           -- '*' for all records
+    document_uri text,                                  -- document_uri to lookup in index_def,
+    template_uri text,                                  -- view uri template
+    filter_by text,					-- filter expression
+    primary key (key, document_uri)
 );
 
 create table pending_index(

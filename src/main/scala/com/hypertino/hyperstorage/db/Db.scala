@@ -15,14 +15,11 @@ import scala.util.control.NonFatal
 
 trait ContentBase {
   def documentUri: String
-
   def revision: Long
-
   def transactionList: List[UUID]
-
   def isDeleted: Boolean
-
   def count: Option[Long]
+  def isView: Boolean
 }
 
 trait CollectionContent {
@@ -45,8 +42,9 @@ case class Content(
                     itemId: String,
                     revision: Long,
                     transactionList: List[UUID],
-                    count: Option[Long],
                     isDeleted: Boolean,
+                    count: Option[Long],
+                    isView: Boolean,
                     body: Option[String],
                     createdAt: Date,
                     modifiedAt: Option[Date]
@@ -57,7 +55,8 @@ case class ContentStatic(
                           revision: Long,
                           transactionList: List[UUID],
                           isDeleted: Boolean,
-                          count: Option[Long]
+                          count: Option[Long],
+                          isView: Boolean
                         ) extends ContentBase
 
 case class Transaction(
@@ -95,6 +94,13 @@ case class IndexDef(
     str.parseJson[Seq[HyperStorageIndexSortItem]]
   }.getOrElse(Seq.empty)
 }
+
+case class ViewDef(
+                    key: String,
+                    documentUri: String,
+                    templateUri: String,
+                    filterBy: Option[String]
+                  )
 
 case class IndexContent(
                          documentUri: String,
@@ -147,7 +153,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
   }
 
   def selectContent(documentUri: String, itemId: String): Future[Option[Content]] = cql"""
-      select document_uri,item_id,revision,transaction_list,is_deleted,count,body,created_at,modified_at from content
+      select document_uri,item_id,revision,transaction_list,is_deleted,count,is_view,body,created_at,modified_at from content
       where document_uri=$documentUri and item_id=$itemId
     """.oneOption[Content]
 
@@ -168,7 +174,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     }.getOrElse(""))
 
     val c = cql"""
-      select document_uri,item_id,revision,transaction_list,is_deleted,count,body,created_at,modified_at from content
+      select document_uri,item_id,revision,transaction_list,is_deleted,count,is_view,body,created_at,modified_at from content
       where document_uri=? $itemIdFilterDynamic
       $orderClause
       limit ?
@@ -185,14 +191,14 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
   }
 
   def selectContentStatic(documentUri: String): Future[Option[ContentStatic]] = cql"""
-      select document_uri,revision,transaction_list,is_deleted,count from content
+      select document_uri,revision,transaction_list,is_deleted,count,is_view from content
       where document_uri=$documentUri
       limit 1
     """.oneOption[ContentStatic]
 
   def insertContent(content: Content): Future[Unit] = cql"""
-      insert into content(document_uri,item_id,revision,transaction_list,is_deleted,count,body,created_at,modified_at)
-      values(?,?,?,?,?,?,?,?,?)
+      insert into content(document_uri,item_id,revision,transaction_list,is_deleted,count,is_view,body,created_at,modified_at)
+      values(?,?,?,?,?,?,?,?,?,?)
     """.bind(content).execute()
 
   def deleteContentItem(content: ContentBase, itemId: String): Future[Unit] = cql"""
@@ -402,6 +408,20 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       where document_uri = $documentUri and index_id = $indexId
     """.execute()
   }
+
+  def selectViewDefs(key: String = "*"): Future[Iterator[ViewDef]] = cql"""
+      select key, document_uri, template_uri, filter_by
+      from view_def
+      where key = $key
+    """.all[ViewDef]
+
+  def insertViewDef(viewDef: ViewDef): Future[Unit] = cql"""
+      insert into view_def(key, document_uri, template_uri, filter_by) values (?,?,?,?)
+    """.bind(viewDef).execute()
+
+  def deleteViewDef(key: String, documentUri: String): Future[Unit] = cql"""
+      delete from view_def where key=$key and document_uri=$documentUri
+    """.execute()
 
   private def bindSortFields(cql: Statement[CamelCaseToSnakeCaseConverter.type], sortFields: Seq[(String, Value)]) = {
     sortFields.foreach {

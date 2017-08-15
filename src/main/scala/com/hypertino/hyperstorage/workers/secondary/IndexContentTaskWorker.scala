@@ -23,15 +23,13 @@ import scala.util.control.NonFatal
 
 @SerialVersionUID(1L) case class IndexContentTaskFailed(processId: Long, reason: String) extends RuntimeException(s"Index content task for process $processId is failed with reason $reason")
 
-trait IndexContentTaskWorker extends ItemIndexer {
+trait IndexContentTaskWorker extends ItemIndexer with SecondaryWorkerBase {
   def hyperbus: Hyperbus
   def db: Db
   def tracker: MetricsTracker
   def log: LoggingAdapter
   def indexManager: ActorRef
   implicit def scheduler: Scheduler
-
-  def validateCollectionUri(uri: String)
 
   def indexNextBucket(task: IndexContentTask): Future[ShardTaskComplete] = {
     try {

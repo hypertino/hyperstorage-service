@@ -10,6 +10,8 @@ import com.hypertino.hyperstorage.sharding.{ShardTask, ShardedClusterData}
 object TransactionLogic {
   final val MAX_TRANSACTIONS: Int = 1024
   final val timeZone = TimeZone.getTimeZone("UTC")
+  final val HB_HEADER_TEMPLATE_URI = "HB-Template-Uri"
+  final val HB_HEADER_FILTER = "HB-Filter"
 
   def newTransaction(documentUri: String, itemId: String, revision: Long, body: String) = Transaction(
     dtQuantum = getDtQuantum(System.currentTimeMillis()),
