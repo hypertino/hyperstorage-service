@@ -24,7 +24,7 @@ abstract class IndexingSpec extends FlatSpec
 
   def materialize: Boolean
 
-  override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(11000, Millis)))
+  override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(20000, Millis)))
 
   import MessagingContext.Implicits.emptyContext
 
