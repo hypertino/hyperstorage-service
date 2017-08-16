@@ -1,27 +1,23 @@
 import java.util.UUID
 
 import akka.testkit.TestActorRef
-import akka.util.Timeout
 import com.hypertino.binders.value._
-import com.hypertino.hyperbus.model._
+import com.hypertino.hyperbus.model.{NotFound, _}
 import com.hypertino.hyperbus.serialization.SerializationOptions
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.api._
-import com.hypertino.hyperstorage.db.IndexDef
 import com.hypertino.hyperstorage.sharding._
 import com.hypertino.hyperstorage.utils.SortBy
 import com.hypertino.hyperstorage.workers.primary.PrimaryWorker
 import com.hypertino.hyperstorage.workers.secondary.SecondaryWorker
-import mock.FaultClientTransport
 import monix.execution.Ack.Continue
 import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.time.{Millis, Span}
-import org.scalatest.{FlatSpec, FreeSpec, Matchers}
+import org.scalatest.{FlatSpec, Matchers}
 
-import scala.collection.mutable
+import scala.concurrent.Promise
 import scala.concurrent.duration._
-import scala.concurrent.{Future, Promise}
 
 class IntegratedSpec extends FlatSpec
   with Matchers
@@ -30,7 +26,7 @@ class IntegratedSpec extends FlatSpec
   with TestHelpers
   with Eventually {
 
-  override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(10000, Millis)))
+  override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(20000, Millis)))
 
   import MessagingContext.Implicits.emptyContext
 
@@ -158,7 +154,6 @@ class IntegratedSpec extends FlatSpec
       response.headers.statusCode should equal(Status.CREATED)
     }
     implicit val so = SerializationOptions.forceOptionalFields
-    import so._
     val r = ContentPatch(path, DynamicBody(Obj.from("b" → Null)))
     //println(s"making request ${r.serializeToString}")
     val f = hyperbus.ask(r).runAsync
@@ -404,11 +399,64 @@ class IntegratedSpec extends FlatSpec
       .futureValue shouldBe a[Ok[_]]
 
     eventually {
+      hyperbus.ask(ContentGet("abcs~/123"))
+        .runAsync
+        .failed
+        .futureValue shouldBe a[NotFound[_]]
+    }
+  }
+
+  it should "support view on collections" in {
+    val hyperbus = testHyperbus()
+    val tk = testKit()
+    import tk._
+
+    cleanUpCassandra()
+
+    val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
+    val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
+    val workerSettings = Map(
+      "hyperstorage-primary-worker" → (workerProps, 1, "pgw-"),
+      "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+    )
+
+    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))
+    val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
+    // wait while subscription is completes
+    Thread.sleep(2000)
+
+    hyperbus.ask(ViewPut("abcs~", HyperStorageView("collection~/{*}")))
+      .runAsync
+      .futureValue shouldBe a[Created[_]]
+
+    eventually {
+      val h = db.selectViewDefs().futureValue.toSeq.head
+      h.documentUri shouldBe "abcs~"
+      h.templateUri shouldBe "collection~/{*}"
+    }
+
+    hyperbus.ask(ContentPut("collection~/123", DynamicBody(Obj.from("a" → 10, "x" → "hello"))))
+      .runAsync
+      .futureValue shouldBe a[Created[_]]
+
+    eventually {
       val ok = hyperbus.ask(ContentGet("abcs~/123"))
         .runAsync
         .futureValue
 
-      ok shouldBe a[NotFound[_]]
+      ok shouldBe a[Ok[_]]
+      ok.body shouldBe DynamicBody(Obj.from("a" → 10, "x" → "hello", "id" → "123"))
+    }
+
+    hyperbus.ask(ContentDelete("collection~/123"))
+      .runAsync
+      .futureValue shouldBe a[Ok[_]]
+
+    eventually {
+      hyperbus.ask(ContentGet("abcs~/123"))
+        .runAsync
+        .failed
+        .futureValue shouldBe a[NotFound[_]]
     }
   }
 }
