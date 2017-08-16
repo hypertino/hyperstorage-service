@@ -30,8 +30,6 @@ class IntegratedSpec extends FlatSpec
   with TestHelpers
   with Eventually {
 
-  import ContentLogic._
-
   override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(10000, Millis)))
 
   import MessagingContext.Implicits.emptyContext
@@ -55,29 +53,24 @@ class IntegratedSpec extends FlatSpec
     // wait while subscription is completes
     Thread.sleep(2000)
 
-    hyperbus.ask(ContentPut("abc/123", DynamicBody(Obj.from("a" → 10, "x" → "hello")))).runAsync.map {
-      case Ok(body) ⇒ println("abc/123 is updated")
-      case Created(body) ⇒ println("abc/123 is created")
-    } recover {
-      case hyperbusError: ErrorResponse ⇒ println(hyperbusError.body.code)
-      case otherException ⇒ println("something wrong")
-    } futureValue
+    val create = hyperbus.ask(ContentPut("abc/123", DynamicBody(Obj.from("a" → 10, "x" → "hello"))))
+      .runAsync
+      .futureValue
 
-    hyperbus.ask(ContentGet("abc/123")).runAsync.map {
-      case Ok(body, _) ⇒ println("abc/123 is fetched:", body.content)
-    } recover {
-      case NotFound(body) ⇒ println("abc/123 is not found")
-      case hyperbusError: ErrorResponse ⇒ println(hyperbusError.body.code)
-      case otherException ⇒ println("something wrong")
-    } futureValue
+    create shouldBe a[Created[_]]
 
-    hyperbus.ask(ContentDelete("abc/123")).runAsync.map {
-      case Ok(body) ⇒ println("abc/123 is deleted.")
-    } recover {
-      case NotFound(body) ⇒ println("abc/123 is not found")
-      case hyperbusError: ErrorResponse ⇒ println(hyperbusError.body.code)
-      case otherException ⇒ println("something wrong")
-    } futureValue
+    val ok = hyperbus.ask(ContentGet("abc/123"))
+      .runAsync
+      .futureValue
+
+    ok shouldBe a[Ok[_]]
+    ok.body shouldBe DynamicBody(Obj.from("a" → 10, "x" → "hello"))
+
+    val delete = hyperbus.ask(ContentDelete("abc/123"))
+      .runAsync
+      .futureValue
+
+    delete shouldBe a[Ok[_]]
   }
 
   it should "Test hyperstorage PUT+GET+Event" in {
@@ -361,6 +354,61 @@ class IntegratedSpec extends FlatSpec
         Lst.empty
       )
       response.headers.get(Header.COUNT) shouldBe Some(Number(2))
+    }
+  }
+
+  it should "support view on documents" in {
+    val hyperbus = testHyperbus()
+    val tk = testKit()
+    import tk._
+
+    cleanUpCassandra()
+
+    val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
+    val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
+    val workerSettings = Map(
+      "hyperstorage-primary-worker" → (workerProps, 1, "pgw-"),
+      "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+    )
+
+    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))
+    val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
+    // wait while subscription is completes
+    Thread.sleep(2000)
+
+    hyperbus.ask(ViewPut("abcs~", HyperStorageView("abc/{*}")))
+      .runAsync
+      .futureValue shouldBe a[Created[_]]
+
+    eventually {
+      val h = db.selectViewDefs().futureValue.toSeq.head
+      h.documentUri shouldBe "abcs~"
+      h.templateUri shouldBe "abc/{*}"
+    }
+
+    hyperbus.ask(ContentPut("abc/123", DynamicBody(Obj.from("a" → 10, "x" → "hello"))))
+      .runAsync
+      .futureValue shouldBe a[Created[_]]
+
+    eventually {
+      val ok = hyperbus.ask(ContentGet("abcs~/123"))
+        .runAsync
+        .futureValue
+
+      ok shouldBe a[Ok[_]]
+      ok.body shouldBe DynamicBody(Obj.from("a" → 10, "x" → "hello", "id" → "123"))
+    }
+
+    hyperbus.ask(ContentDelete("abc/123"))
+      .runAsync
+      .futureValue shouldBe a[Ok[_]]
+
+    eventually {
+      val ok = hyperbus.ask(ContentGet("abcs~/123"))
+        .runAsync
+        .futureValue
+
+      ok shouldBe a[NotFound[_]]
     }
   }
 }

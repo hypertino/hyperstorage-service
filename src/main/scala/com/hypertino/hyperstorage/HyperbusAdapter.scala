@@ -69,6 +69,11 @@ class HyperbusAdapter(hyperbus: Hyperbus,
   def onIndexPost(implicit request: IndexPost) = executeIndexRequest(request)
   def onIndexDelete(implicit request: IndexDelete) = executeIndexRequest(request)
 
+  def onViewPut(implicit request: ViewPut) = executeRequest(request, request.path)
+  def onViewDelete(implicit request: ViewDelete) = executeRequest(request, request.path)
+
+  // todo: implement onViewGet/onViewsGet
+
   def off(): Task[Unit] = {
     Task.eval(subscriptions.foreach(_.cancel()))
   }

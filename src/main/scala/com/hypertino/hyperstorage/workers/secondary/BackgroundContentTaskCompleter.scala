@@ -77,6 +77,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
     }
     catch {
       case NonFatal(e) ⇒
+        log.error(e, s"Background task $task didn't complete")
         Future.failed(e)
     }
   }
@@ -98,7 +99,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
             val viewTask: Task[Unit] = event.headers.hrl.location match {
               case l if l == ViewPut.location ⇒
                 val templateUri = event.headers.getOrElse(TransactionLogic.HB_HEADER_TEMPLATE_URI, Null).toString
-                val filterBy = event.headers.getOrElse(TransactionLogic.HB_HEADER_TEMPLATE_URI, Null) match {
+                val filterBy = event.headers.getOrElse(TransactionLogic.HB_HEADER_FILTER, Null) match {
                   case Null ⇒ None
                   case other ⇒ Some(other.toString)
                 }
@@ -247,10 +248,9 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
       Task.gather {
         viewDefs.map { viewDef ⇒
           ContentLogic.pathAndTemplateToId(path, viewDef.templateUri).map { id ⇒
-            val viewItemPath = viewDef.documentUri + "/" + id
             implicit val mcx = lastTransaction.unwrappedBody
             if (lastTransaction.unwrappedBody.headers.method == Method.FEED_DELETE) {
-              deleteViewItem(viewItemPath, owner, ttl)
+              deleteViewItem(viewDef.documentUri, id, owner, ttl)
             }
             else {
               contentTask.flatMap {
@@ -269,12 +269,12 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
                     true
                   }
                   if (matches) {
-                    addViewItem(viewItemPath, content.bodyValue, owner, ttl)
+                    addViewItem(viewDef.documentUri, id, content.bodyValue, owner, ttl)
                   } else {
-                    deleteViewItem(viewItemPath, owner, ttl)
+                    deleteViewItem(viewDef.documentUri, id, owner, ttl)
                   }
                 case None ⇒ // удалить
-                  deleteViewItem(viewItemPath, owner, ttl)
+                  deleteViewItem(viewDef.documentUri, id, owner, ttl)
               }
             }
           } getOrElse {
@@ -286,16 +286,16 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
   }
 
 
-  private def addViewItem(path: String, bodyValue: Value, owner: ActorRef, ttl: Long)(implicit mcx: MessagingContext): Task[Any] = {
+  private def addViewItem(documentUri: String, itemId: String, bodyValue: Value, owner: ActorRef, ttl: Long)(implicit mcx: MessagingContext): Task[Any] = {
     implicit val timeout = akka.util.Timeout(Duration(ttl - System.currentTimeMillis() + 3000, duration.MILLISECONDS))
-    Task.fromFuture(owner ? PrimaryContentTask(path, ttl, ContentPut(path, DynamicBody(bodyValue)).serializeToString)).map{
+    Task.fromFuture(owner ? PrimaryContentTask(documentUri, ttl, ContentPut(documentUri + "/" + itemId, DynamicBody(bodyValue)).serializeToString)).map{
       _ ⇒ handlePrimaryWorkerTaskResult
     }
   }
 
-  private def deleteViewItem(path: String, owner: ActorRef, ttl: Long)(implicit mcx: MessagingContext): Task[Any] = {
+  private def deleteViewItem(documentUri: String, itemId: String, owner: ActorRef, ttl: Long)(implicit mcx: MessagingContext): Task[Any] = {
     implicit val timeout = akka.util.Timeout(Duration(ttl - System.currentTimeMillis() + 3000, duration.MILLISECONDS))
-    Task.fromFuture(owner ? PrimaryContentTask(path, ttl, ContentDelete(path).serializeToString)).map{
+    Task.fromFuture(owner ? PrimaryContentTask(documentUri, ttl, ContentDelete(documentUri + "/" + itemId).serializeToString)).map{
       _ ⇒ handlePrimaryWorkerTaskResult
     }
   }

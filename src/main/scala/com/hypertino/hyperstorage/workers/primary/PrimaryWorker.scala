@@ -392,7 +392,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 
     case Some(content) ⇒
       implicit val mcx = request
-      if (content.isView && request.headers.hrl.location != ViewDelete.location) {
+      if (content.isView && request.headers.hrl.location != ViewDelete.location && itemId.isEmpty) {
         throw Conflict(ErrorBody("collection-is-view", Some(s"Can't delete view collection directly")))
       }
 
