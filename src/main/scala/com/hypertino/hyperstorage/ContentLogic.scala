@@ -94,7 +94,7 @@ object ContentLogic {
         case ParameterToken(_) ⇒ pt match {
           case TextToken(s) ⇒
             idElements += s
-          case other ⇒
+          case _ ⇒
             matches = false
         }
 

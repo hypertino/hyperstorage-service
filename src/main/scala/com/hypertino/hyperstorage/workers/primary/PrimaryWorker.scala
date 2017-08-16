@@ -391,6 +391,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       throw NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
 
     case Some(content) ⇒
+      implicit val mcx = request
       if (content.isView && request.headers.hrl.location != ViewDelete.location) {
         throw Conflict(ErrorBody("collection-is-view", Some(s"Can't delete view collection directly")))
       }
