@@ -169,11 +169,10 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
         // todo: cache index meta
         indexDefsTask
           .flatMap { indexDefsIterator ⇒
-            val indexDefs = indexDefsIterator.toSeq
-            Task.gather(indexDefs.map { indexDef ⇒
+            Task.wander(indexDefsIterator.toList) { indexDef ⇒
               log.debug(s"Removing index $indexDef")
               Task.fromFuture(deleteIndexDefAndData(indexDef))
-            }: Seq[Task[Unit]])
+            }
           }
       }
       else {
@@ -186,7 +185,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
             it.transaction.itemId → obsoleteSeq
         }.groupBy(_._1).mapValues(_.map(_._2)).map(kv ⇒ kv._1 → kv._2.flatten)
 
-        Task.gather(itemIds.keys.toSeq.map { itemId ⇒
+        Task.wander(itemIds.keys) { itemId ⇒
           log.debug(s"Looking for content $itemId")
 
           // todo: cache content
@@ -197,35 +196,35 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
             .flatMap { _ ⇒
               indexDefsTask
                 .flatMap { indexDefsIterator ⇒
-                  val indexDefs = indexDefsIterator.toSeq
-                  Task.gather {
-                    indexDefs.map { indexDef ⇒
-                      if (log.isDebugEnabled) {
-                        log.debug(s"Indexing content ${contentStatic.documentUri}/$itemId for $indexDefs")
-                      }
+                  Task.wander(indexDefsIterator.toList) { indexDef ⇒
+                    if (log.isDebugEnabled) {
+                      log.debug(s"Indexing content ${contentStatic.documentUri}/$itemId for $indexDef")
+                    }
 
-                      // todo: refactor, this is crazy
-                      val seq: Seq[Seq[(String, Value)]] = itemIds(itemId).filter(_._1 == indexDef.indexId).map(_._2)
-                      val deleteObsoleteFuture = FutureUtils.serial(seq) { s ⇒
-                        db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, itemId, s)
-                      }
+                    // todo: refactor, this is crazy
+                    val seq: Seq[Seq[(String, Value)]] = itemIds(itemId).filter(_._1 == indexDef.indexId).map(_._2)
+                    val deleteObsoleteFuture = FutureUtils.serial(seq) { s ⇒
+                      db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, itemId, s)
+                    }
 
-                      contentTask.flatMap {
-                        case Some(item) if !item.isDeleted ⇒
-                          Task.fromFuture(deleteObsoleteFuture.flatMap(_ ⇒ indexItem(indexDef, item, idFieldName)))
+                    contentTask.flatMap {
+                      case Some(item) if !item.isDeleted ⇒
+                        Task.fromFuture(deleteObsoleteFuture.flatMap(_ ⇒ indexItem(indexDef, item, idFieldName)))
 
-                        case _ ⇒
-                          Task.fromFuture(
-                            deleteObsoleteFuture.flatMap { _ ⇒
-                              val revision = incompleteTransactions.map(t ⇒ t.transaction.revision).max
-                              db.updateIndexRevision(indexDef.tableName, indexDef.documentUri, indexDef.indexId, revision)
-                            })
-                      }
+                      case _ ⇒
+                        if (log.isDebugEnabled) {
+                          log.debug(s"No content to index for ${contentStatic.documentUri}/$itemId")
+                        }
+                        Task.fromFuture(
+                          deleteObsoleteFuture.flatMap { _ ⇒
+                            val revision = incompleteTransactions.map(t ⇒ t.transaction.revision).max
+                            db.updateIndexRevision(indexDef.tableName, indexDef.documentUri, indexDef.indexId, revision)
+                          })
                     }
                   }
                 }
             }
-        }: Seq[Task[Any]])
+        }
       }
     } else {
       val contentTask = Task.fromFuture(db.selectContent(contentStatic.documentUri, "")).memoize
@@ -240,46 +239,44 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
                          ttl: Long): Task[Any] = {
     val viewDefsTask = Task.fromFuture(db.selectViewDefs())
     viewDefsTask.flatMap { viewDefsIterator ⇒
-      val viewDefs = viewDefsIterator.toSeq
-      Task.gather {
-        viewDefs.map { viewDef ⇒
-          ContentLogic.pathAndTemplateToId(path, viewDef.templateUri).map { id ⇒
-            implicit val mcx = lastTransaction.unwrappedBody
-            if (lastTransaction.unwrappedBody.headers.method == Method.FEED_DELETE) {
-              deleteViewItem(viewDef.documentUri, id, owner, ttl)
-            }
-            else {
-              contentTask.flatMap {
-                case Some(content) ⇒
-                  val matches = viewDef.filterBy.map { filterBy ⇒
-                    try {
-                      IndexLogic.evaluateFilterExpression(filterBy, content.bodyValue)
-                    } catch {
-                      case NonFatal(e) ⇒
-                        if (log.isDebugEnabled) {
-                          log.debug(s"Can't evaluate expression: `$filterBy` for $path", e)
-                        }
-                        false
-                    }
-                  } getOrElse {
-                    true
-                  }
-                  if (matches) {
-                    addViewItem(viewDef.documentUri, id, content.bodyValue, owner, ttl)
-                  } else {
-                    deleteViewItem(viewDef.documentUri, id, owner, ttl)
-                  }
-                case None ⇒ // удалить
-                  deleteViewItem(viewDef.documentUri, id, owner, ttl)
-              }
-            }
-          } getOrElse {
-            Task.unit
+      Task.wander(viewDefsIterator.toList) { viewDef ⇒
+        ContentLogic.pathAndTemplateToId(path, viewDef.templateUri).map { id ⇒
+          implicit val mcx = lastTransaction.unwrappedBody
+          if (lastTransaction.unwrappedBody.headers.method == Method.FEED_DELETE) {
+            deleteViewItem(viewDef.documentUri, id, owner, ttl)
           }
-        } : Seq[Task[Any]]
+          else {
+            contentTask.flatMap {
+              case Some(content) ⇒
+                val matches = viewDef.filterBy.map { filterBy ⇒
+                  try {
+                    IndexLogic.evaluateFilterExpression(filterBy, content.bodyValue)
+                  } catch {
+                    case NonFatal(e) ⇒
+                      if (log.isDebugEnabled) {
+                        log.debug(s"Can't evaluate expression: `$filterBy` for $path", e)
+                      }
+                      false
+                  }
+                } getOrElse {
+                  true
+                }
+                if (matches) {
+                  addViewItem(viewDef.documentUri, id, content.bodyValue, owner, ttl)
+                } else {
+                  deleteViewItem(viewDef.documentUri, id, owner, ttl)
+                }
+              case None ⇒ // удалить
+                deleteViewItem(viewDef.documentUri, id, owner, ttl)
+            }
+          }
+        } getOrElse {
+          Task.unit
+        }
       }
     }
   }
+
 
   private def addViewItem(documentUri: String, itemId: String, bodyValue: Value, owner: ActorRef, ttl: Long)(implicit mcx: MessagingContext): Task[Any] = {
     implicit val timeout = akka.util.Timeout(Duration(ttl - System.currentTimeMillis() + 3000, duration.MILLISECONDS))
