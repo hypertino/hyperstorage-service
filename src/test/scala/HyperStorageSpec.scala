@@ -49,7 +49,7 @@ class HyperStorageSpec extends FlatSpec
     }
 
     val taskStr = task.serializeToString
-    worker ! PrimaryContentTask(task.path, System.currentTimeMillis() + 10000, taskStr)
+    worker ! PrimaryContentTask(task.path, System.currentTimeMillis() + 10000, taskStr, expectsResult=true)
     val backgroundTask = expectMsgType[BackgroundContentTask]
     backgroundTask.documentUri should equal(task.path)
     val workerResult = expectMsgType[ShardTaskComplete]
@@ -96,7 +96,7 @@ class HyperStorageSpec extends FlatSpec
     )
 
     val taskStr = task.serializeToString
-    worker ! PrimaryContentTask(task.path, System.currentTimeMillis() + 10000, taskStr)
+    worker ! PrimaryContentTask(task.path, System.currentTimeMillis() + 10000, taskStr, expectsResult=true)
     expectMsgPF() {
       case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.NOT_FOUND &&
         response(result.content).headers.correlationId == task.correlationId ⇒ {
@@ -121,7 +121,7 @@ class HyperStorageSpec extends FlatSpec
       DynamicBody(Obj.from("text1" → "abc", "text2" → "klmn"))
     ).serializeToString
 
-    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskPutStr)
+    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskPutStr, expectsResult=true)
     expectMsgType[BackgroundContentTask]
     expectMsgType[ShardTaskComplete]
 
@@ -131,7 +131,7 @@ class HyperStorageSpec extends FlatSpec
     )
     val taskPatchStr = task.serializeToString
 
-    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskPatchStr)
+    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskPatchStr, expectsResult=true)
     expectMsgType[BackgroundContentTask]
     expectMsgPF() {
       case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.OK &&
@@ -147,12 +147,12 @@ class HyperStorageSpec extends FlatSpec
     // delete resource
     val deleteTask = ContentDelete(path)
     val deleteTaskStr = deleteTask.serializeToString
-    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, deleteTaskStr)
+    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, deleteTaskStr, expectsResult=true)
     expectMsgType[BackgroundContentTask]
     expectMsgType[ShardTaskComplete]
 
     // now patch should return 404
-    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskPatchStr)
+    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskPatchStr, expectsResult=true)
 
     expectMsgPF() {
       case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.NOT_FOUND &&
@@ -174,7 +174,7 @@ class HyperStorageSpec extends FlatSpec
     val task = ContentDelete(path = "not-existing", body = EmptyBody)
 
     val taskStr = task.serializeToString
-    worker ! PrimaryContentTask(task.path, System.currentTimeMillis() + 10000, taskStr)
+    worker ! PrimaryContentTask(task.path, System.currentTimeMillis() + 10000, taskStr, expectsResult=true)
     expectMsgPF() {
       case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.NOT_FOUND &&
         response(result.content).headers.correlationId == task.correlationId ⇒ {
@@ -201,7 +201,7 @@ class HyperStorageSpec extends FlatSpec
       DynamicBody(Obj.from("text1" → "abc", "text2" → "klmn"))
     ).serializeToString
 
-    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskPutStr)
+    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskPutStr, expectsResult=true)
     expectMsgType[BackgroundContentTask]
     expectMsgType[ShardTaskComplete]
 
@@ -212,7 +212,7 @@ class HyperStorageSpec extends FlatSpec
     val task = ContentDelete(path)
 
     val taskStr = task.serializeToString
-    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr)
+    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr, expectsResult=true)
     expectMsgType[BackgroundContentTask]
     expectMsgPF() {
       case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.OK &&
@@ -240,7 +240,7 @@ class HyperStorageSpec extends FlatSpec
     val taskStr1 = ContentPut(path,
       DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
     ).serializeToString
-    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr1)
+    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr1, expectsResult=true)
     expectMsgType[BackgroundContentTask]
     val result1 = expectMsgType[ShardTaskComplete]
     transactionList += response(result1.result.asInstanceOf[PrimaryWorkerTaskResult].content).body.content.transaction_id
@@ -248,13 +248,13 @@ class HyperStorageSpec extends FlatSpec
     val taskStr2 = ContentPatch(path,
       DynamicBody(Obj.from("text" → "abc", "text2" → "klmn"))
     ).serializeToString
-    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr2)
+    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr2, expectsResult=true)
     expectMsgType[BackgroundContentTask]
     val result2 = expectMsgType[ShardTaskComplete]
     transactionList += response(result2.result.asInstanceOf[PrimaryWorkerTaskResult].content).body.content.transaction_id
 
     val taskStr3 = ContentDelete(path).serializeToString
-    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr3)
+    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr3, expectsResult=true)
     val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
     val workerResult = expectMsgType[ShardTaskComplete]
     val r = response(workerResult.result.asInstanceOf[PrimaryWorkerTaskResult].content)
@@ -299,14 +299,14 @@ class HyperStorageSpec extends FlatSpec
     val taskStr1 = ContentPut(path,
       DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
     ).serializeToString
-    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr1)
+    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr1, expectsResult=true)
     expectMsgType[BackgroundContentTask]
     expectMsgType[ShardTaskComplete]
 
     val taskStr2 = ContentPatch(path,
       DynamicBody(Obj.from("text" → "abc", "text2" → "klmn"))
     ).serializeToString
-    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr2)
+    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr2, expectsResult=true)
     val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
     expectMsgType[ShardTaskComplete]
 

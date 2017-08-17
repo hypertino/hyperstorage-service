@@ -24,7 +24,7 @@ import scala.concurrent.duration.FiniteDuration
 import scala.util.Try
 import scala.util.control.NonFatal
 
-@SerialVersionUID(1L) case class PrimaryContentTask(key: String, ttl: Long, content: String) extends ShardTask {
+@SerialVersionUID(1L) case class PrimaryContentTask(key: String, ttl: Long, content: String, expectsResult: Boolean) extends ShardTask {
   def group = "hyperstorage-primary-worker"
   def isExpired = ttl < System.currentTimeMillis()
 }
@@ -413,7 +413,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       if (log.isDebugEnabled) {
         log.debug(s"task $originalTask is completed")
       }
-      owner ! BackgroundContentTask(System.currentTimeMillis() + backgroundTaskTimeout.toMillis, transaction.documentUri)
+      owner ! BackgroundContentTask(System.currentTimeMillis() + backgroundTaskTimeout.toMillis, transaction.documentUri, expectsResult=false)
       val transactionId = transaction.documentUri + ":" + transaction.uuid + ":" + transaction.revision
       val result: Response[Body] = if (created) {
         Created(HyperStorageTransactionCreated(transactionId,

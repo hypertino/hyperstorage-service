@@ -15,7 +15,7 @@ import monix.execution.Scheduler
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
 
-@SerialVersionUID(1L) case class IndexContentTask(ttl: Long, indexDefTransaction: IndexDefTransaction, lastItemId: Option[String], processId: Long) extends SecondaryTaskTrait {
+@SerialVersionUID(1L) case class IndexContentTask(ttl: Long, indexDefTransaction: IndexDefTransaction, lastItemId: Option[String], processId: Long, expectsResult: Boolean) extends SecondaryTaskTrait {
   def key = indexDefTransaction.documentUri
 }
 

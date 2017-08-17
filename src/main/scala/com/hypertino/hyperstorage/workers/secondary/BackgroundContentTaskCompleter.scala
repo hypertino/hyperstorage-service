@@ -3,14 +3,13 @@ package com.hypertino.hyperstorage.workers.secondary
 import java.util.UUID
 
 import akka.actor.ActorRef
-import akka.pattern.ask
 import akka.event.LoggingAdapter
+import akka.pattern.ask
 import com.datastax.driver.core.utils.UUIDs
 import com.hypertino.binders.value.{Null, Value}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model.{DynamicRequest, _}
 import com.hypertino.hyperbus.serialization.MessageReader
-import com.hypertino.hyperbus.utils.uri._
 import com.hypertino.hyperstorage.api.{ContentDelete, ContentPut, ViewDelete, ViewPut}
 import com.hypertino.hyperstorage.db.{Transaction, _}
 import com.hypertino.hyperstorage.indexing.{IndexLogic, ItemIndexer}
@@ -23,13 +22,12 @@ import com.hypertino.metrics.MetricsTracker
 import monix.eval.Task
 import monix.execution.Scheduler
 
-import scala.collection.mutable
 import scala.concurrent.duration.Duration
-import scala.concurrent.{ExecutionContext, Future, duration}
+import scala.concurrent.{Future, duration}
 import scala.util.Success
 import scala.util.control.NonFatal
 
-@SerialVersionUID(1L) case class BackgroundContentTask(ttl: Long, documentUri: String) extends SecondaryTaskTrait {
+@SerialVersionUID(1L) case class BackgroundContentTask(ttl: Long, documentUri: String, expectsResult: Boolean) extends SecondaryTaskTrait {
   def key = documentUri
 }
 
@@ -92,7 +90,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
     }
     else {
       selectIncompleteTransactions(content) flatMap { incompleteTransactions ⇒
-        val updateIndexFuture: Future[Any] = updateIndexes(content, incompleteTransactions, owner, ttl)
+        val updateIndexFuture: Future[Any] = updateIndexes(content, incompleteTransactions, owner, ttl).runAsync
         updateIndexFuture.flatMap { _ ⇒
           FutureUtils.serial(incompleteTransactions) { it ⇒
             val event = it.unwrappedBody
@@ -157,7 +155,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
   private def updateIndexes(contentStatic: ContentStatic,
                             incompleteTransactions: Seq[UnwrappedTransaction],
                             owner: ActorRef,
-                            ttl: Long): Future[Any] = {
+                            ttl: Long): Task[Any] = {
     if (ContentLogic.isCollectionUri(contentStatic.documentUri)) {
       val idFieldName = ContentLogic.getIdFieldName(contentStatic.documentUri)
       val isCollectionDelete = incompleteTransactions.exists { it ⇒
@@ -175,9 +173,8 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
             Task.gather(indexDefs.map { indexDef ⇒
               log.debug(s"Removing index $indexDef")
               Task.fromFuture(deleteIndexDefAndData(indexDef))
-            })
+            }: Seq[Task[Unit]])
           }
-          .runAsync
       }
       else {
         // todo: refactor, this is crazy
@@ -228,12 +225,11 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
                   }
                 }
             }
-        }).runAsync
+        }: Seq[Task[Any]])
       }
     } else {
       val contentTask = Task.fromFuture(db.selectContent(contentStatic.documentUri, "")).memoize
       updateView(contentStatic.documentUri,contentTask,incompleteTransactions.last, owner, ttl)
-        .runAsync
     }
   }
 
@@ -285,17 +281,16 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
     }
   }
 
-
   private def addViewItem(documentUri: String, itemId: String, bodyValue: Value, owner: ActorRef, ttl: Long)(implicit mcx: MessagingContext): Task[Any] = {
     implicit val timeout = akka.util.Timeout(Duration(ttl - System.currentTimeMillis() + 3000, duration.MILLISECONDS))
-    Task.fromFuture(owner ? PrimaryContentTask(documentUri, ttl, ContentPut(documentUri + "/" + itemId, DynamicBody(bodyValue)).serializeToString)).map{
+    Task.fromFuture(owner ? PrimaryContentTask(documentUri, ttl, ContentPut(documentUri + "/" + itemId, DynamicBody(bodyValue)).serializeToString, expectsResult = true)).map{
       _ ⇒ handlePrimaryWorkerTaskResult
     }
   }
 
   private def deleteViewItem(documentUri: String, itemId: String, owner: ActorRef, ttl: Long)(implicit mcx: MessagingContext): Task[Any] = {
     implicit val timeout = akka.util.Timeout(Duration(ttl - System.currentTimeMillis() + 3000, duration.MILLISECONDS))
-    Task.fromFuture(owner ? PrimaryContentTask(documentUri, ttl, ContentDelete(documentUri + "/" + itemId).serializeToString)).map{
+    Task.fromFuture(owner ? PrimaryContentTask(documentUri, ttl, ContentDelete(documentUri + "/" + itemId).serializeToString, expectsResult = true)).map{
       _ ⇒ handlePrimaryWorkerTaskResult
     }
   }

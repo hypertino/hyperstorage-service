@@ -82,7 +82,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
     val str = request.serializeToString
     val ttl = Math.max(requestTimeout.toMillis - 100, 100)
     val documentUri = ContentLogic.splitPath(uri).documentUri
-    val task = PrimaryContentTask(documentUri, System.currentTimeMillis() + ttl, str)
+    val task = PrimaryContentTask(documentUri, System.currentTimeMillis() + ttl, str, expectsResult = true)
     implicit val timeout: akka.util.Timeout = requestTimeout
 
     // todo: what happens when error is returned
@@ -100,7 +100,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
       case post: IndexPost ⇒ post.path
       case delete: IndexDelete ⇒ delete.path
     }
-    val indexDefTask = IndexDefTask(System.currentTimeMillis() + ttl, key, request.serializeToString)
+    val indexDefTask = IndexDefTask(System.currentTimeMillis() + ttl, key, request.serializeToString, expectsResult=true)
     implicit val timeout: akka.util.Timeout = requestTimeout
 
     Task.fromFuture {

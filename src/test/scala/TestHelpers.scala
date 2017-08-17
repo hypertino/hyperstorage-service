@@ -195,6 +195,8 @@ case class TestShardTask(key: String, value: String,
   override def toString = s"TestTask($key, $value, $sleep, $ttl, #${System.identityHashCode(this)}, actor: $processActorPath"
 
   def processActorPath: Option[String] = ProcessedRegistry.tasks.get(id) map { kv ⇒ kv._1 }
+
+  override def expectsResult: Boolean = true
 }
 
 class TestWorker extends Actor with ActorLogging {

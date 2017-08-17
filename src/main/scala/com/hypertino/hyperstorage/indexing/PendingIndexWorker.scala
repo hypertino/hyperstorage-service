@@ -79,7 +79,7 @@ class PendingIndexWorker(cluster: ActorRef, indexKey: IndexDefTransaction, hyper
     context.become(indexing(processId, indexDef, lastItemId))
     cluster ! IndexContentTask(System.currentTimeMillis() + IndexWorkerImpl.RETRY_PERIOD.toMillis,
       IndexDefTransaction(indexDef.documentUri, indexDef.indexId, indexDef.defTransactionId),
-      lastItemId, processId)
+      lastItemId, processId, expectsResult=true) // todo: do we need to expecting result here?
     context.system.scheduler.scheduleOnce(IndexWorkerImpl.RETRY_PERIOD * 2, self, IndexNextBatchTimeout(processId))
   }
 }

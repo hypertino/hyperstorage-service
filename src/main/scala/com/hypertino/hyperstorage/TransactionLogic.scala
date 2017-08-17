@@ -43,10 +43,9 @@ object TransactionLogic {
     0 until TransactionLogic.MAX_TRANSACTIONS flatMap { partition ⇒
       val task = new ShardTask {
         def key = partition.toString
-
         def group = ""
-
         def isExpired = false
+        def expectsResult = false
       }
       if (data.taskIsFor(task) == data.selfAddress)
         Some(partition)

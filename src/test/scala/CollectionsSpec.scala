@@ -48,7 +48,7 @@ class CollectionsSpec extends FlatSpec
     db.selectContent(collection, item1).futureValue shouldBe None
 
     val taskStr = task.serializeToString
-    worker ! PrimaryContentTask(collection, System.currentTimeMillis() + 10000, taskStr)
+    worker ! PrimaryContentTask(collection, System.currentTimeMillis() + 10000, taskStr, expectsResult=true)
     val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
     backgroundWorkerTask.documentUri should equal(collection)
     val workerResult = expectMsgType[ShardTaskComplete]
@@ -70,7 +70,7 @@ class CollectionsSpec extends FlatSpec
       DynamicBody(Obj.from("text" → "Test item value 2"))
     )
     val task2Str = task2.serializeToString
-    worker ! PrimaryContentTask(collection, System.currentTimeMillis() + 10000, task2Str)
+    worker ! PrimaryContentTask(collection, System.currentTimeMillis() + 10000, task2Str, expectsResult=true)
     val backgroundWorkerTask2 = expectMsgType[BackgroundContentTask]
     backgroundWorkerTask2.documentUri should equal(collection)
     val workerResult2 = expectMsgType[ShardTaskComplete]
@@ -124,7 +124,7 @@ class CollectionsSpec extends FlatSpec
       DynamicBody(Obj.from("text1" → "abc", "text2" → "klmn"))
     ).serializeToString
 
-    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPutStr)
+    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPutStr, expectsResult=true)
     expectMsgType[BackgroundContentTask]
     expectMsgType[ShardTaskComplete]
 
@@ -132,7 +132,7 @@ class CollectionsSpec extends FlatSpec
       DynamicBody(Obj.from("text1" → "efg", "text2" → Null, "text3" → "zzz"))
     )
     val taskPatchStr = task.serializeToString
-    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPatchStr)
+    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPatchStr, expectsResult=true)
 
     expectMsgType[BackgroundContentTask]
     expectMsgPF() {
@@ -153,12 +153,12 @@ class CollectionsSpec extends FlatSpec
     // delete element
     val deleteTask = ContentDelete(path)
     val deleteTaskStr = deleteTask.serializeToString
-    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, deleteTaskStr)
+    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, deleteTaskStr, expectsResult=true)
     expectMsgType[BackgroundContentTask]
     expectMsgType[ShardTaskComplete]
 
     // now patch should return 404
-    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPatchStr)
+    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPatchStr, expectsResult=true)
 
     expectMsgPF() {
       case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.NOT_FOUND &&
@@ -184,13 +184,13 @@ class CollectionsSpec extends FlatSpec
       DynamicBody(Obj.from("text1" → "abc", "text2" → "klmn"))
     ).serializeToString
 
-    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPutStr)
+    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPutStr, expectsResult=true)
     expectMsgType[BackgroundContentTask]
     expectMsgType[ShardTaskComplete]
 
     val task = ContentDelete(path)
     val taskStr = task.serializeToString
-    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskStr)
+    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskStr, expectsResult=true)
 
     expectMsgType[BackgroundContentTask]
     expectMsgPF() {
@@ -218,13 +218,13 @@ class CollectionsSpec extends FlatSpec
       DynamicBody(Obj.from("text1" → "abc", "text2" → "klmn"))
     ).serializeToString
 
-    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPutStr)
+    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPutStr, expectsResult=true)
     expectMsgType[BackgroundContentTask]
     expectMsgType[ShardTaskComplete]
 
     val task = ContentDelete(documentUri)
     val taskStr = task.serializeToString
-    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskStr)
+    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskStr, expectsResult=true)
 
     expectMsgType[BackgroundContentTask]
     expectMsgPF() {
@@ -253,7 +253,7 @@ class CollectionsSpec extends FlatSpec
     )
     val taskPutStr = task.serializeToString
 
-    worker ! PrimaryContentTask(collection, System.currentTimeMillis() + 10000, taskPutStr)
+    worker ! PrimaryContentTask(collection, System.currentTimeMillis() + 10000, taskPutStr, expectsResult=true)
     expectMsgType[BackgroundContentTask]
 
     expectMsgPF() {
@@ -290,7 +290,7 @@ class CollectionsSpec extends FlatSpec
     db.selectContent(collection, item1).futureValue shouldBe None
 
     val taskStr = task.serializeToString
-    worker ! PrimaryContentTask(collection, System.currentTimeMillis() + 10000, taskStr)
+    worker ! PrimaryContentTask(collection, System.currentTimeMillis() + 10000, taskStr, expectsResult=true)
     val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
     backgroundWorkerTask.documentUri should equal(collection)
     val workerResult = expectMsgType[ShardTaskComplete]
@@ -312,7 +312,7 @@ class CollectionsSpec extends FlatSpec
       DynamicBody(Obj.from("text" → "Test item value 2"))
     )
     val task2Str = task2.serializeToString
-    worker ! PrimaryContentTask(collection, System.currentTimeMillis() + 10000, task2Str)
+    worker ! PrimaryContentTask(collection, System.currentTimeMillis() + 10000, task2Str, expectsResult=true)
     val backgroundWorkerTask2 = expectMsgType[BackgroundContentTask]
     backgroundWorkerTask2.documentUri should equal(collection)
     val workerResult2 = expectMsgType[ShardTaskComplete]

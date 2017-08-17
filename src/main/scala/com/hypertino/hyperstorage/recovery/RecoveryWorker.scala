@@ -149,7 +149,8 @@ abstract class RecoveryWorker[T <: WorkerState](
           trackIncompleteMeter.mark(transactions.length)
           val task = BackgroundContentTask(
             System.currentTimeMillis() + backgroundTaskTimeout.toMillis + 1000,
-            documentUri
+            documentUri,
+            expectsResult = true
           )
           log.debug(s"Incomplete resource at $documentUri. Sending recovery task")
           shardProcessor.ask(task)(backgroundTaskTimeout) flatMap {

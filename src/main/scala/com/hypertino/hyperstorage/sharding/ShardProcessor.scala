@@ -19,6 +19,8 @@ import scala.util.control.NonFatal
   def group: String
 
   def isExpired: Boolean
+
+  def expectsResult: Boolean
 }
 
 sealed trait ShardMemberStatus
@@ -466,12 +468,14 @@ class ShardProcessor(workersSettings: Map[String, (Props, Int, String)],
         val idx = activeGroupWorkers.indexWhere(_._2 == sender())
         if (idx >= 0) {
           val (task, worker, client) = activeGroupWorkers(idx)
-          result match {
-            case None ⇒ // no result
-            case other ⇒ client ! other
+          if (task.expectsResult) {
+            result match {
+              case None ⇒ // no result
+              case other ⇒ client ! other
+            }
           }
           if (log.isDebugEnabled) {
-            log.debug(s"Worker $worker is ready for next task. Completed task: $task")
+            log.debug(s"Worker $worker is ready for next task. Completed task: $task, result: $result")
           }
           activeGroupWorkers.remove(idx)
           worker ! PoisonPill

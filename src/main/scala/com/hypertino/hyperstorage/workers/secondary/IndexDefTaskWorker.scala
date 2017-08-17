@@ -23,7 +23,7 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
 
 
-@SerialVersionUID(1L) case class IndexDefTask(ttl: Long, documentUri: String, content: String) extends SecondaryTaskTrait {
+@SerialVersionUID(1L) case class IndexDefTask(ttl: Long, documentUri: String, content: String, expectsResult: Boolean) extends SecondaryTaskTrait {
   def key = documentUri
 }
 
