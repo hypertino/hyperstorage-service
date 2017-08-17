@@ -162,14 +162,14 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
         it.transaction.itemId.isEmpty && it.unwrappedBody.headers.method == Method.FEED_DELETE
       }
       // todo: cache index meta
-      val indexDefsTask = Task.fromFuture(db.selectIndexDefs(contentStatic.documentUri)).memoize
+      val indexDefsTask = Task.eval(Task.fromFuture(db.selectIndexDefs(contentStatic.documentUri).map(_.toList))).flatten.memoize
       if (isCollectionDelete) {
         // todo: what if after collection delete, there is a transaction with insert?
         // todo: delete view if collection is deleted
         // todo: cache index meta
         indexDefsTask
-          .flatMap { indexDefsIterator ⇒
-            Task.wander(indexDefsIterator.toList) { indexDef ⇒
+          .flatMap { indexDefs ⇒
+            Task.wander(indexDefs) { indexDef ⇒
               log.debug(s"Removing index $indexDef")
               Task.fromFuture(deleteIndexDefAndData(indexDef))
             }
@@ -187,12 +187,12 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
 
         Task.wander(itemIds.keys) { itemId ⇒
           // todo: cache content
-          val contentTask = Task.fromFuture{
+          val contentTask = Task.eval(Task.fromFuture{
             if (log.isDebugEnabled) {
               log.debug(s"Looking for content ${contentStatic.documentUri}/$itemId to index/update view")
             }
             db.selectContent(contentStatic.documentUri, itemId)
-          }.memoize
+          }).flatten.memoize
           val lastTransaction = incompleteTransactions.filter(_.transaction.itemId == itemId).last
           if (log.isDebugEnabled) {
             log.debug(s"Update view/index for ${contentStatic.documentUri}/$itemId, lastTransaction=$lastTransaction, contentTask=$contentTask")
@@ -200,8 +200,8 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
           updateView(contentStatic.documentUri + "/" + itemId, contentTask, lastTransaction, owner, ttl)
             .flatMap { _ ⇒
               indexDefsTask
-                .flatMap { indexDefsIterator ⇒
-                  Task.wander(indexDefsIterator.toList) { indexDef ⇒
+                .flatMap { indexDefs ⇒
+                  Task.wander(indexDefs) { indexDef ⇒
                     if (log.isDebugEnabled) {
                       log.debug(s"Indexing content ${contentStatic.documentUri}/$itemId for $indexDef")
                     }
@@ -232,7 +232,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
         }
       }
     } else {
-      val contentTask = Task.fromFuture(db.selectContent(contentStatic.documentUri, "")).memoize
+      val contentTask = Task.eval(Task.fromFuture(db.selectContent(contentStatic.documentUri, ""))).flatten.memoize
       updateView(contentStatic.documentUri,contentTask,incompleteTransactions.last, owner, ttl)
     }
   }
@@ -242,9 +242,9 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
                          lastTransaction: UnwrappedTransaction,
                          owner: ActorRef,
                          ttl: Long): Task[Any] = {
-    val viewDefsTask = Task.fromFuture(db.selectViewDefs())
-    viewDefsTask.flatMap { viewDefsIterator ⇒
-      Task.wander(viewDefsIterator.toList) { viewDef ⇒
+    val viewDefsTask = Task.eval(Task.fromFuture(db.selectViewDefs().map(_.toList))).flatten
+    viewDefsTask.flatMap { viewDefs ⇒
+      Task.wander(viewDefs) { viewDef ⇒
         ContentLogic.pathAndTemplateToId(path, viewDef.templateUri).map { id ⇒
           implicit val mcx = lastTransaction.unwrappedBody
           if (lastTransaction.unwrappedBody.headers.method == Method.FEED_DELETE) {
