@@ -186,12 +186,17 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
         }.groupBy(_._1).mapValues(_.map(_._2)).map(kv ⇒ kv._1 → kv._2.flatten)
 
         Task.wander(itemIds.keys) { itemId ⇒
-          log.debug(s"Looking for content $itemId")
-
           // todo: cache content
-          val contentTask = Task.fromFuture(db.selectContent(contentStatic.documentUri, itemId)).memoize
-
+          val contentTask = Task.fromFuture{
+            if (log.isDebugEnabled) {
+              log.debug(s"Looking for content ${contentStatic.documentUri}/$itemId to index/update view")
+            }
+            db.selectContent(contentStatic.documentUri, itemId)
+          }.memoize
           val lastTransaction = incompleteTransactions.filter(_.transaction.itemId == itemId).last
+          if (log.isDebugEnabled) {
+            log.debug(s"Update view/index for ${contentStatic.documentUri}/$itemId, lastTransaction=$lastTransaction, contentTask=$contentTask")
+          }
           updateView(contentStatic.documentUri + "/" + itemId, contentTask, lastTransaction, owner, ttl)
             .flatMap { _ ⇒
               indexDefsTask
