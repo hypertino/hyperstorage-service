@@ -138,7 +138,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
           Future{(List.empty, None, Seq.empty)}
         }
     } yield {
-      if (contentStatic.isDefined && contentStatic.forall(!_.isDeleted)) {
+      if (contentStatic.isDefined && contentStatic.forall(!_.isDeleted.contains(true))) {
         val result = Lst(collectionStream)
         val revision = if (pageSize == 0) Some(contentStatic.get.revision) else revisionOpt
 
@@ -369,7 +369,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
       case None ⇒
         notFound
       case Some(content) ⇒
-        if (!content.isDeleted) {
+        if (!content.isDeleted.contains(true)) {
           val body = DynamicBody(content.bodyValue)
           Ok(body, HeadersMap(Header.REVISION → content.revision))
         } else {

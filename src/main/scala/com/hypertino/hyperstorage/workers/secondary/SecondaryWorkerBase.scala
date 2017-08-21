@@ -21,8 +21,8 @@ trait SecondaryWorkerBase {
     case NonFatal(e) ⇒
       log.error(e, s"Can't execute $task")
       val he = e match {
-        case h: HyperbusError[ErrorBody] ⇒ h
-        case other ⇒ InternalServerError(ErrorBody("failed", Some(e.toString)))(MessagingContext.empty)
+        case h: HyperbusError[ErrorBody] @unchecked ⇒ h
+        case _ ⇒ InternalServerError(ErrorBody("failed", Some(e.toString)))(MessagingContext.empty)
       }
       ShardTaskComplete(task, IndexDefTaskTaskResult(he.serializeToString))
   }

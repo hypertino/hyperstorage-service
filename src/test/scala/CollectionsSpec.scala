@@ -234,8 +234,8 @@ class CollectionsSpec extends FlatSpec
       }
     }
 
-    db.selectContent(documentUri, itemId).futureValue.get.isDeleted shouldBe true
-    db.selectContent(documentUri, "").futureValue.get.isDeleted shouldBe true
+    db.selectContent(documentUri, itemId).futureValue.get.isDeleted shouldBe Some(true)
+    db.selectContent(documentUri, "").futureValue.get.isDeleted shouldBe Some(true)
   }
 
   it should "put empty collection" in {

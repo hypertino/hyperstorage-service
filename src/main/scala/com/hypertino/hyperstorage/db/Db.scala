@@ -13,13 +13,15 @@ import org.slf4j.LoggerFactory
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
 
+// todo: check if Dynamic's are statments are cached
+
 trait ContentBase {
   def documentUri: String
   def revision: Long
   def transactionList: List[UUID]
-  def isDeleted: Boolean
+  def isDeleted: Option[Boolean]
   def count: Option[Long]
-  def isView: Boolean
+  def isView: Option[Boolean]
 }
 
 trait CollectionContent {
@@ -42,9 +44,9 @@ case class Content(
                     itemId: String,
                     revision: Long,
                     transactionList: List[UUID],
-                    isDeleted: Boolean,
+                    isDeleted: Option[Boolean],
                     count: Option[Long],
-                    isView: Boolean,
+                    isView: Option[Boolean],
                     body: Option[String],
                     createdAt: Date,
                     modifiedAt: Option[Date]
@@ -54,9 +56,9 @@ case class ContentStatic(
                           documentUri: String,
                           revision: Long,
                           transactionList: List[UUID],
-                          isDeleted: Boolean,
+                          isDeleted: Option[Boolean],
                           count: Option[Long],
-                          isView: Boolean
+                          isView: Option[Boolean]
                         ) extends ContentBase
 
 case class Transaction(
@@ -196,10 +198,21 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       limit 1
     """.oneOption[ContentStatic]
 
-  def insertContent(content: Content): Future[Unit] = cql"""
-      insert into content(document_uri,item_id,revision,transaction_list,is_deleted,count,is_view,body,created_at,modified_at)
-      values(?,?,?,?,?,?,?,?,?,?)
-    """.bind(content).execute()
+  def insertContent(content: Content): Future[Unit] = {
+    val fields = Seq("document_uri", "item_id", "revision", "transaction_list", "body", "created_at") ++
+      content.isView.map(_ ⇒ "is_view") ++
+      content.isDeleted.map(_ ⇒ "is_deleted") ++
+      content.count.map(_ ⇒ "count") ++
+      content.modifiedAt.map(_ ⇒ "modified_at")
+
+    val fieldNames = fields mkString ","
+    val qs = fields.map(_ ⇒ "?") mkString ","
+
+    cql"""
+      insert into content( ${Dynamic(fieldNames)})
+      values( ${Dynamic(qs)} )
+    """.bindPartial(content).execute()
+  }
 
   def deleteContentItem(content: ContentBase, itemId: String): Future[Unit] = cql"""
       begin batch

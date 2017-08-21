@@ -213,7 +213,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
                     }
 
                     contentTask.flatMap {
-                      case Some(item) if !item.isDeleted ⇒
+                      case Some(item) if !item.isDeleted.contains(true) ⇒
                         Task.fromFuture(deleteObsoleteFuture.flatMap(_ ⇒ indexItem(indexDef, item, idFieldName)))
 
                       case _ ⇒

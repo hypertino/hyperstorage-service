@@ -189,7 +189,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     }
     val newTransactionWithOI = newTransaction.copy(obsoleteIndexItems = obsoleteIndexItems)
     db.insertTransaction(newTransactionWithOI) flatMap { _ ⇒ {
-      if (!itemId.isEmpty && newContent.isDeleted) {
+      if (!itemId.isEmpty && newContent.isDeleted.contains(true)) {
         // deleting item
         db.deleteContentItem(newContent, itemId)
       }
@@ -207,11 +207,11 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     // todo: refactor, this is crazy method
     // todo: work with Value content instead of string
     val m = existingContent.flatMap { c ⇒
-      if (c.isDeleted) None else {
+      if (c.isDeleted.contains(true)) None else {
         Some(c.bodyValue)
       }
     } map { existingContentValue: Value ⇒
-      val newContentValueOption = if(newContent.isDeleted) None else {
+      val newContentValueOption = if(newContent.isDeleted.contains(true)) None else {
         Some(newContent.bodyValue)
       }
 
@@ -310,16 +310,16 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
         }
         Content(documentUri, itemId, newTransaction.revision,
           transactionList = List(newTransaction.uuid),
-          isDeleted = false,
+          isDeleted = None,
           count = newCount,
-          isView = request.headers.hrl.location == ViewPut.location,
+          isView = if (request.headers.hrl.location == ViewPut.location) Some(true) else None,
           body = newBody,
           createdAt = existingContent.map(_.createdAt).getOrElse(new Date),
           modifiedAt = existingContent.flatMap(_.modifiedAt)
         )
 
       case Some(static) ⇒
-        if (request.headers.hrl.location == ViewPut.location && !static.isView) {
+        if (request.headers.hrl.location == ViewPut.location && !static.isView.contains(true)) {
           throw Conflict(ErrorBody("collection-view-conflict", Some(s"Can't put view over existing collection")))
         }
         val newCount = if (isCollection) {
@@ -329,7 +329,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
         }
         Content(documentUri, itemId, newTransaction.revision,
           transactionList = newTransaction.uuid +: static.transactionList,
-          isDeleted = false,
+          isDeleted = None,
           count = newCount,
           isView = static.isView,
           body = newBody,
@@ -351,10 +351,10 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     }
 
     existingContent match {
-      case Some(content) if !content.isDeleted ⇒
+      case Some(content) if !content.isDeleted.contains(true) ⇒
         Content(documentUri, itemId, newTransaction.revision,
           transactionList = newTransaction.uuid +: content.transactionList,
-          isDeleted = false,
+          isDeleted = None,
           count = content.count,
           isView = content.isView,
           body = mergeBody(content.bodyValue, request.body.content),
@@ -392,13 +392,13 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 
     case Some(content) ⇒
       implicit val mcx = request
-      if (content.isView && request.headers.hrl.location != ViewDelete.location && itemId.isEmpty) {
+      if (content.isView.contains(true) && request.headers.hrl.location != ViewDelete.location && itemId.isEmpty) {
         throw Conflict(ErrorBody("collection-is-view", Some(s"Can't delete view collection directly")))
       }
 
       Content(documentUri, itemId, newTransaction.revision,
         transactionList = newTransaction.uuid +: content.transactionList,
-        isDeleted = true,
+        isDeleted = Some(true),
         count = content.count.map(_ - 1),
         isView = content.isView,
         body = None,
@@ -434,9 +434,9 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 
   private def hyperbusException(e: Throwable, task: ShardTask)(implicit mcx: MessagingContext): PrimaryWorkerTaskResult = {
     val (response: HyperbusError[ErrorBody], logException) = e match {
-      case h: NotFound[ErrorBody] ⇒ (h, false)
-      case h: HyperbusError[ErrorBody] ⇒ (h, true)
-      case other ⇒ (InternalServerError(ErrorBody("update-failed", Some(e.toString))), true)
+      case h: NotFound[ErrorBody] @unchecked ⇒ (h, false)
+      case h: HyperbusError[ErrorBody] @unchecked ⇒ (h, true)
+      case _ ⇒ (InternalServerError(ErrorBody("update-failed", Some(e.toString))), true)
     }
 
     if (logException) {

@@ -16,7 +16,7 @@ trait ItemIndexer {
     val contentValue = item.bodyValue
     val sortBy = IndexLogic.extractSortFieldValues(idFieldName, indexDef.sortByParsed, contentValue)
 
-    val write: Boolean = !item.isDeleted && (indexDef.filterBy.map { filterBy ⇒
+    val write: Boolean = !item.isDeleted.contains(true) && (indexDef.filterBy.map { filterBy ⇒
       try {
         IndexLogic.evaluateFilterExpression(filterBy, contentValue)
       } catch {

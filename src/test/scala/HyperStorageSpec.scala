@@ -207,6 +207,7 @@ class HyperStorageSpec extends FlatSpec
 
     whenReady(db.selectContent(path, "")) { result =>
       result shouldNot be(None)
+      result.get.isDeleted shouldBe None
     }
 
     val task = ContentDelete(path)
@@ -222,7 +223,7 @@ class HyperStorageSpec extends FlatSpec
     }
 
     whenReady(db.selectContent(path, "")) { result =>
-      result.get.isDeleted shouldBe true
+      result.get.isDeleted shouldBe Some(true)
     }
   }
 
@@ -263,7 +264,7 @@ class HyperStorageSpec extends FlatSpec
     // todo: list of transactions!s
 
     val transactionsC = whenReady(db.selectContent(path, "")) { result =>
-      result.get.isDeleted should equal(true)
+      result.get.isDeleted shouldBe Some(true)
       result.get.transactionList
     }
 
