@@ -121,7 +121,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
           }
           else {
             val idFieldName = ContentLogic.getIdFieldName(documentUri)
-            (documentUri, itemId, Some(idFieldName), request.copy(body = appendId(filterNulls(request.body), itemId, idFieldName)))
+            (documentUri, itemId, Some(idFieldName → itemId), request.copy(body = appendId(filterNulls(request.body), itemId, idFieldName)))
           }
 
         case _ ⇒
@@ -428,7 +428,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       owner ! BackgroundContentTask(System.currentTimeMillis() + backgroundTaskTimeout.toMillis, transaction.documentUri, expectsResult=false)
       val transactionId = transaction.documentUri + ":" + transaction.uuid + ":" + transaction.revision
       val result: Response[Body] = if (created) {
-        val target = idField.map(kv ⇒ Obj.from(kv._1 → kv._2)).getOrElse(Null)
+        val target = idField.map(kv ⇒ Obj.from(kv._1 → Text(kv._2))).getOrElse(Null)
         Created(HyperStorageTransactionCreated(transactionId, request.path, target),
           location=HRL(TransactionGet.location, Obj.from("transaction_id"→transactionId)))
       }
