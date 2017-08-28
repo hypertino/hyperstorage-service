@@ -72,17 +72,22 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       if (documentUri != task.key) {
         throw new IllegalArgumentException(s"Task key ${task.key} doesn't correspond to $documentUri")
       }
-      val (updatedItemId, updatedRequest) = request.headers.method match {
+      val (resultDocumentUri, updatedItemId, updatedIdField, updatedRequest) = request.headers.method match {
         case Method.POST ⇒
-          // posting new item into collection, converting post to put
-          val id = IdGenerator.create()
-          if (ContentLogic.isCollectionUri(documentUri) && itemId.isEmpty) {
+          // posting new item, converting post to put
+          if (itemId.isEmpty || !ContentLogic.isCollectionUri(documentUri)) {
+            val id = IdGenerator.create()
             val hrl = request.headers.hrl
             val newHrl = HRL(hrl.location, Obj.from(
               hrl.query.toMap.toSeq.filterNot(_._1=="path") ++ Seq("path" → Text(request.path + "/" + id))
                 : _*)
             )
-            (id, request.copy(
+            val idFieldName = ContentLogic.getIdFieldName(documentUri)
+            val idField = idFieldName → id
+            val newItemId = if (ContentLogic.isCollectionUri(documentUri)) id else ""
+            val newDocumentUri = if (ContentLogic.isCollectionUri(documentUri)) documentUri else documentUri + "/" + id
+
+            (newDocumentUri, newItemId, Some(idField), request.copy(
               //uri = Uri(request.uri.pattern, request.uri.args + "path" → Specific(request.path + "/" + id)),
               headers = Headers
                 .builder
@@ -90,12 +95,12 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
                 .withMethod(Method.PUT)
                 .withHRL(newHrl)
                 .requestHeaders(), // POST becomes PUT with auto Id
-              body = appendId(filterNulls(request.body), id, ContentLogic.getIdFieldName(documentUri))
+              body = appendId(filterNulls(request.body), id, idFieldName)
             ))
           }
           else {
             // todo: replace with BadRequest?
-            throw new IllegalArgumentException(s"POST is allowed only for a collection~")
+            throw new IllegalArgumentException(s"POST is not allowed on existing item of collection~")
           }
 
         case Method.PUT ⇒
@@ -108,22 +113,24 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
                 .+=(TransactionLogic.HB_HEADER_TEMPLATE_URI → request.body.content.template_uri)
                 .+=(TransactionLogic.HB_HEADER_FILTER → request.body.content.filter_by)
                 .requestHeaders()
-              (itemId, request.copy(body=DynamicBody(Null), headers=newHeaders))
+              (documentUri, itemId, None, request.copy(body=DynamicBody(Null), headers=newHeaders))
             }
             else {
-              (itemId, request.copy(body = filterNulls(request.body)))
+              (documentUri, itemId, None, request.copy(body = filterNulls(request.body)))
             }
           }
           else {
-            (itemId, request.copy(body = appendId(filterNulls(request.body), itemId, ContentLogic.getIdFieldName(documentUri))))
+            val idFieldName = ContentLogic.getIdFieldName(documentUri)
+            (documentUri, itemId, Some(idFieldName), request.copy(body = appendId(filterNulls(request.body), itemId, idFieldName)))
           }
+
         case _ ⇒
-          (itemId, request)
+          (documentUri, itemId, None, request)
       }
-      (documentUri, updatedItemId, updatedRequest)
+      (resultDocumentUri, updatedItemId, updatedIdField, updatedRequest)
     } map {
-      case (documentUri: String, itemId: String, request: DynamicRequest) ⇒
-        become(taskWaitResult(owner, task, request, trackProcessTime)(request))
+      case (documentUri: String, itemId: String, updatedIdField: Option[(String,String)]@unchecked, request: DynamicRequest) ⇒
+        become(taskWaitResult(owner, task, request, itemId, updatedIdField, trackProcessTime)(request))
 
         // fetch and complete existing content
         executeResourceUpdateTask(owner, documentUri, itemId, task, request)
@@ -407,7 +414,12 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       )
   }
 
-  private def taskWaitResult(owner: ActorRef, originalTask: PrimaryContentTask, request: DynamicRequest, trackProcessTime: Timer.Context)
+  private def taskWaitResult(owner: ActorRef,
+                             originalTask: PrimaryContentTask,
+                             request: DynamicRequest,
+                             id: String,
+                             idField: Option[(String, String)],
+                             trackProcessTime: Timer.Context)
                             (implicit mcf: MessagingContext): Receive = {
     case PrimaryWorkerTaskCompleted(task, transaction, created) if task == originalTask ⇒
       if (log.isDebugEnabled) {
@@ -416,8 +428,9 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       owner ! BackgroundContentTask(System.currentTimeMillis() + backgroundTaskTimeout.toMillis, transaction.documentUri, expectsResult=false)
       val transactionId = transaction.documentUri + ":" + transaction.uuid + ":" + transaction.revision
       val result: Response[Body] = if (created) {
-        Created(HyperStorageTransactionCreated(transactionId,
-          path = request.path), location=HRL(TransactionGet.location, Obj.from("transaction_id"→transactionId)))
+        val target = idField.map(kv ⇒ Obj.from(kv._1 → kv._2)).getOrElse(Null)
+        Created(HyperStorageTransactionCreated(transactionId, request.path, target),
+          location=HRL(TransactionGet.location, Obj.from("transaction_id"→transactionId)))
       }
       else {
         Ok(api.HyperStorageTransaction(transactionId))

@@ -38,4 +38,11 @@ class ContentLogicSpec extends FlatSpec with Matchers {
       ContentLogic.splitPath("a//b")
     }
   }
+
+  it should "generate id field name" in {
+    ContentLogic.getIdFieldName("users") shouldBe "user_id"
+    ContentLogic.getIdFieldName("users~") shouldBe "user_id"
+    ContentLogic.getIdFieldName("some/users") shouldBe "user_id"
+    ContentLogic.getIdFieldName("some/users~") shouldBe "user_id"
+  }
 }

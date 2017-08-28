@@ -69,6 +69,42 @@ class IntegratedSpec extends FlatSpec
     delete shouldBe a[Ok[_]]
   }
 
+  it should "Test hyperstorage POST+GET with smart-id for document" in {
+    val hyperbus = testHyperbus()
+    val tk = testKit()
+    import tk._
+
+    cleanUpCassandra()
+
+    val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
+    val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
+    val workerSettings = Map(
+      "hyperstorage-primary-worker" → (workerProps, 1, "pgw-"),
+      "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+    )
+
+    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))
+    val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
+    // wait while subscription is completes
+    Thread.sleep(2000)
+
+    val create = hyperbus.ask(ContentPost("users", DynamicBody(Obj.from("a" → 10, "x" → "hello"))))
+      .runAsync
+      .futureValue
+
+    create shouldBe a[Created[_]]
+    create.body shouldBe a[HyperStorageTransactionCreated]
+    val userId = create.body.target.user_id
+    userId shouldBe a[Text]
+
+    val ok = hyperbus.ask(ContentGet(s"users/${userId.toString}"))
+      .runAsync
+      .futureValue
+
+    ok shouldBe a[Ok[_]]
+    ok.body shouldBe DynamicBody(Obj.from("a" → 10, "x" → "hello", "user_id" → userId))
+  }
+
   it should "Test hyperstorage PUT+GET+Event" in {
     val hyperbus = testHyperbus()
     val tk = testKit()
@@ -292,7 +328,7 @@ class IntegratedSpec extends FlatSpec
       response.body
     }
 
-    val id1 = tr1.path.split('/').tail.head
+    val id1 = tr1.target.id
     val c1x = c1 + Obj.from("id" → id1)
 
     val putEventFuture = putEventPromise.future
@@ -314,7 +350,7 @@ class IntegratedSpec extends FlatSpec
       response.body
     }
 
-    val id2 = tr2.path.split('/').tail.head
+    val id2 = tr2.target.id
     val c2x = c2 + Obj.from("id" → id2)
 
     val f4 = hyperbus.ask(ContentGet("collection-2~", perPage = Some(50))).runAsync

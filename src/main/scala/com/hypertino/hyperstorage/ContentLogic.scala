@@ -70,12 +70,17 @@ object ContentLogic {
         slashCount += 1
       }
     }
-    if (slashCount > 0 && lastToken.exists {
+    if (/*slashCount > 0 && */lastToken.exists {
       case TextToken(s) if s.forall(c ⇒ c == '~' || (c >= 'a' && c <= 'z')) ⇒ true
       case _ ⇒ false
     }) {
       val s = lastToken.get.asInstanceOf[TextToken].value
-      English.singular(s.substring(0, s.length-1)) + "_id"
+      if (s.endsWith("~")) {
+        English.singular(s.substring(0, s.length - 1)) + "_id"
+      }
+      else {
+        English.singular(s) + "_id"
+      }
     }
     else {
       "id"
