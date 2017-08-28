@@ -121,7 +121,7 @@ class ViewSpec extends FlatSpec
         .futureValue
 
       ok shouldBe a[Ok[_]]
-      ok.body shouldBe DynamicBody(Obj.from("a" → 10, "x" → "hello", "id" → "123"))
+      ok.body shouldBe DynamicBody(Obj.from("a" → 10, "x" → "hello", "abc_id" → "123"))
     }
   }
 
@@ -153,7 +153,7 @@ class ViewSpec extends FlatSpec
         .futureValue
 
       ok shouldBe a[Ok[_]]
-      ok.body shouldBe DynamicBody(Obj.from("a" → 10, "x" → "hello", "abc_id" → "123"))
+      ok.body shouldBe DynamicBody(Obj.from("a" → 10, "x" → "hello", "abc_id" → "123", "collection_id" → "123"))
 
       hyperbus.ask(ContentGet("abcs~/456"))
         .runAsync
@@ -201,7 +201,7 @@ class ViewSpec extends FlatSpec
         .futureValue
 
       ok shouldBe a[Ok[_]]
-      ok.body shouldBe DynamicBody(Obj.from("a" → 10, "x" → "bye", "abc_id" → "456"))
+      ok.body shouldBe DynamicBody(Obj.from("a" → 10, "x" → "bye", "collection_id" → "456", "abc_id" → "456"))
 
       hyperbus.ask(ContentGet("abcs~/123"))
         .runAsync
