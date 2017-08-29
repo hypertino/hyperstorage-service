@@ -333,8 +333,9 @@ class HyperbusAdapter(hyperbus: Hyperbus,
         case(stream,totalAccepted,totalFetched,newLastValueOpt,revisionOpt) ⇒
           val taken = stream.take(ops.limit)
           if (totalAccepted >= ops.limit ||
-            ((leastFieldFilter.isEmpty || (leastFieldFilter.size==1 && leastFieldFilter.head.op != FilterEq)) && totalFetched < fetchLimit)) {
-            val nextLeastFieldFilter = if (taken.nonEmpty) {
+            ((leastFieldFilter.isEmpty ||
+              (leastFieldFilter.size==1 && leastFieldFilter.head.op != FilterEq)) && totalFetched < fetchLimit)) {
+            val nextLeastFieldFilter = if (taken.nonEmpty && totalAccepted >= ops.limit) {
               val l = taken.reverse.head.asInstanceOf[Obj]
               IndexLogic.leastRowsFilterFields(ops.idFieldName, ops.indexSortBy, ops.filterFields, leastFieldFilter.size, totalFetched < fetchLimit, l, ops.reversed)
             }

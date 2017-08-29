@@ -145,10 +145,16 @@ class QueryCollectionsSpec extends FlatSpec
         )
     ))
 
-    // println(res.headers.link("next_page_url").toURL())
-
     res.body.content shouldBe Lst.from(c1x)
     verify(db).selectContentCollection("collection-1~", 1, None, true)
+
+    val res2 = hyperbus
+      .ask(ContentGet("collection-1~", perPage = Some(1), sortBy = Some("id"), filter = Some("id > \"item3\"")))
+      .runAsync
+      .futureValue
+    res2.headers.statusCode shouldBe Status.OK
+    res2.headers.link shouldBe Map.empty
+    res2.body.content shouldBe Lst.empty
   }
 
   it should "Query by id desc" in {
