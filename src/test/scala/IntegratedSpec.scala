@@ -481,7 +481,7 @@ class IntegratedSpec extends FlatSpec
         .futureValue
 
       ok shouldBe a[Ok[_]]
-      ok.body shouldBe DynamicBody(Obj.from("a" → 10, "x" → "hello", "abc_id" → "123"))
+      ok.body shouldBe DynamicBody(Obj.from("a" → 10, "x" → "hello", "collection_id" → "123", "abc_id" → "123"))
     }
 
     hyperbus.ask(ContentDelete("collection~/123"))
