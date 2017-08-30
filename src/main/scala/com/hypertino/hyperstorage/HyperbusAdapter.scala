@@ -82,7 +82,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
     val str = request.serializeToString
     val ttl = Math.max(requestTimeout.toMillis - 100, 100)
     val documentUri = ContentLogic.splitPath(uri).documentUri
-    val task = PrimaryContentTask(documentUri, System.currentTimeMillis() + ttl, str, expectsResult = true)
+    val task = PrimaryContentTask(documentUri, System.currentTimeMillis() + ttl, str, expectsResult = true, isClientOperation = true)
     implicit val timeout: akka.util.Timeout = requestTimeout
 
     // todo: what happens when error is returned
@@ -204,7 +204,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
 
     if (sortMatchIsExact) {
       queryUntilFetched(
-        CollectionQueryOptions(documentUri, indexDefOpt, indexSortFields, reversed, pageSize, skipMax, endOfTime, queryFilterFields, ckFields, queryFilterExpression, sortMatchIsExact, idFieldName),
+        CollectionQueryOptions(documentUri, indexDefOpt, indexSortFields, reversed, pageSize, pageSize, skipMax, endOfTime, queryFilterFields, ckFields, queryFilterExpression, sortMatchIsExact, idFieldName),
         Seq.empty,0,0,None
       )  map { case (list, revisionOpt, nextPageFieldFilter) ⇒
         (list.take(pageSize), revisionOpt, nextPageFieldFilter)
@@ -212,10 +212,10 @@ class HyperbusAdapter(hyperbus: Hyperbus,
     }
     else {
       queryUntilFetched(
-        CollectionQueryOptions(documentUri, indexDefOpt, indexSortFields, reversed, pageSize + skipMax, pageSize + skipMax, endOfTime, queryFilterFields, ckFields, queryFilterExpression, sortMatchIsExact, idFieldName),
+        CollectionQueryOptions(documentUri, indexDefOpt, indexSortFields, reversed, pageSize, pageSize + skipMax, pageSize + skipMax, endOfTime, queryFilterFields, ckFields, queryFilterExpression, sortMatchIsExact, idFieldName),
         Seq.empty,0,0,None
       ) map { case (list, revisionOpt, nextPageFieldFilter) ⇒
-        if (list.size==(pageSize+skipMax)) {
+        if (list.size>=(pageSize+skipMax)) {
           throw GatewayTimeout(ErrorBody("query-skipped-rows-limited", Some(s"Maximum skipped row limit is reached: $skipMax")))
         } else {
           if (querySortBy.nonEmpty) {
@@ -335,7 +335,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
           if (totalAccepted >= ops.limit ||
             ((leastFieldFilter.isEmpty ||
               (leastFieldFilter.size==1 && leastFieldFilter.head.op != FilterEq)) && totalFetched < fetchLimit)) {
-            val nextLeastFieldFilter = if (taken.nonEmpty && totalAccepted >= ops.limit) {
+            val nextLeastFieldFilter = if (taken.nonEmpty && totalAccepted >= ops.pageSize) {
               val l = taken.reverse.head.asInstanceOf[Obj]
               IndexLogic.leastRowsFilterFields(ops.idFieldName, ops.indexSortBy, ops.filterFields, leastFieldFilter.size, totalFetched < fetchLimit, l, ops.reversed)
             }
@@ -384,6 +384,7 @@ case class CollectionQueryOptions(documentUri: String,
                                   indexDefOpt: Option[IndexDef],
                                   indexSortBy: Seq[HyperStorageIndexSortItem],
                                   reversed: Boolean,
+                                  pageSize: Int,
                                   limit: Int,
                                   skipRowsLimit: Int,
                                   endTimeInMillis: Long,

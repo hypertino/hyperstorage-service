@@ -285,14 +285,14 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
 
   private def addViewItem(documentUri: String, itemId: String, bodyValue: Value, owner: ActorRef, ttl: Long)(implicit mcx: MessagingContext): Task[Any] = {
     implicit val timeout = akka.util.Timeout(Duration(ttl - System.currentTimeMillis() + 3000, duration.MILLISECONDS))
-    Task.fromFuture(owner ? PrimaryContentTask(documentUri, ttl, ContentPut(documentUri + "/" + itemId, DynamicBody(bodyValue)).serializeToString, expectsResult = true)).map{
+    Task.fromFuture(owner ? PrimaryContentTask(documentUri, ttl, ContentPut(documentUri + "/" + itemId, DynamicBody(bodyValue)).serializeToString, expectsResult = true, isClientOperation = false)).map{
       _ ⇒ handlePrimaryWorkerTaskResult
     }
   }
 
   private def deleteViewItem(documentUri: String, itemId: String, owner: ActorRef, ttl: Long)(implicit mcx: MessagingContext): Task[Any] = {
     implicit val timeout = akka.util.Timeout(Duration(ttl - System.currentTimeMillis() + 3000, duration.MILLISECONDS))
-    Task.fromFuture(owner ? PrimaryContentTask(documentUri, ttl, ContentDelete(documentUri + "/" + itemId).serializeToString, expectsResult = true)).map{
+    Task.fromFuture(owner ? PrimaryContentTask(documentUri, ttl, ContentDelete(documentUri + "/" + itemId).serializeToString, expectsResult = true, isClientOperation = false)).map{
       _ ⇒ handlePrimaryWorkerTaskResult
     }
   }

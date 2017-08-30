@@ -24,7 +24,7 @@ import scala.concurrent.duration.FiniteDuration
 import scala.util.Try
 import scala.util.control.NonFatal
 
-@SerialVersionUID(1L) case class PrimaryContentTask(key: String, ttl: Long, content: String, expectsResult: Boolean) extends ShardTask {
+@SerialVersionUID(1L) case class PrimaryContentTask(key: String, ttl: Long, content: String, expectsResult: Boolean, isClientOperation: Boolean) extends ShardTask {
   def group = "hyperstorage-primary-worker"
   def isExpired = ttl < System.currentTimeMillis()
 }
@@ -170,7 +170,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       }
 
     futureExisting.flatMap { case (existingContent, existingContentStatic, indexDefs) ⇒
-      updateResource(documentUri, itemId, request, existingContent, existingContentStatic, indexDefs) map { newTransaction ⇒
+      updateResource(documentUri, itemId, request, existingContent, existingContentStatic, indexDefs, task.isClientOperation) map { newTransaction ⇒
         PrimaryWorkerTaskCompleted(task, newTransaction, existingContent.isEmpty && request.headers.method != Method.DELETE)
       }
     } recover {
@@ -184,28 +184,36 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
                              request: DynamicRequest,
                              existingContent: Option[Content],
                              existingContentStatic: Option[ContentBase],
-                             indexDefs: Seq[IndexDef]
+                             indexDefs: Seq[IndexDef],
+                             isClientOperation: Boolean
                             ): Future[Transaction] = {
-    val newTransaction = createNewTransaction(documentUri, itemId, request, existingContent, existingContentStatic)
-    val newContent = updateContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic)
-    val obsoleteIndexItems = if (request.headers.method != Method.POST && ContentLogic.isCollectionUri(documentUri) && !itemId.isEmpty) {
-      findObsoleteIndexItems(existingContent, newContent, indexDefs)
+
+    if (existingContentStatic.exists(_.isView.contains(true)) && isClientOperation) Future.failed {
+      implicit val mcx = request
+      Conflict(ErrorBody("view-modification", Some(s"Can't modify view: $documentUri")))
     }
     else {
-      None
-    }
-    val newTransactionWithOI = newTransaction.copy(obsoleteIndexItems = obsoleteIndexItems)
-    db.insertTransaction(newTransactionWithOI) flatMap { _ ⇒ {
-      if (!itemId.isEmpty && newContent.isDeleted.contains(true)) {
-        // deleting item
-        db.deleteContentItem(newContent, itemId)
+      val newTransaction = createNewTransaction(documentUri, itemId, request, existingContent, existingContentStatic)
+      val newContent = updateContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic)
+      val obsoleteIndexItems = if (request.headers.method != Method.POST && ContentLogic.isCollectionUri(documentUri) && !itemId.isEmpty) {
+        findObsoleteIndexItems(existingContent, newContent, indexDefs)
       }
       else {
-        db.insertContent(newContent)
+        None
       }
-    } map { _ ⇒
-      newTransactionWithOI
-    }
+      val newTransactionWithOI = newTransaction.copy(obsoleteIndexItems = obsoleteIndexItems)
+      db.insertTransaction(newTransactionWithOI) flatMap { _ ⇒ {
+        if (!itemId.isEmpty && newContent.isDeleted.contains(true)) {
+          // deleting item
+          db.deleteContentItem(newContent, itemId)
+        }
+        else {
+          db.insertContent(newContent)
+        }
+      } map { _ ⇒
+        newTransactionWithOI
+      }
+      }
     }
   }
 

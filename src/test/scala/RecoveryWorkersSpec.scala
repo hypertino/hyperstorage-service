@@ -45,7 +45,7 @@ class RecoveryWorkersSpec extends FlatSpec
     val taskStr1 = ContentPut(path,
       DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
     ).serializeToString
-    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr1, expectsResult=true)
+    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr1, expectsResult=true,isClientOperation=true)
     val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
     expectMsgType[ShardTaskComplete]
 
@@ -88,7 +88,7 @@ class RecoveryWorkersSpec extends FlatSpec
       DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
     ).serializeToString
     val millis = System.currentTimeMillis()
-    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr1, expectsResult=true)
+    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr1, expectsResult=true,isClientOperation=true)
     val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
     expectMsgType[ShardTaskComplete]
 

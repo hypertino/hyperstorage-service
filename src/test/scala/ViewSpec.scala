@@ -1,5 +1,5 @@
 import com.hypertino.binders.value.Obj
-import com.hypertino.hyperbus.model.{Created, DynamicBody, MessagingContext, NotFound, Ok, Status}
+import com.hypertino.hyperbus.model.{Conflict, Created, DynamicBody, MessagingContext, NotFound, Ok, Status}
 import com.hypertino.hyperstorage.api._
 import org.scalatest.{FlatSpec, Matchers}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
@@ -232,5 +232,42 @@ class ViewSpec extends FlatSpec
       ok shouldBe a[Ok[_]]
       ok.body shouldBe DynamicBody(Obj.from("a" → 10, "x" → "hello", "collection_id" → "123", "abc_id" → "123"))
     }
+  }
+
+  it should "disallow direct modification of view" in {
+    cleanUpCassandra()
+    val hyperbus = integratedHyperbus(db)
+
+    hyperbus.ask(ViewPut("abcs~", HyperStorageView("abc/{*}")))
+      .runAsync
+      .futureValue shouldBe a[Created[_]]
+
+    eventually {
+      val h = db.selectViewDefs().futureValue.toSeq.head
+      h.documentUri shouldBe "abcs~"
+      h.templateUri shouldBe "abc/{*}"
+    }
+
+    hyperbus.ask(ContentPut("abc/123", DynamicBody(Obj.from("a" → 1))))
+      .runAsync
+      .futureValue shouldBe a[Created[_]]
+
+    eventually {
+      val ok = hyperbus.ask(ContentGet("abcs~/123"))
+        .runAsync
+        .futureValue
+
+      ok shouldBe a[Ok[_]]
+    }
+
+    hyperbus.ask(ContentPatch("abcs~/123", DynamicBody(Obj.from("a" → 2))))
+      .runAsync
+      .failed
+      .futureValue shouldBe a[Conflict[_]]
+
+    hyperbus.ask(ContentPost("abcs~", DynamicBody(Obj.from("a" → 3))))
+      .runAsync
+      .failed
+      .futureValue shouldBe a[Conflict[_]]
   }
 }
