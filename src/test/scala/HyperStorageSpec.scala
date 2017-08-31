@@ -1,16 +1,21 @@
 import java.util.UUID
+import java.util.concurrent.ConcurrentLinkedQueue
 
+import akka.actor.{Actor, ActorRef, Props}
 import akka.testkit.TestActorRef
+import com.datastax.driver.core.utils.UUIDs
+import com.hypertino.HyperStorageHeader
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperbus.serialization.SerializationOptions
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.api._
+import com.hypertino.hyperstorage.db.Content
 import com.hypertino.hyperstorage.sharding._
 import com.hypertino.hyperstorage.workers.primary.{PrimaryContentTask, PrimaryWorker, PrimaryWorkerTaskResult}
 import com.hypertino.hyperstorage.workers.secondary._
 import mock.FaultClientTransport
-import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
+import akka.pattern.ask
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.time.{Millis, Span}
 import org.scalatest.{FlatSpec, Matchers}
@@ -234,7 +239,7 @@ class HyperStorageSpec extends FlatSpec
 
     cleanUpCassandra()
 
-    val transactionList = mutable.ListBuffer[Value]()
+    val transactionList = mutable.ListBuffer[String]()
 
     val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
     val path = "abcde"
@@ -244,7 +249,7 @@ class HyperStorageSpec extends FlatSpec
     worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr1, expectsResult=true,isClientOperation=true)
     expectMsgType[BackgroundContentTask]
     val result1 = expectMsgType[ShardTaskComplete]
-    transactionList += response(result1.result.asInstanceOf[PrimaryWorkerTaskResult].content).body.content.transaction_id
+    transactionList += response(result1.result.asInstanceOf[PrimaryWorkerTaskResult].content).body.content.transaction_id.toString
 
     val taskStr2 = ContentPatch(path,
       DynamicBody(Obj.from("text" → "abc", "text2" → "klmn"))
@@ -252,7 +257,7 @@ class HyperStorageSpec extends FlatSpec
     worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr2, expectsResult=true,isClientOperation=true)
     expectMsgType[BackgroundContentTask]
     val result2 = expectMsgType[ShardTaskComplete]
-    transactionList += response(result2.result.asInstanceOf[PrimaryWorkerTaskResult].content).body.content.transaction_id
+    transactionList += response(result2.result.asInstanceOf[PrimaryWorkerTaskResult].content).body.content.transaction_id.toString
 
     val taskStr3 = ContentDelete(path).serializeToString
     worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr3, expectsResult=true,isClientOperation=true)
@@ -260,7 +265,7 @@ class HyperStorageSpec extends FlatSpec
     val workerResult = expectMsgType[ShardTaskComplete]
     val r = response(workerResult.result.asInstanceOf[PrimaryWorkerTaskResult].content)
     r.headers.statusCode should equal(Status.OK)
-    transactionList += r.body.content.transaction_id
+    transactionList += r.body.content.transaction_id.toString
     // todo: list of transactions!s
 
     val transactionsC = whenReady(db.selectContent(path, "")) { result =>
@@ -268,7 +273,7 @@ class HyperStorageSpec extends FlatSpec
       result.get.transactionList
     }
 
-    val transactions = transactionList.map(s ⇒ UUID.fromString(s.toString.split(':')(1)))
+    val transactions = transactionList.map(UUID.fromString)
 
     transactions should equal(transactionsC.reverse)
 
@@ -362,5 +367,71 @@ class HyperStorageSpec extends FlatSpec
     }
 
     db.selectContent(path, "").futureValue.get.transactionList shouldBe empty
+  }
+
+  it should "wait for full operation if requested" in {
+    val hyperbus = testHyperbus()
+    val tk = testKit()
+    import tk._
+
+    cleanUpCassandra()
+
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 20.seconds))
+    val fakeProcessor = TestActorRef[FakeProcessor](Props(classOf[FakeProcessor], worker))
+    val distributor = new HyperbusAdapter(hyperbus, fakeProcessor, db, tracker, 20.seconds)
+
+    Thread.sleep(2000)
+
+    val path = "abcde"
+    val createTask = hyperbus.ask(
+      ContentPut(path, DynamicBody(Obj.from("a" → 10, "x" → "hello")), HeadersMap(HyperStorageHeader.WAIT → "full")))
+      .runAsync
+
+    val r1: Content = eventually {
+      val r = db.selectContent(path, "").futureValue.head
+      r.documentUri shouldBe path
+      r
+    }
+    val tr1 = r1.transactionList.head
+
+    val backgroundWorkerTask = eventually {
+      import scala.collection.JavaConverters._
+      fakeProcessor.underlyingActor.otherMessages.asScala.head shouldBe a[BackgroundContentTask] // from primary worker
+      fakeProcessor.underlyingActor.otherMessages.asScala.head.asInstanceOf[BackgroundContentTask]
+    }
+
+    Thread.sleep(2000)
+    createTask.isCompleted shouldBe false
+
+    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
+    backgroundWorker ! backgroundWorkerTask
+    val backgroundWorkerResult = expectMsgType[ShardTaskComplete]
+    backgroundWorkerResult.result shouldBe a[BackgroundContentTaskResult]
+
+    selectTransactions(Seq(tr1), path, db) foreach { transaction ⇒
+      transaction.completedAt shouldNot be(None)
+    }
+
+    createTask.futureValue shouldBe a[Created[_]]
+  }
+}
+
+class FakeProcessor(primaryWorker: ActorRef) extends Actor {
+  var adapter: ActorRef = null
+  var otherMessages = new ConcurrentLinkedQueue[Any]()
+
+  def receive: Receive = {
+    case r: PrimaryContentTask ⇒
+      adapter = sender()
+      //println("got from" + sender() + s", self: $self: " + r)
+      primaryWorker ! r
+
+    case ShardTaskComplete(_, r) if r.isInstanceOf[PrimaryWorkerTaskResult] ⇒
+      //println("got from" + sender() + s", self: $self, forwarding to $adapter: " + r)
+      adapter forward r
+
+    case r ⇒
+      //println("got unknown from" + sender() + s", self: $self: " + r)
+      otherMessages.add(r)
   }
 }

@@ -5,6 +5,8 @@ import java.util.Date
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import akka.pattern.pipe
 import com.codahale.metrics.Timer
+import com.datastax.driver.core.utils.UUIDs
+import com.hypertino.HyperStorageHeader
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperbus.Hyperbus
@@ -130,7 +132,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       (resultDocumentUri, updatedItemId, updatedIdField, updatedRequest)
     } map {
       case (documentUri: String, itemId: String, updatedIdField: Option[(String,String)]@unchecked, request: DynamicRequest) ⇒
-        become(taskWaitResult(owner, task, request, itemId, updatedIdField, trackProcessTime)(request))
+        become(taskWaitResult(owner, task, request, documentUri, itemId, updatedIdField, trackProcessTime)(request))
 
         // fetch and complete existing content
         executeResourceUpdateTask(owner, documentUri, itemId, task, request)
@@ -264,6 +266,8 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 
     val recordCount = existingContent.map(_ ⇒ 0 ).getOrElse(1)
 
+    val uuid = UUIDs.timeBased()
+
     // always preserve null fields in transaction
     // this is required to correctly publish patch events
     implicit val so = SerializationOptions.forceOptionalFields
@@ -272,10 +276,11 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
         .++=(request.headers)
         .+=(Header.REVISION → Number(revision))
         .+=(Header.COUNT → Number(recordCount))
+        .+=(HyperStorageHeader.TRANSACTION → uuid.toString)
         .withMethod("feed:" + request.headers.method)
         .requestHeaders()
     ).serializeToString
-    TransactionLogic.newTransaction(documentUri, itemId, revision, transactionBody)
+    TransactionLogic.newTransaction(documentUri, itemId, revision, transactionBody, uuid)
   }
 
   private def updateContent(documentUri: String,
@@ -425,6 +430,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
   private def taskWaitResult(owner: ActorRef,
                              originalTask: PrimaryContentTask,
                              request: DynamicRequest,
+                             documentUri: String,
                              id: String,
                              idField: Option[(String, String)],
                              trackProcessTime: Timer.Context)
@@ -434,14 +440,13 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
         log.debug(s"task $originalTask is completed")
       }
       owner ! BackgroundContentTask(System.currentTimeMillis() + backgroundTaskTimeout.toMillis, transaction.documentUri, expectsResult=false)
-      val transactionId = transaction.documentUri + ":" + transaction.uuid + ":" + transaction.revision
       val result: Response[Body] = if (created) {
         val target = idField.map(kv ⇒ Obj.from(kv._1 → Text(kv._2))).getOrElse(Null)
-        Created(HyperStorageTransactionCreated(transactionId, request.path, target),
-          location=HRL(TransactionGet.location, Obj.from("transaction_id"→transactionId)))
+        Created(HyperStorageTransactionCreated(transaction.uuid.toString, request.path, transaction.revision, target),
+          location=HRL(ContentGet.location, Obj.from("path" → (documentUri + "/" + id))))
       }
       else {
-        Ok(api.HyperStorageTransaction(transactionId))
+        Ok(api.HyperStorageTransaction(transaction.uuid.toString, request.path, transaction.revision))
       }
       owner ! ShardTaskComplete(task, PrimaryWorkerTaskResult(result.serializeToString))
       trackProcessTime.stop()

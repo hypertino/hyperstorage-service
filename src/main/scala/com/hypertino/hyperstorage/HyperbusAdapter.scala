@@ -1,8 +1,11 @@
 package com.hypertino.hyperstorage
 
+import java.util.concurrent.{ConcurrentHashMap, ConcurrentMap}
+
 import akka.actor.ActorRef
 import akka.pattern.ask
-import com.hypertino.binders.value.{Lst, Null, Number, Obj, Value}
+import com.hypertino.HyperStorageHeader
+import com.hypertino.binders.value.{Lst, Null, Number, Obj, Text, Value}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperbus.serialization.{MessageReader, SerializationOptions}
@@ -17,8 +20,8 @@ import com.hypertino.metrics.MetricsTracker
 import com.hypertino.parser.ast.{Expression, Identifier}
 import com.hypertino.parser.eval.ValueContext
 import com.hypertino.parser.{HEval, HParser}
-import monix.eval.Task
-import monix.execution.{Ack, Scheduler}
+import monix.eval.{Callback, Task}
+import monix.execution.{Ack, Cancelable, Scheduler}
 import monix.execution.Ack.Continue
 import com.hypertino.hyperstorage.utils.Sort._
 import com.hypertino.hyperstorage.utils.{Sort, SortBy}
@@ -26,6 +29,7 @@ import org.slf4j.LoggerFactory
 
 import scala.concurrent.Future
 import scala.concurrent.duration._
+import scala.util.Success
 import scala.util.control.NonFatal
 
 // todo: convert Task.fromFuture to tasks...
@@ -45,13 +49,12 @@ class HyperbusAdapter(hyperbus: Hyperbus,
   final val DEFAULT_PAGE_SIZE = 100
   implicit val so = SerializationOptions.forceOptionalFields
   private val log = LoggerFactory.getLogger(getClass)
-
+  private val waitTasks = new ConcurrentHashMap[String, () ⇒ Unit]
   private val subscriptions = hyperbus.subscribe(this, log)
 
   def onContentGet(implicit get: ContentGet) = Task.fromFuture[ResponseBase] {
     tracker.timeOfFuture(Metrics.RETRIEVE_TIME) {
       val resourcePath = ContentLogic.splitPath(get.path)
-      val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${get.path}' is not found")))
       if (ContentLogic.isCollectionUri(resourcePath.documentUri) && resourcePath.itemId.isEmpty) {
         queryCollection(resourcePath, get)
       }
@@ -72,6 +75,11 @@ class HyperbusAdapter(hyperbus: Hyperbus,
   def onViewPut(implicit request: ViewPut) = executeRequest(request, request.path)
   def onViewDelete(implicit request: ViewDelete) = executeRequest(request, request.path)
 
+
+  def onContentFeedPut(event: ContentFeedPut): Ack = notifyWaitTask(event)
+  def onContentFeedPatch(event: ContentFeedPatch): Ack = notifyWaitTask(event)
+  def onContentFeedDelete(event: ContentFeedDelete): Ack = notifyWaitTask(event)
+
   // todo: implement onViewGet/onViewsGet
 
   def off(): Task[Unit] = {
@@ -83,13 +91,45 @@ class HyperbusAdapter(hyperbus: Hyperbus,
     val ttl = Math.max(requestTimeout.toMillis - 100, 100)
     val documentUri = ContentLogic.splitPath(uri).documentUri
     val task = PrimaryContentTask(documentUri, System.currentTimeMillis() + ttl, str, expectsResult = true, isClientOperation = true)
-    implicit val timeout: akka.util.Timeout = requestTimeout
 
     // todo: what happens when error is returned
-    Task.fromFuture {
+    val primaryTask = Task.fromFuture {
+      implicit val timeout: akka.util.Timeout = requestTimeout
       hyperStorageProcessor ? task map {
         case PrimaryWorkerTaskResult(content) ⇒
           MessageReader.fromString(content, StandardResponse.apply) // todo: we are deserializing just to serialize back here
+      }
+    }
+
+    primaryTask.flatMap { result ⇒
+      if ((result.headers.statusCode == Ok.statusCode || result.headers.statusCode == Created.statusCode) &&
+        request.headers.get(HyperStorageHeader.WAIT).contains(Text("full"))) {
+        val transactionId = result.body.content.transaction_id.toString()
+        waitForTransaction(transactionId).map(_ ⇒ result)
+      }
+      else {
+        Task.now(result)
+      }
+    }
+  }
+
+  private def notifyWaitTask(event: RequestBase): Ack = {
+    event.headers.get(HyperStorageHeader.TRANSACTION).foreach { transaction ⇒
+      val task = waitTasks.get(transaction.toString)
+      if (task != null)
+        task()
+    }
+    Continue
+  }
+
+  private def waitForTransaction(transactionId: String): Task[Unit] = {
+    Task.create { (_, callback) ⇒
+      waitTasks.put(transactionId, () ⇒ {
+        callback(Success())
+      })
+
+      new Cancelable {
+        override def cancel(): Unit = waitTasks.remove(transactionId)
       }
     }
   }

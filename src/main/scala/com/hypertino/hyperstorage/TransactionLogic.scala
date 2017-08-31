@@ -1,6 +1,6 @@
 package com.hypertino.hyperstorage
 
-import java.util.TimeZone
+import java.util.{TimeZone, UUID}
 import java.util.zip.CRC32
 
 import com.datastax.driver.core.utils.UUIDs
@@ -13,13 +13,13 @@ object TransactionLogic {
   final val HB_HEADER_TEMPLATE_URI = "HB-Template-Uri"
   final val HB_HEADER_FILTER = "HB-Filter"
 
-  def newTransaction(documentUri: String, itemId: String, revision: Long, body: String) = Transaction(
+  def newTransaction(documentUri: String, itemId: String, revision: Long, body: String, uuid: UUID) = Transaction(
     dtQuantum = getDtQuantum(System.currentTimeMillis()),
     partition = partitionFromUri(documentUri),
     documentUri = documentUri,
     itemId = itemId,
     revision = revision,
-    uuid = UUIDs.timeBased(),
+    uuid = uuid,
     body = body,
     obsoleteIndexItems = None,
     completedAt = None
