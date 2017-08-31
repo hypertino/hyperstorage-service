@@ -9,7 +9,9 @@ import com.hypertino.binders.value.{Lst, Null, Number, Obj, Text, Value}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperbus.serialization.{MessageReader, SerializationOptions}
+import com.hypertino.hyperbus.subscribe.Subscribable
 import com.hypertino.hyperbus.transport.api.CommandEvent
+import com.hypertino.hyperbus.util.IdGenerator
 import com.hypertino.hyperstorage.api.{HyperStorageIndexSortItem, _}
 import com.hypertino.hyperstorage.db._
 import com.hypertino.hyperstorage.indexing.{FieldFiltersExpression, FieldFiltersExtractor, IndexLogic, OrderFieldsLogic}
@@ -39,7 +41,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
                       db: Db,
                       tracker: MetricsTracker,
                       requestTimeout: FiniteDuration)
-                     (implicit scheduler: Scheduler) {
+                     (implicit scheduler: Scheduler) extends Subscribable {
 
   //final val COLLECTION_FILTER_NAME = "filter"
   //final val COLLECTION_SIZE_FIELD_NAME = "size"
@@ -50,6 +52,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
   implicit val so = SerializationOptions.forceOptionalFields
   private val log = LoggerFactory.getLogger(getClass)
   private val waitTasks = new ConcurrentHashMap[String, () ⇒ Unit]
+  private val fixedGroupName = Some("hs-adapter-" + IdGenerator.create())
   private val subscriptions = hyperbus.subscribe(this, log)
 
   def onContentGet(implicit get: ContentGet) = Task.fromFuture[ResponseBase] {
@@ -79,6 +82,8 @@ class HyperbusAdapter(hyperbus: Hyperbus,
   def onContentFeedPut(event: ContentFeedPut): Ack = notifyWaitTask(event)
   def onContentFeedPatch(event: ContentFeedPatch): Ack = notifyWaitTask(event)
   def onContentFeedDelete(event: ContentFeedDelete): Ack = notifyWaitTask(event)
+
+  override def groupName(existing: Option[String]): Option[String] = existing.map(_ + "-" + fixedGroupName).orElse(fixedGroupName)
 
   // todo: implement onViewGet/onViewsGet
 
