@@ -389,7 +389,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 
   private def mergeBody(existing: Value, patch: Value): Option[String] = {
     import com.hypertino.binders.json.JsonBinders._
-    val newBodyContent = filterNulls(existing + patch)
+    val newBodyContent = filterNulls(existing % patch)
     newBodyContent match {
       case Null ⇒ None
       case other ⇒ Some(other.toJson)
