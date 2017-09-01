@@ -190,7 +190,11 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
                              isClientOperation: Boolean
                             ): Future[Transaction] = {
 
-    if (existingContentStatic.exists(_.isView.contains(true)) && isClientOperation) Future.failed {
+    if (existingContentStatic.exists(_.isView.contains(true))
+      && isClientOperation
+      && (request.headers.hrl.location != ViewPut.location ||
+        request.headers.hrl.location != ViewDelete.location)
+    ) Future.failed {
       implicit val mcx = request
       Conflict(ErrorBody("view-modification", Some(s"Can't modify view: $documentUri")))
     }
