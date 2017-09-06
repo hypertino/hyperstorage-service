@@ -189,37 +189,49 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
                              indexDefs: Seq[IndexDef],
                              isClientOperation: Boolean
                             ): Future[Transaction] = {
+    implicit val mcx = request
 
     if (existingContentStatic.exists(_.isView.contains(true))
       && isClientOperation
       && (request.headers.hrl.location != ViewPut.location ||
-        request.headers.hrl.location != ViewDelete.location)
+      request.headers.hrl.location != ViewDelete.location)
     ) Future.failed {
-      implicit val mcx = request
       Conflict(ErrorBody("view-modification", Some(s"Can't modify view: $documentUri")))
     }
     else {
-      val newTransaction = createNewTransaction(documentUri, itemId, request, existingContent, existingContentStatic)
-      val newContent = updateContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic)
-      val obsoleteIndexItems = if (request.headers.method != Method.POST && ContentLogic.isCollectionUri(documentUri) && !itemId.isEmpty) {
-        findObsoleteIndexItems(existingContent, newContent, indexDefs)
-      }
-      else {
-        None
-      }
-      val newTransactionWithOI = newTransaction.copy(obsoleteIndexItems = obsoleteIndexItems)
-      db.insertTransaction(newTransactionWithOI) flatMap { _ ⇒ {
-        if (!itemId.isEmpty && newContent.isDeleted.contains(true)) {
-          // deleting item
-          db.deleteContentItem(newContent, itemId)
+      if (!checkPrecondition(request, existingContentStatic)) Future.failed {
+        PreconditionFailed(ErrorBody("if-match", Some(s"ETag doesn't match")))
+      } else {
+
+        val newTransaction = createNewTransaction(documentUri, itemId, request, existingContent, existingContentStatic)
+        val newContent = updateContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic)
+        val obsoleteIndexItems = if (request.headers.method != Method.POST && ContentLogic.isCollectionUri(documentUri) && !itemId.isEmpty) {
+          findObsoleteIndexItems(existingContent, newContent, indexDefs)
         }
         else {
-          db.insertContent(newContent)
+          None
         }
-      } map { _ ⇒
-        newTransactionWithOI
+        val newTransactionWithOI = newTransaction.copy(obsoleteIndexItems = obsoleteIndexItems)
+        db.insertTransaction(newTransactionWithOI) flatMap { _ ⇒ {
+          if (!itemId.isEmpty && newContent.isDeleted.contains(true)) {
+            // deleting item
+            db.deleteContentItem(newContent, itemId)
+          }
+          else {
+            db.insertContent(newContent)
+          }
+        } map { _ ⇒
+          newTransactionWithOI
+        }
+        }
       }
-      }
+    }
+  }
+
+  private def checkPrecondition(request: DynamicRequest, content: Option[ContentBase]): Boolean  = {
+    request.headers.get("if-match").forall { m ⇒
+      val etag = content.map(c ⇒ "\"" + c.revision + "\"").getOrElse("\"\"")
+      m.toString == etag
     }
   }
 
@@ -464,7 +476,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 
   private def hyperbusException(e: Throwable, task: ShardTask)(implicit mcx: MessagingContext): PrimaryWorkerTaskResult = {
     val (response: HyperbusError[ErrorBody], logException) = e match {
-      case h: NotFound[ErrorBody] @unchecked ⇒ (h, false)
+      case h: HyperbusClientError[ErrorBody] @unchecked ⇒ (h, false)
       case h: HyperbusError[ErrorBody] @unchecked ⇒ (h, true)
       case _ ⇒ (InternalServerError(ErrorBody("update-failed", Some(e.toString))), true)
     }
