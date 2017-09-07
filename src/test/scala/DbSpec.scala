@@ -14,13 +14,13 @@ class DbSpec extends FlatSpec with Matchers with CassandraFixture
   "Db" should "Index collection with ordering by id" in {
     cleanUpCassandra()
     db.insertIndexItem("index_content", Seq.empty, IndexContent(
-      "test~", "x1", "i1", 1l, Some("{}"), new Date(), None
+      "test~", "x1", "i1", 1l, Some(1l), Some("{}"), new Date(), None
     ))
     db.insertIndexItem("index_content", Seq.empty, IndexContent(
-      "test~", "x1", "i2", 1l, Some("{}"), new Date(), None
+      "test~", "x1", "i2", 1l, Some(1l), Some("{}"), new Date(), None
     ))
     db.insertIndexItem("index_content", Seq.empty, IndexContent(
-      "test~", "x1", "i3", 1l, Some("{}"), new Date(), None
+      "test~", "x1", "i3", 1l, Some(1l), Some("{}"), new Date(), None
     ))
     val ca = db.selectIndexCollection("index_content", "test~", "x1", Seq.empty,
       Seq(CkField("item_id", ascending = true)), 10).futureValue.toSeq
@@ -56,16 +56,16 @@ class DbSpec extends FlatSpec with Matchers with CassandraFixture
   it should "Index collection with ordering by text field" in {
     cleanUpCassandra()
     val futures = Seq(db.insertIndexItem("index_content_ta0", Seq("t0" → "aa00"), IndexContent(
-      "test~", "x1", "i1", 1l, Some("{}"), new Date(), None
+      "test~", "x1", "i1", 1l, Some(1l), Some("{}"), new Date(), None
     )),
       db.insertIndexItem("index_content_ta0", Seq("t0" → "aa01"), IndexContent(
-        "test~", "x1", "i2", 1l, Some("{}"), new Date(), None
+        "test~", "x1", "i2", 1l, Some(1l), Some("{}"), new Date(), None
       )),
       db.insertIndexItem("index_content_ta0", Seq("t0" → "aa02"), IndexContent(
-        "test~", "x1", "i3", 1l, Some("{}"), new Date(), None
+        "test~", "x1", "i3", 1l, Some(1l), Some("{}"), new Date(), None
       )),
       db.insertIndexItem("index_content_ta0", Seq("t0" → "aa02"), IndexContent(
-        "test~", "x1", "i4", 1l, Some("{}"), new Date(), None
+        "test~", "x1", "i4", 1l, Some(1l), Some("{}"), new Date(), None
       )))
     Future.sequence(futures).futureValue
     val ca = db.selectIndexCollection("index_content_ta0", "test~", "x1", Seq.empty, Seq.empty, 10).futureValue.toSeq

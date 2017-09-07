@@ -175,17 +175,18 @@ class HyperbusAdapter(hyperbus: Hyperbus,
     for {
       contentStatic ← db.selectContentStatic(resourcePath.documentUri)
       indexDefs ← indexDefsFuture
-      (collectionStream, revisionOpt, nextPageFieldFilter) ←
+      (collectionStream, revisionOpt, countOpt, nextPageFieldFilter) ←
         if (pageSize > 0) {
           selectCollection(resourcePath.documentUri, indexDefs, request.filter, sortBy, pageSize, skipMax, idFieldName)
         }
         else {
-          Future{(List.empty, None, Seq.empty)}
+          Future{(List.empty, None, None, Seq.empty)}
         }
     } yield {
       if (contentStatic.isDefined && contentStatic.forall(!_.isDeleted.contains(true))) {
         val result = Lst(collectionStream)
         val revision = if (pageSize == 0) Some(contentStatic.get.revision) else revisionOpt
+        val count = if (pageSize == 0) contentStatic.get.count else countOpt
 
         val nextPageUrl: Option[HRL] = if (nextPageFieldFilter.nonEmpty) Some {
           ContentGet(path = resourcePath.documentUri,
@@ -200,7 +201,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
 
         val hb = Headers.builder
         revision.foreach(r ⇒ hb += Header.REVISION → Number(r))
-        contentStatic.get.count.foreach(count ⇒ hb += Header.COUNT → Number(count))
+        count.foreach(c ⇒ hb += Header.COUNT → Number(c))
         nextPageUrl.foreach(url ⇒ hb.withLink(Map("next_page_url" → url)))
 
         Ok(DynamicBody(result), hb.result())
@@ -219,7 +220,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
                                pageSize: Int,
                                skipMax: Int,
                                idFieldName: String)
-                              (implicit messagingContext: MessagingContext): Future[(List[Value], Option[Long], Seq[FieldFilter])] = {
+                              (implicit messagingContext: MessagingContext): Future[(List[Value], Option[Long], Option[Long], Seq[FieldFilter])] = {
 
     val queryFilterExpression = queryFilter.flatMap(Option.apply).map(HParser(_))
     val defIdSort = HyperStorageIndexSortItem(idFieldName, Some(HyperStorageIndexSortFieldType.TEXT), Some(HyperStorageIndexSortOrder.ASC))
@@ -251,30 +252,30 @@ class HyperbusAdapter(hyperbus: Hyperbus,
       queryUntilFetched(
         CollectionQueryOptions(documentUri, indexDefOpt, indexSortFields, reversed, pageSize, pageSize, skipMax, endOfTime, queryFilterFields, ckFields, queryFilterExpression, sortMatchIsExact, idFieldName),
         Seq.empty,0,0,None
-      )  map { case (list, revisionOpt, nextPageFieldFilter) ⇒
-        (list.take(pageSize), revisionOpt, nextPageFieldFilter)
+      )  map { case (list, revisionOpt, countOpt, nextPageFieldFilter) ⇒
+        (list.take(pageSize), revisionOpt, countOpt, nextPageFieldFilter)
       }
     }
     else {
       queryUntilFetched(
         CollectionQueryOptions(documentUri, indexDefOpt, indexSortFields, reversed, pageSize, pageSize + skipMax, pageSize + skipMax, endOfTime, queryFilterFields, ckFields, queryFilterExpression, sortMatchIsExact, idFieldName),
         Seq.empty,0,0,None
-      ) map { case (list, revisionOpt, nextPageFieldFilter) ⇒
+      ) map { case (list, revisionOpt, countOpt, nextPageFieldFilter) ⇒
         if (list.size>=(pageSize+skipMax)) {
           throw GatewayTimeout(ErrorBody("query-skipped-rows-limited", Some(s"Maximum skipped row limit is reached: $skipMax")))
         } else {
           if (querySortBy.nonEmpty) {
             implicit val ordering = new CollectionOrdering(querySortBy)
-            (list.sorted.take(pageSize), revisionOpt, nextPageFieldFilter)
+            (list.sorted.take(pageSize), revisionOpt, countOpt, nextPageFieldFilter)
           }
           else
-            (list.take(pageSize), revisionOpt, nextPageFieldFilter)
+            (list.take(pageSize), revisionOpt, countOpt, nextPageFieldFilter)
         }
       }
     }
   }
 
-  private def queryAndFilterRows(ops: CollectionQueryOptions): Future[(List[Value], Int, Int, Option[Obj], Option[Long])] = {
+  private def queryAndFilterRows(ops: CollectionQueryOptions): Future[(List[Value], Int, Int, Option[Obj], Option[Long], Option[Long])] = {
 
     val f: Future[Iterator[CollectionContent]] = ops.indexDefOpt match {
       case None ⇒
@@ -313,6 +314,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
       var totalAccepted = 0
       var lastValue: Option[Obj] = None
       var revision: Option[Long] = None
+      var count: Option[Long] = None
 
       val acceptedStream = iterator.flatMap { c ⇒
         if (!c.itemId.isEmpty) {
@@ -340,6 +342,9 @@ class HyperbusAdapter(hyperbus: Hyperbus,
             if (revision.isEmpty) {
               revision = Some(c.revision)
             }
+            if (count.isEmpty) {
+              count = c.count
+            }
             optVal
           } else {
             None
@@ -351,7 +356,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
           None
         }
       }.toList
-      (acceptedStream, totalAccepted, totalFetched, lastValue, revision)
+      (acceptedStream, totalAccepted, totalFetched, lastValue, revision, count)
     }
   }
 
@@ -361,7 +366,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
                                 skippedRows: Int,
                                 lastValueOpt: Option[Obj]
                                )
-                               (implicit messagingContext: MessagingContext): Future[(List[Value], Option[Long], Seq[FieldFilter])] = {
+                               (implicit messagingContext: MessagingContext): Future[(List[Value], Option[Long], Option[Long], Seq[FieldFilter])] = {
 
     //println(s"queryUntilFetched($ops,$leastFieldFilter,$recursionCounter,$skippedRows,$lastValueOpt)")
 
@@ -375,7 +380,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
     else {
       val fetchLimit = ops.limit + Math.max((recursionCounter * (ops.skipRowsLimit - ops.limit)/(MAX_COLLECTION_SELECTS*1.0)).toInt, 0)
       queryAndFilterRows(ops.copy(filterFields=IndexLogic.mergeLeastQueryFilterFields(ops.filterFields, leastFieldFilter),limit=fetchLimit)) flatMap {
-        case(stream,totalAccepted,totalFetched,newLastValueOpt,revisionOpt) ⇒
+        case(stream,totalAccepted,totalFetched,newLastValueOpt,revisionOpt,countOpt) ⇒
           val taken = stream.take(ops.limit)
           if (totalAccepted >= ops.limit ||
             ((leastFieldFilter.isEmpty ||
@@ -388,18 +393,18 @@ class HyperbusAdapter(hyperbus: Hyperbus,
               Seq.empty
             }
 
-            Future.successful((stream, revisionOpt, nextLeastFieldFilter))
+            Future.successful((stream, revisionOpt, countOpt, nextLeastFieldFilter))
           }
           else {
             val l = newLastValueOpt.orElse(lastValueOpt)
-            if (l.isEmpty) Future.successful((stream, revisionOpt, Seq.empty))
+            if (l.isEmpty) Future.successful((stream, revisionOpt, countOpt, Seq.empty))
             else {
               val nextLeastFieldFilter = IndexLogic.leastRowsFilterFields(ops.idFieldName, ops.indexSortBy, ops.filterFields, leastFieldFilter.size, totalFetched < fetchLimit, l.get, ops.reversed)
-              if (nextLeastFieldFilter.isEmpty) Future.successful((stream, revisionOpt, nextLeastFieldFilter))
+              if (nextLeastFieldFilter.isEmpty) Future.successful((stream, revisionOpt, countOpt, nextLeastFieldFilter))
               else {
                 queryUntilFetched(ops, nextLeastFieldFilter, recursionCounter + 1, skippedRows + totalFetched - totalAccepted, l) map {
-                  case (newStream, newRevisionOpt, recursiveNextLeastFieldFilter) ⇒
-                    (stream ++ newStream, revisionOpt.flatMap(a ⇒ newRevisionOpt.map(b ⇒ Math.min(a, b))), recursiveNextLeastFieldFilter)
+                  case (newStream, newRevisionOpt, newCountOpt, recursiveNextLeastFieldFilter) ⇒
+                    (stream ++ newStream, revisionOpt.flatMap(a ⇒ newRevisionOpt.map(b ⇒ Math.min(a, b))), newCountOpt, recursiveNextLeastFieldFilter)
                 }
               }
             }

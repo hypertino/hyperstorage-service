@@ -64,6 +64,7 @@ abstract class IndexingSpec extends FlatSpec
       else {
         indexContent.head.body shouldBe None
       }
+      indexContent.head.count shouldBe Some(1l)
     }
 
     val c3 = Obj.from("a" → "goodbye", "b" → 123456)
@@ -82,6 +83,7 @@ abstract class IndexingSpec extends FlatSpec
       else {
         indexContent(1).body shouldBe None
       }
+      indexContent.head.count shouldBe Some(2l)
     }
 
     val f4 = hyperbus.ask(ContentGet(
@@ -92,6 +94,7 @@ abstract class IndexingSpec extends FlatSpec
     val rc4 = f4.futureValue
 
     rc4.headers.statusCode shouldBe Status.OK
+    rc4.headers.get(Header.COUNT) shouldBe Some(Number(2))
     rc4.body.content shouldBe Lst.from(c1x, c3x)
   }
 
@@ -130,7 +133,7 @@ abstract class IndexingSpec extends FlatSpec
       indexContent.size shouldBe 1
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
-
+      indexContent.head.count shouldBe Some(1l)
       if (materialize)
         indexContent.head.body.get should include("\"item1\"")
       else
@@ -152,6 +155,7 @@ abstract class IndexingSpec extends FlatSpec
       indexContent.size shouldBe 2
       indexContent(1).documentUri shouldBe "collection-1~"
       indexContent(1).itemId shouldBe "item3"
+      indexContent(1).count shouldBe Some(2l)
       if (materialize)
         indexContent(1).body.get should include("\"item3\"")
       else
@@ -171,6 +175,7 @@ abstract class IndexingSpec extends FlatSpec
     val rc4 = f4.futureValue
 
     rc4.headers.statusCode shouldBe Status.OK
+    rc4.headers.get(Header.COUNT) shouldBe Some(Number(2))
     rc4.body.content shouldBe Lst.from(c1x, c3x)
 
     val f5 = hyperbus.ask(ContentGet("collection-1~",
@@ -221,6 +226,7 @@ abstract class IndexingSpec extends FlatSpec
       indexContent1.size shouldBe 1
       indexContent1.head.documentUri shouldBe "collection-1~"
       indexContent1.head.itemId shouldBe "item1"
+      indexContent1.head.count shouldBe Some(1l)
 
       if (materialize)
         indexContent1.head.body.get should include("\"item1\"")
@@ -235,6 +241,7 @@ abstract class IndexingSpec extends FlatSpec
       indexContent2.size shouldBe 1
       indexContent2.head.documentUri shouldBe "collection-1~"
       indexContent2.head.itemId shouldBe "item1"
+      indexContent2.head.count shouldBe Some(1l)
 
       if (materialize)
         indexContent2.head.body.get should include("\"item1\"")
@@ -299,6 +306,7 @@ abstract class IndexingSpec extends FlatSpec
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
       indexContent.head.revision shouldBe 1
+      indexContent.head.count shouldBe Some(1l)
 
       if (materialize)
         indexContent.head.body.get should include("\"item1\"")
@@ -314,6 +322,7 @@ abstract class IndexingSpec extends FlatSpec
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
       indexContent.head.revision shouldBe 1
+      indexContent.head.count shouldBe Some(1l)
 
       if (materialize)
         indexContent.head.body.get should include("\"item1\"")
@@ -334,6 +343,7 @@ abstract class IndexingSpec extends FlatSpec
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
       indexContent.head.revision shouldBe 2
+      indexContent.head.count shouldBe Some(1l)
 
       if (materialize) {
         indexContent.head.body.get should include("\"item1\"")
@@ -352,6 +362,7 @@ abstract class IndexingSpec extends FlatSpec
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
       indexContent.head.revision shouldBe 2
+      indexContent.head.count shouldBe Some(1l)
       if (materialize) {
         indexContent.head.body.get should include("\"item1\"")
         indexContent.head.body.get should include("\"goodbye\"")
@@ -418,6 +429,7 @@ abstract class IndexingSpec extends FlatSpec
       indexContent.size shouldBe 1
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
+      indexContent.head.count shouldBe Some(1l)
       if (materialize) {
         indexContent.head.body.get should include("\"item1\"")
       }
@@ -433,6 +445,7 @@ abstract class IndexingSpec extends FlatSpec
       indexContent.size shouldBe 1
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
+      indexContent.head.count shouldBe Some(1l)
       if (materialize) {
         indexContent.head.body.get should include("\"item1\"")
       }
@@ -454,6 +467,7 @@ abstract class IndexingSpec extends FlatSpec
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
       indexContent.head.revision shouldBe 2
+      indexContent.head.count shouldBe Some(1l)
       if (materialize) {
         indexContent.head.body.get should include("\"item1\"")
         indexContent.head.body.get should include("\"goodbye\"")
@@ -471,6 +485,7 @@ abstract class IndexingSpec extends FlatSpec
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
       indexContent.head.revision shouldBe 2
+      indexContent.head.count shouldBe Some(1l)
       if (materialize) {
         indexContent.head.body.get should include("\"item1\"")
         indexContent.head.body.get should include("\"goodbye\"")
@@ -529,6 +544,7 @@ abstract class IndexingSpec extends FlatSpec
       indexContent.size shouldBe 1
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
+      indexContent.head.count shouldBe Some(1l)
       if (materialize) {
         indexContent.head.body.get should include("\"item1\"")
       }
@@ -551,6 +567,7 @@ abstract class IndexingSpec extends FlatSpec
       indexContent.size shouldBe 2
       indexContent(0).documentUri shouldBe "collection-1~"
       indexContent(0).itemId shouldBe "item3"
+      indexContent(0).count shouldBe Some(2l)
       if (materialize) {
         indexContent(0).body.get should include("\"item3\"")
       }
@@ -807,6 +824,7 @@ abstract class IndexingSpec extends FlatSpec
       indexContent.size shouldBe 1
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
+      indexContent.head.count shouldBe Some(1l)
       if (materialize) {
         indexContent.head.body.get should include("\"item1\"")
       }
@@ -852,6 +870,7 @@ abstract class IndexingSpec extends FlatSpec
       indexContent.size shouldBe 1
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
+      indexContent.head.count shouldBe Some(1l)
 
       if (materialize) {
         indexContent.head.body.get should include("\"item1\"")

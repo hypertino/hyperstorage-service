@@ -206,26 +206,35 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
                       log.debug(s"Indexing content ${contentStatic.documentUri}/$itemId for $indexDef")
                     }
 
-                    // todo: refactor, this is crazy
-                    val seq: Seq[Seq[(String, Value)]] = itemIds(itemId).filter(_._1 == indexDef.indexId).map(_._2)
-                    val deleteObsoleteFuture = FutureUtils.serial(seq) { s ⇒
-                      db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, itemId, s)
-                    }
+                    Task.fromFuture(db.selectIndexContentStatic(indexDef.tableName, indexDef.documentUri, indexDef.indexId))
+                      .flatMap { indexContentStaticO ⇒
 
-                    contentTask.flatMap {
-                      case Some(item) if !item.isDeleted.contains(true) ⇒
-                        Task.fromFuture(deleteObsoleteFuture.flatMap(_ ⇒ indexItem(indexDef, item, idFieldName)))
-
-                      case _ ⇒
-                        if (log.isDebugEnabled) {
-                          log.debug(s"No content to index for ${contentStatic.documentUri}/$itemId")
+                        val countBefore: Long = indexContentStaticO.flatMap(_.count).getOrElse(0l)
+                        // todo: refactor, this is crazy
+                        val seq: Seq[Seq[(String, Value)]] = itemIds(itemId).filter(_._1 == indexDef.indexId).map(_._2)
+                        val deleteObsoleteFuture = FutureUtils.serial(seq) { s ⇒
+                          db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, itemId, s)
+                        }.map { deleted: Seq[Long] ⇒
+                          Math.max(countBefore - deleted.sum, 0)
                         }
-                        Task.fromFuture(
-                          deleteObsoleteFuture.flatMap { _ ⇒
-                            val revision = incompleteTransactions.map(t ⇒ t.transaction.revision).max
-                            db.updateIndexRevision(indexDef.tableName, indexDef.documentUri, indexDef.indexId, revision)
-                          })
-                    }
+
+                        contentTask.flatMap {
+                          case Some(item) if !item.isDeleted.contains(true) ⇒
+                            Task.fromFuture(deleteObsoleteFuture.flatMap { countAfterDelete ⇒
+                              indexItem(indexDef, item, idFieldName, countAfterDelete)
+                            })
+
+                          case _ ⇒
+                            if (log.isDebugEnabled) {
+                              log.debug(s"No content to index for ${contentStatic.documentUri}/$itemId")
+                            }
+                            Task.fromFuture(
+                              deleteObsoleteFuture.flatMap { countAfterDelete ⇒
+                                val revision = incompleteTransactions.map(t ⇒ t.transaction.revision).max
+                                db.updateIndexRevisionAndCount(indexDef.tableName, indexDef.documentUri, indexDef.indexId, revision, countAfterDelete)
+                              })
+                        }
+                      }
                   }
                 }
             }

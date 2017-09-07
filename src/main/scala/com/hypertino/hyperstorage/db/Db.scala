@@ -97,6 +97,17 @@ case class IndexDef(
   }.getOrElse(Seq.empty)
 }
 
+
+case class IndexContentStatic(
+                          documentUri: String,
+                          revision: Long,
+                          count: Option[Long]
+                        ) extends ContentBase {
+  override def transactionList = List.empty
+  override def isDeleted = None
+  override def isView = None
+}
+
 case class ViewDef(
                     key: String,
                     documentUri: String,
@@ -109,12 +120,11 @@ case class IndexContent(
                          indexId: String,
                          itemId: String,
                          revision: Long,
+                         count: Option[Long],
                          body: Option[String],
                          createdAt: Date,
                          modifiedAt: Option[Date]
-                       ) extends CollectionContent {
-  def count = None
-}
+                       ) extends CollectionContent
 
 object IndexDef {
   val STATUS_INDEXING = 0
@@ -132,6 +142,8 @@ case class CkField(name: String, ascending: Boolean)
 case class FieldFilter(name: String, value: Value, op: FilterOperator)
 
 private[db] case class CheckPoint(lastQuantum: Long)
+
+private[db] case class IndexItemId(itemId: String)
 
 class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
   private[this] lazy val session: com.datastax.driver.core.Session = connector.connect()
@@ -327,14 +339,22 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       where document_uri = $documentUri and index_id = $indexId
     """.execute()
 
+  def selectIndexContentStatic(indexTable: String, documentUri: String, indexId: String): Future[Option[IndexContentStatic]] = {
+    val tableName = Dynamic(indexTable)
+    cql"""
+      select document_uri,revision,count from $tableName
+      where document_uri=$documentUri and index_id=$indexId
+    """.oneOption[IndexContentStatic]
+  }
+
   def insertIndexItem(indexTable: String, sortFields: Seq[(String, Value)], indexContent: IndexContent): Future[Unit] = {
     val tableName = Dynamic(indexTable)
     val sortFieldNames = if (sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_._1).mkString(",", ",", ""))
     val sortFieldPlaces = if (sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_ ⇒ "?").mkString(",", ",", ""))
 
     val cql = cql"""
-      insert into $tableName(document_uri,index_id,item_id,revision,body,created_at,modified_at$sortFieldNames)
-      values(?,?,?,?,?,?,?$sortFieldPlaces)
+      insert into $tableName(document_uri,index_id,item_id,revision,count,body,created_at,modified_at$sortFieldNames)
+      values(?,?,?,?,?,?,?,?$sortFieldPlaces)
     """.bindPartial(indexContent)
 
     bindSortFields(cql, sortFields)
@@ -368,7 +388,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       } mkString ("order by ", ",", ""))
 
     val c = cql"""
-      select document_uri,index_id,item_id,revision,body,created_at,modified_at from $tableName
+      select document_uri,index_id,item_id,revision,count,body,created_at,modified_at from $tableName
       where document_uri=? and index_id=?$filterEqualFields
       $orderByDynamic
       limit ?
@@ -389,7 +409,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
                       documentUri: String,
                       indexId: String,
                       itemId: String,
-                      sortFields: Seq[(String,Value)]): Future[Unit] = {
+                      sortFields: Seq[(String,Value)]): Future[Long] = {
     val tableName = Dynamic(indexTable)
 
     val sortFieldsFilter = Dynamic(sortFields map { case (name, _) ⇒
@@ -397,12 +417,22 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       } mkString(if (sortFields.isEmpty) "" else " and ", " and ", "")
     )
 
-    val cql = cql"""
-      delete from $tableName
-      where document_uri=$documentUri and index_id=$indexId and item_id = $itemId$sortFieldsFilter
+    val cqlCount = cql"""
+      select item_id from $tableName
+      where document_uri=$documentUri and index_id=$indexId and item_id=$itemId$sortFieldsFilter
     """
-    bindSortFields(cql, sortFields)
-    cql.execute()
+    bindSortFields(cqlCount, sortFields)
+    cqlCount.all[IndexItemId].flatMap { iterator ⇒
+      val deletedCount = iterator.count(i ⇒ Option(i.itemId).exists(_.nonEmpty)).toLong
+      val cql = cql"""
+        delete from $tableName
+        where document_uri=$documentUri and index_id=$indexId and item_id = $itemId$sortFieldsFilter
+      """
+      bindSortFields(cql, sortFields)
+      cql.execute().map { _ ⇒
+        deletedCount
+      }
+    }
   }
 
   def deleteIndex(indexTable: String, documentUri: String, indexId: String): Future[Unit] = {
@@ -413,11 +443,11 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     """.execute()
   }
 
-  def updateIndexRevision(indexTable: String, documentUri: String, indexId: String, revision: Long): Future[Unit] = {
+  def updateIndexRevisionAndCount(indexTable: String, documentUri: String, indexId: String, revision: Long, count: Long): Future[Unit] = {
     val tableName = Dynamic(indexTable)
     cql"""
       update $tableName
-      set revision = $revision
+      set revision = $revision, count = $count
       where document_uri = $documentUri and index_id = $indexId
     """.execute()
   }
