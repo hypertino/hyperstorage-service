@@ -299,7 +299,9 @@ class HyperbusAdapter(hyperbus: Hyperbus,
           si.flatMap { iterator ⇒
             Future.sequence {
               iterator.map { c ⇒ // todo: optimize, we are fetching all page every time, when materialize is true
-                db.selectContent(c.documentUri, c.itemId)
+                db.selectContent(c.documentUri, c.itemId).map {
+                  cnt ⇒ cnt.map(_.copy(count=c.count))
+                }
               }
             }.map(_.flatten)
           }
