@@ -27,6 +27,7 @@ import monix.execution.{Ack, Cancelable, Scheduler}
 import monix.execution.Ack.Continue
 import com.hypertino.hyperstorage.utils.Sort._
 import com.hypertino.hyperstorage.utils.{Sort, SortBy}
+import com.typesafe.scalalogging.StrictLogging
 import org.slf4j.LoggerFactory
 
 import scala.concurrent.Future
@@ -41,7 +42,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
                       db: Db,
                       tracker: MetricsTracker,
                       requestTimeout: FiniteDuration)
-                     (implicit scheduler: Scheduler) extends Subscribable {
+                     (implicit scheduler: Scheduler) extends Subscribable with StrictLogging {
 
   //final val COLLECTION_FILTER_NAME = "filter"
   //final val COLLECTION_SIZE_FIELD_NAME = "size"
@@ -50,10 +51,9 @@ class HyperbusAdapter(hyperbus: Hyperbus,
   final val MAX_COLLECTION_SELECTS = 20
   final val DEFAULT_PAGE_SIZE = 100
   implicit val so = SerializationOptions.forceOptionalFields
-  private val log = LoggerFactory.getLogger(getClass)
   private val waitTasks = new ConcurrentHashMap[String, () ⇒ Unit]
   private val fixedGroupName = Some("hs-adapter-" + IdGenerator.create())
-  private val subscriptions = hyperbus.subscribe(this, log)
+  private val subscriptions = hyperbus.subscribe(this, logger)
 
   def onContentGet(implicit get: ContentGet) = Task.fromFuture[ResponseBase] {
     tracker.timeOfFuture(Metrics.RETRIEVE_TIME) {
