@@ -388,12 +388,19 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 
     existingContent match {
       case Some(content) if !content.isDeleted.contains(true) ⇒
+        val newBody = if (request.headers.contentType.contains("hyperstorage-content-increment")) {
+          incrementBody(content.bodyValue, request.body.content) // todo: publish real patch body! and increment (for events!!)
+        }
+        else {
+          mergeBody(content.bodyValue, request.body.content)
+        }
+
         Content(documentUri, itemId, newTransaction.revision,
           transactionList = newTransaction.uuid +: content.transactionList,
           isDeleted = None,
           count = content.count,
           isView = content.isView,
-          body = mergeBody(content.bodyValue, request.body.content),
+          body = newBody,
           createdAt = content.createdAt,
           modifiedAt = Some(new Date())
         )
@@ -406,6 +413,15 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
   private def mergeBody(existing: Value, patch: Value): Option[String] = {
     import com.hypertino.binders.json.JsonBinders._
     val newBodyContent = filterNulls(existing % patch)
+    newBodyContent match {
+      case Null ⇒ None
+      case other ⇒ Some(other.toJson)
+    }
+  }
+
+  private def incrementBody(existing: Value, patch: Value): Option[String] = {
+    import com.hypertino.binders.json.JsonBinders._
+    val newBodyContent = filterNulls(existing + patch)
     newBodyContent match {
       case Null ⇒ None
       case other ⇒ Some(other.toJson)
