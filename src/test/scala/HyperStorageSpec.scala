@@ -102,16 +102,35 @@ class HyperStorageSpec extends FlatSpec
 
     val taskStr = task.serializeToString
     worker ! PrimaryContentTask(task.path, System.currentTimeMillis() + 10000, taskStr, expectsResult=true,isClientOperation=true)
-    expectMsgPF() {
-      case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.NOT_FOUND &&
-        response(result.content).headers.correlationId == task.correlationId ⇒ {
-        true
+    val backgroundTask = expectMsgType[BackgroundContentTask]
+    backgroundTask.documentUri should equal(task.path)
+    val workerResult = expectMsgType[ShardTaskComplete]
+    val r = response(workerResult.result.asInstanceOf[PrimaryWorkerTaskResult].content)
+    r.headers.statusCode should equal(Status.CREATED)
+    r.headers.correlationId should equal(task.correlationId)
+
+    val uuid = whenReady(db.selectContent("not-existing", "")) { result =>
+      result.get.body should equal(Some("""{"text":"Test resource value"}"""))
+      result.get.transactionList.size should equal(1)
+
+      selectTransactions(result.get.transactionList, result.get.uri, db) foreach { transaction ⇒
+        transaction.completedAt shouldBe None
+        transaction.revision should equal(result.get.revision)
       }
+      result.get.transactionList.head
     }
 
-    whenReady(db.selectContent("not-existing", "")) { result =>
-      result shouldBe None
+    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
+    backgroundWorker ! backgroundTask
+    val backgroundWorkerResult = expectMsgType[ShardTaskComplete]
+    val rc = backgroundWorkerResult.result.asInstanceOf[BackgroundContentTaskResult]
+    rc.documentUri should equal("not-existing")
+    rc.transactions should contain(uuid)
+    selectTransactions(rc.transactions, "not-existing", db) foreach { transaction ⇒
+      transaction.completedAt shouldNot be(None)
+      transaction.revision should equal(1)
     }
+    db.selectContent("not-existing", "").futureValue.get.transactionList shouldBe empty
   }
 
   it should "Patch existing and deleted resource" in {
@@ -156,15 +175,38 @@ class HyperStorageSpec extends FlatSpec
     expectMsgType[BackgroundContentTask]
     expectMsgType[ShardTaskComplete]
 
-    // now patch should return 404
+    // now patch should create new resource
     worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskPatchStr, expectsResult=true,isClientOperation=true)
 
-    expectMsgPF() {
-      case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.NOT_FOUND &&
-        response(result.content).headers.correlationId == task.correlationId ⇒ {
-        true
+    val backgroundTask = expectMsgType[BackgroundContentTask]
+    backgroundTask.documentUri should equal(task.path)
+    val workerResult = expectMsgType[ShardTaskComplete]
+    val r = response(workerResult.result.asInstanceOf[PrimaryWorkerTaskResult].content)
+    r.headers.statusCode should equal(Status.CREATED)
+    r.headers.correlationId should equal(task.correlationId)
+
+    val uuid = whenReady(db.selectContent(path, "")) { result =>
+      result.get.body should equal(Some("""{"text3":"zzz","text1":"efg"}"""))
+      result.get.transactionList.size should equal(1)
+
+      selectTransactions(result.get.transactionList, result.get.uri, db) foreach { transaction ⇒
+        transaction.completedAt shouldBe None
+        transaction.revision should equal(result.get.revision)
       }
+      result.get.transactionList.head
     }
+
+    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
+    backgroundWorker ! backgroundTask
+    val backgroundWorkerResult = expectMsgType[ShardTaskComplete]
+    val rc = backgroundWorkerResult.result.asInstanceOf[BackgroundContentTaskResult]
+    rc.documentUri should equal(path)
+    rc.transactions should contain(uuid)
+    selectTransactions(rc.transactions, path, db) foreach { transaction ⇒
+      transaction.completedAt shouldNot be(None)
+      transaction.revision should equal(4)
+    }
+    db.selectContent(path, "").futureValue.get.transactionList shouldBe empty
   }
 
   it should "Delete resource that doesn't exists" in {

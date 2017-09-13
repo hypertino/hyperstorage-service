@@ -173,7 +173,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 
     futureExisting.flatMap { case (existingContent, existingContentStatic, indexDefs) ⇒
       updateResource(documentUri, itemId, request, existingContent, existingContentStatic, indexDefs, task.isClientOperation) map { newTransaction ⇒
-        PrimaryWorkerTaskCompleted(task, newTransaction, existingContent.isEmpty && request.headers.method != Method.DELETE)
+        PrimaryWorkerTaskCompleted(task, newTransaction, (existingContent.isEmpty || existingContent.exists(_.isDeleted.contains(true))) && request.headers.method != Method.DELETE)
       }
     } recover {
       case NonFatal(e) ⇒
@@ -307,7 +307,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
                             existingContentStatic: Option[ContentBase]): Content =
     request.headers.method match {
       case Method.PUT ⇒ putContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic)
-      case Method.PATCH ⇒ patchContent(documentUri, itemId, newTransaction, request, existingContent)
+      case Method.PATCH ⇒ patchContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic)
       case Method.DELETE ⇒ deleteContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic)
     }
 
@@ -379,22 +379,44 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
                            itemId: String,
                            newTransaction: Transaction,
                            request: DynamicRequest,
-                           existingContent: Option[Content]): Content = {
+                           existingContent: Option[Content],
+                           existingContentStatic: Option[ContentBase]): Content = {
     implicit val mcx = request
 
-    if (ContentLogic.isCollectionUri(documentUri) && itemId.isEmpty) {
-      throw Conflict(ErrorBody("collection-patch-not-implemented", Some(s"PATCH is not allowed for a collection~")))
+    val isCollection = ContentLogic.isCollectionUri(documentUri)
+    val count: Long = if (isCollection) {
+      if (itemId.isEmpty) {
+        throw Conflict(ErrorBody("collection-patch-not-implemented", Some(s"PATCH is not allowed for a collection~")))
+      }
+      existingContentStatic.map(_.count.getOrElse(0l)).getOrElse(0l)
+    } else {
+      0l
     }
 
-    existingContent match {
-      case Some(content) if !content.isDeleted.contains(true) ⇒
-        val newBody = if (request.headers.contentType.contains("hyperstorage-content-increment")) {
-          incrementBody(content.bodyValue, request.body.content) // todo: publish real patch body! and increment (for events!!)
+    val existingBody = existingContent
+      .find(!_.isDeleted.contains(true))
+      .map(_.bodyValue)
+      .getOrElse{
+        if (isCollection) {
+          val idFieldName = ContentLogic.getIdFieldName(documentUri)
+          val idField = idFieldName → Text(itemId)
+          Obj.from(idField)
         }
         else {
-          mergeBody(content.bodyValue, request.body.content)
+          Obj.empty
         }
+      }
 
+    val newBody = if (request.headers.contentType.contains("hyperstorage-content-increment")) {
+      incrementBody(existingBody, request.body.content) // todo: publish real patch body! and increment (for events!!)
+    }
+    else {
+      mergeBody(existingBody, request.body.content)
+    }
+
+    val now = new Date()
+    existingContent match {
+      case Some(content) if !content.isDeleted.contains(true) ⇒
         Content(documentUri, itemId, newTransaction.revision,
           transactionList = newTransaction.uuid +: content.transactionList,
           isDeleted = None,
@@ -402,11 +424,19 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
           isView = content.isView,
           body = newBody,
           createdAt = content.createdAt,
-          modifiedAt = Some(new Date())
+          modifiedAt = Some(now)
         )
 
       case _ ⇒
-        throw NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
+        Content(documentUri, itemId, newTransaction.revision,
+          transactionList = List(newTransaction.uuid),
+          isDeleted = None,
+          count = if (isCollection) Some(count + 1) else None,
+          isView = None,
+          body = newBody,
+          createdAt = now,
+          modifiedAt = None
+        )
     }
   }
 

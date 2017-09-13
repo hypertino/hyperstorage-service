@@ -160,11 +160,20 @@ class CollectionsSpec extends FlatSpec
     // now patch should return 404
     worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPatchStr, expectsResult=true,isClientOperation=true)
 
+    expectMsgType[BackgroundContentTask]
     expectMsgPF() {
-      case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.NOT_FOUND &&
+      case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.CREATED &&
         response(result.content).headers.correlationId == task.correlationId ⇒ {
         true
       }
+    }
+
+    whenReady(db.selectContent(documentUri, itemId)) { result =>
+      result.get.body should equal(Some(s"""{"id":"$itemId","text3":"zzz","text1":"efg"}"""))
+      result.get.modifiedAt shouldBe None
+      result.get.documentUri should equal(documentUri)
+      result.get.itemId should equal(itemId)
+      result.get.count should equal(Some(1))
     }
   }
 
