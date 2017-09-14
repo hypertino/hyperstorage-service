@@ -99,5 +99,44 @@ class IfMatchTest extends FlatSpec
 
     createFail shouldBe a[PreconditionFailed[_]]
   }
+
+  it should "work on empty etag for a collection" in {
+    val hyperbus = testHyperbus()
+    val tk = testKit()
+    import tk._
+
+    cleanUpCassandra()
+
+    val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
+    val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
+    val workerSettings = Map(
+      "hyperstorage-primary-worker" → (workerProps, 1, "pgw-"),
+      "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+    )
+
+    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))
+    val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
+    // wait while subscription is completes
+    Thread.sleep(2000)
+
+    val create = hyperbus.ask(ContentPut("abc~/1", DynamicBody(Obj.from("a" → 1))))
+      .runAsync
+      .futureValue
+
+    create shouldBe a[Created[_]]
+
+    val create2 = hyperbus.ask(ContentPut("abc~/2", DynamicBody(Obj.from("a" → 2)),$headersMap=HeadersMap("if-match" → "\"\"")))
+      .runAsync
+      .futureValue
+
+    create2 shouldBe a[Created[_]]
+
+    val createFail = hyperbus.ask(ContentPut("abc~/3", DynamicBody(Obj.from("a" → 10, "x" → "hello")),$headersMap=HeadersMap("if-match" → "\"1\"")))
+      .runAsync
+      .failed
+      .futureValue
+
+    createFail shouldBe a[PreconditionFailed[_]]
+  }
 }
 

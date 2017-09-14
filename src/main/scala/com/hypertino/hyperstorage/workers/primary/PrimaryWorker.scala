@@ -199,7 +199,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       Conflict(ErrorBody("view-modification", Some(s"Can't modify view: $documentUri")))
     }
     else {
-      if (!checkPrecondition(request, existingContentStatic)) Future.failed {
+      if (!checkPrecondition(request, existingContent)) Future.failed {
         PreconditionFailed(ErrorBody("if-match", Some(s"ETag doesn't match")))
       } else {
 
