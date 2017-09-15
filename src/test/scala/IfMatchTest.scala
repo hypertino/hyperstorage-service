@@ -24,6 +24,7 @@ class IfMatchTest extends FlatSpec
   implicit val emptyContext = MessagingContext.empty
 
   "if-match" should "work" in {
+    cleanUpCassandra()
     val hyperbus = integratedHyperbus(db)
 
     val created = hyperbus.ask(ContentPut("abc", DynamicBody(Obj.from("a" → 10, "x" → "hello"))))
@@ -72,6 +73,7 @@ class IfMatchTest extends FlatSpec
   }
 
   it should "fail if resource with etag not match" in {
+    cleanUpCassandra()
     val hyperbus = integratedHyperbus(db)
 
     val createFail = hyperbus.ask(ContentPut("abc", DynamicBody(Obj.from("a" → 10, "x" → "hello")), $headersMap=HeadersMap(HyperStorageHeader.IF_MATCH → "\"1\"")))
@@ -83,6 +85,7 @@ class IfMatchTest extends FlatSpec
   }
 
   it should "work on empty etag for a collection" in {
+    cleanUpCassandra()
     val hyperbus = integratedHyperbus(db)
 
     val create = hyperbus.ask(ContentPut("abc~/1", DynamicBody(Obj.from("a" → 1))))

@@ -67,6 +67,7 @@ class TtlTest extends FlatSpec
   }
 
   it should "work on views" in {
+    cleanUpCassandra()
     val hyperbus = integratedHyperbus(db)
 
     hyperbus.ask(ViewPut("abcs~", HyperStorageView("abc/{*}")))
@@ -117,6 +118,7 @@ class TtlTest extends FlatSpec
   }
 
   it should "work on collection items and indexes" in {
+    cleanUpCassandra()
     val hyperbus = integratedHyperbus(db)
 
     val path = "abc~"
