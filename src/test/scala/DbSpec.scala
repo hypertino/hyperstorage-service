@@ -121,8 +121,8 @@ class DbSpec extends FlatSpec with Matchers with CassandraFixture
   it should "insert using ttl if specified" in {
     cleanUpCassandra()
     db.insertContent(Content(
-      "test", "", 1l, List.empty, None, None, None, Some("{}"), new Date(), None, Some(10), None
-    ))
+      "test", "", 1l, List.empty, None, None, None, Some("{}"), new Date(), None, Some(10), Some(10)
+    )).futureValue
     val c = db.selectContent("test", "").futureValue
     c should not be empty
     c.get.ttlLeft should not be empty
@@ -134,8 +134,8 @@ class DbSpec extends FlatSpec with Matchers with CassandraFixture
   it should "insert using ttl if specified for collection item" in {
     cleanUpCassandra()
     db.insertContent(Content(
-      "test~", "x1", 1l, List.empty, None, None, None, Some("{}"), new Date(), None, Some(10), None
-    ))
+      "test~", "x1", 1l, List.empty, None, None, None, Some("{}"), new Date(), None, Some(10), Some(10)
+    )).futureValue
     val c = db.selectContent("test~", "x1").futureValue
     c should not be empty
     c.get.ttl should contain(10)
