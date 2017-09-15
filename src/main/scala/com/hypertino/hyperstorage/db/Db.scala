@@ -5,7 +5,7 @@ import java.util.{Date, UUID}
 import com.hypertino.binders._
 import com.hypertino.binders.cassandra._
 import com.hypertino.binders.value.{Null, Number, Text, Value}
-import com.hypertino.hyperstorage.CassandraConnector
+import com.hypertino.hyperstorage.{CassandraConnector, ContentLogic}
 import com.hypertino.hyperstorage.api.HyperStorageIndexSortItem
 import com.hypertino.inflector.naming.CamelCaseToSnakeCaseConverter
 import org.slf4j.LoggerFactory
@@ -49,8 +49,24 @@ case class Content(
                     isView: Option[Boolean],
                     body: Option[String],
                     createdAt: Date,
-                    modifiedAt: Option[Date]
-                  ) extends ContentBase with CollectionContent
+                    modifiedAt: Option[Date],
+                    ttl: Option[Int],
+                    ttlLeft: Option[Int]
+                  ) extends ContentBase with CollectionContent {
+
+  // selecting ttl(body) which is ttlLeft returns null just before expiration
+  // to handle this we set new ttl to 1 second (minum possible value)
+  def realTtl: Int = {
+    ttlLeft.getOrElse {
+      if (ttl.exists(_ > 0)) { // we're already expired, set to 1 second
+        1
+      }
+      else {
+        0
+      }
+    }
+  }
+}
 
 case class ContentStatic(
                           documentUri: String,
@@ -142,8 +158,8 @@ case class CkField(name: String, ascending: Boolean)
 case class FieldFilter(name: String, value: Value, op: FilterOperator)
 
 private[db] case class CheckPoint(lastQuantum: Long)
-
 private[db] case class IndexItemId(itemId: String)
+private[db] case class ContentTtl(ttl: Int)
 
 class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
   private[this] lazy val session: com.datastax.driver.core.Session = connector.connect()
@@ -167,7 +183,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
   }
 
   def selectContent(documentUri: String, itemId: String): Future[Option[Content]] = cql"""
-      select document_uri,item_id,revision,transaction_list,is_deleted,count,is_view,body,created_at,modified_at from content
+      select document_uri,item_id,revision,transaction_list,is_deleted,count,is_view,body,created_at,modified_at,ttl,ttl(body) as ttl_left from content
       where document_uri=$documentUri and item_id=$itemId
     """.oneOption[Content]
 
@@ -188,7 +204,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     }.getOrElse(""))
 
     val c = cql"""
-      select document_uri,item_id,revision,transaction_list,is_deleted,count,is_view,body,created_at,modified_at from content
+      select document_uri,item_id,revision,transaction_list,is_deleted,count,is_view,body,created_at,modified_at,ttl,ttl(body) as ttl_left from content
       where document_uri=? $itemIdFilterDynamic
       $orderClause
       limit ?
@@ -215,14 +231,17 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
       content.isView.map(_ ⇒ "is_view") ++
       content.isDeleted.map(_ ⇒ "is_deleted") ++
       content.count.map(_ ⇒ "count") ++
-      content.modifiedAt.map(_ ⇒ "modified_at")
+      content.modifiedAt.map(_ ⇒ "modified_at") ++
+      content.ttl.map(_ ⇒ "ttl")
 
     val fieldNames = fields mkString ","
     val qs = fields.map(_ ⇒ "?") mkString ","
+    val ttlValue = Dynamic(content.realTtl.toString)
 
     cql"""
       insert into content( ${Dynamic(fieldNames)})
       values( ${Dynamic(qs)} )
+      using ttl $ttlValue
     """.bindPartial(content).execute()
   }
 
@@ -347,14 +366,16 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     """.oneOption[IndexContentStatic]
   }
 
-  def insertIndexItem(indexTable: String, sortFields: Seq[(String, Value)], indexContent: IndexContent): Future[Unit] = {
+  def insertIndexItem(indexTable: String, sortFields: Seq[(String, Value)], indexContent: IndexContent, ttl: Int): Future[Unit] = {
     val tableName = Dynamic(indexTable)
     val sortFieldNames = if (sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_._1).mkString(",", ",", ""))
     val sortFieldPlaces = if (sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_ ⇒ "?").mkString(",", ",", ""))
+    val ttlValue = Dynamic(ttl.toString)
 
     val cql = cql"""
       insert into $tableName(document_uri,index_id,item_id,revision,count,body,created_at,modified_at$sortFieldNames)
       values(?,?,?,?,?,?,?,?$sortFieldPlaces)
+      using ttl $ttlValue
     """.bindPartial(indexContent)
 
     bindSortFields(cql, sortFields)
@@ -474,3 +495,4 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     }
   }
 }
+

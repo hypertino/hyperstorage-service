@@ -1,14 +1,15 @@
 create table content (
 	document_uri text,				-- Unique document path
 	item_id text,					-- collection item identifier, empty string for a document
-	revision bigint static,				-- revision of document
-	transaction_list list<timeuuid> static,		-- transactions in progress TODO: this leads to tombstone!!!!
+	revision bigint static,			-- revision of document
+	transaction_list list<timeuuid> static,	-- transactions in progress TODO: this leads to tombstone!!!!
 	is_deleted boolean static,			-- flag that document is deleted (collection items removed from table)
-	count bigint static,                            -- count of items in collection
-	is_view boolean static,                         -- view, can't be updated directly
+	count bigint static,                         -- count of items in collection
+	is_view boolean static,                      -- view, can't be updated directly
 	body text,					-- body content
 	created_at timestamp,
 	modified_at timestamp,
+	ttl int,                                     -- we use this because selecting ttl(body) returns null just before expiration
 	primary key (document_uri, item_id)
 );
 

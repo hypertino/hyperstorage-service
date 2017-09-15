@@ -1,7 +1,10 @@
 package com.hypertino.hyperstorage
 
+import com.hypertino.binders.value.{Lst, Value}
+import com.hypertino.hyperbus.model.{DynamicRequest, RequestBase}
 import com.hypertino.hyperbus.utils.uri._
-import com.hypertino.hyperstorage.db.{Content, ContentStatic}
+import com.hypertino.hyperstorage.api.HyperStorageHeader
+import com.hypertino.hyperstorage.db.{Content, ContentBase, ContentStatic}
 import com.hypertino.inflector.English
 
 import scala.collection.mutable
@@ -117,6 +120,43 @@ object ContentLogic {
     }
     else {
       None
+    }
+  }
+
+  // todo: using ETag based on revision works not well for collection items
+  def checkPrecondition(request: RequestBase, content: Option[ContentBase]): Boolean  = {
+    val ifMatch = request.headers.get(HyperStorageHeader.IF_MATCH).forall { m ⇒
+      val eTags = parseETags(m)
+      content.exists {
+        c ⇒
+          eTags.contains("*") || eTags.contains("\"" + c.revision.toHexString + "\"")
+      }
+    }
+
+    val ifNoneMatch = request.headers.get(HyperStorageHeader.IF_NONE_MATCH).forall { m ⇒
+      val eTags = parseETags(m)
+      content.forall {
+        c ⇒
+          !eTags.contains("*") && !eTags.contains("\"" + c.revision.toHexString + "\"")
+      }
+    }
+
+    ifMatch && ifNoneMatch
+  }
+
+  def parseETags(v: Value): Set[String] = {
+    {
+      v match {
+        case Lst(items) ⇒ items.map(_.toString()).toSet
+        case _ ⇒ v.toString.split(',').map(_.trim).toSet
+      }
+    } map { s ⇒
+      if (s.startsWith("W/")) { // We don't do weak comparasion
+        s.substring(2)
+      }
+      else {
+        s
+      }
     }
   }
 }

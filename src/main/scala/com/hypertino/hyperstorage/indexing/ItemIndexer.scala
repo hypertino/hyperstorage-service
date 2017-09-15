@@ -40,7 +40,7 @@ trait ItemIndexer {
         if (indexDef.materialize) item.body else None,
         item.createdAt, item.modifiedAt
       )
-      db.insertIndexItem(indexDef.tableName, sortBy, indexContent) map { _ ⇒
+      db.insertIndexItem(indexDef.tableName, sortBy, indexContent, item.realTtl) map { _ ⇒
         item.itemId
       }
     }

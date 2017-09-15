@@ -15,13 +15,13 @@ class DbSpec extends FlatSpec with Matchers with CassandraFixture
     cleanUpCassandra()
     db.insertIndexItem("index_content", Seq.empty, IndexContent(
       "test~", "x1", "i1", 1l, Some(1l), Some("{}"), new Date(), None
-    ))
+    ), 0)
     db.insertIndexItem("index_content", Seq.empty, IndexContent(
       "test~", "x1", "i2", 1l, Some(1l), Some("{}"), new Date(), None
-    ))
+    ), 0)
     db.insertIndexItem("index_content", Seq.empty, IndexContent(
       "test~", "x1", "i3", 1l, Some(1l), Some("{}"), new Date(), None
-    ))
+    ), 0)
     val ca = db.selectIndexCollection("index_content", "test~", "x1", Seq.empty,
       Seq(CkField("item_id", ascending = true)), 10).futureValue.toSeq
     ca(0).itemId shouldBe "i1"
@@ -57,16 +57,16 @@ class DbSpec extends FlatSpec with Matchers with CassandraFixture
     cleanUpCassandra()
     val futures = Seq(db.insertIndexItem("index_content_ta0", Seq("t0" → "aa00"), IndexContent(
       "test~", "x1", "i1", 1l, Some(1l), Some("{}"), new Date(), None
-    )),
+    ), 0),
       db.insertIndexItem("index_content_ta0", Seq("t0" → "aa01"), IndexContent(
         "test~", "x1", "i2", 1l, Some(1l), Some("{}"), new Date(), None
-      )),
+      ), 0),
       db.insertIndexItem("index_content_ta0", Seq("t0" → "aa02"), IndexContent(
         "test~", "x1", "i3", 1l, Some(1l), Some("{}"), new Date(), None
-      )),
+      ), 0),
       db.insertIndexItem("index_content_ta0", Seq("t0" → "aa02"), IndexContent(
         "test~", "x1", "i4", 1l, Some(1l), Some("{}"), new Date(), None
-      )))
+      ), 0))
     Future.sequence(futures).futureValue
     val ca = db.selectIndexCollection("index_content_ta0", "test~", "x1", Seq.empty, Seq.empty, 10).futureValue.toSeq
     ca.size shouldBe 4
@@ -116,5 +116,30 @@ class DbSpec extends FlatSpec with Matchers with CassandraFixture
       10).futureValue.toSeq
     cd3.size shouldBe 1
     cd3(0).itemId shouldBe "i3"
+  }
+
+  it should "insert using ttl if specified" in {
+    cleanUpCassandra()
+    db.insertContent(Content(
+      "test", "", 1l, List.empty, None, None, None, Some("{}"), new Date(), None, Some(10), None
+    ))
+    val c = db.selectContent("test", "").futureValue
+    c should not be empty
+    c.get.ttlLeft should not be empty
+    c.get.ttl should contain(10)
+    c.get.ttlLeft.get should be > 0
+    c.get.ttlLeft.get should be <= 10
+  }
+
+  it should "insert using ttl if specified for collection item" in {
+    cleanUpCassandra()
+    db.insertContent(Content(
+      "test~", "x1", 1l, List.empty, None, None, None, Some("{}"), new Date(), None, Some(10), None
+    ))
+    val c = db.selectContent("test~", "x1").futureValue
+    c should not be empty
+    c.get.ttl should contain(10)
+    c.get.ttlLeft.get should be > 0
+    c.get.ttlLeft.get should be <= 10
   }
 }

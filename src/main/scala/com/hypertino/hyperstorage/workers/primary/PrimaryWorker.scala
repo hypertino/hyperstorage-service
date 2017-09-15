@@ -6,7 +6,6 @@ import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import akka.pattern.pipe
 import com.codahale.metrics.Timer
 import com.datastax.driver.core.utils.UUIDs
-import com.hypertino.HyperStorageHeader
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperbus.Hyperbus
@@ -199,10 +198,9 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       Conflict(ErrorBody("view-modification", Some(s"Can't modify view: $documentUri")))
     }
     else {
-      if (!checkPrecondition(request, existingContent)) Future.failed {
-        PreconditionFailed(ErrorBody("if-match", Some(s"ETag doesn't match")))
+      if (!ContentLogic.checkPrecondition(request, existingContent)) Future.failed {
+        PreconditionFailed(ErrorBody("not-matched", Some(s"ETag doesn't match")))
       } else {
-
         val newTransaction = createNewTransaction(documentUri, itemId, request, existingContent, existingContentStatic)
         val newContent = updateContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic)
         val obsoleteIndexItems = if (request.headers.method != Method.POST && ContentLogic.isCollectionUri(documentUri) && !itemId.isEmpty) {
@@ -225,13 +223,6 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
         }
         }
       }
-    }
-  }
-
-  private def checkPrecondition(request: DynamicRequest, content: Option[ContentBase]): Boolean  = {
-    request.headers.get("if-match").forall { m ⇒
-      val etag = content.map(c ⇒ "\"" + c.revision + "\"").getOrElse("\"\"")
-      m.toString == etag
     }
   }
 
@@ -292,7 +283,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
         .++=(request.headers)
         .+=(Header.REVISION → Number(revision))
         .+=(Header.COUNT → Number(recordCount))
-        .+=(HyperStorageHeader.TRANSACTION → uuid.toString)
+        .+=(HyperStorageHeader.HYPER_STORAGE_TRANSACTION → uuid.toString)
         .withMethod("feed:" + request.headers.method)
         .requestHeaders()
     ).serializeToString
@@ -304,19 +295,23 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
                             newTransaction: Transaction,
                             request: DynamicRequest,
                             existingContent: Option[Content],
-                            existingContentStatic: Option[ContentBase]): Content =
+                            existingContentStatic: Option[ContentBase]): Content = {
+    val ttl = request.headers.get(HyperStorageHeader.HYPER_STORAGE_TTL).map(_.toInt)
     request.headers.method match {
-      case Method.PUT ⇒ putContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic)
-      case Method.PATCH ⇒ patchContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic)
+      case Method.PUT ⇒ putContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic, ttl)
+      case Method.PATCH ⇒ patchContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic, ttl)
       case Method.DELETE ⇒ deleteContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic)
     }
+  }
 
   private def putContent(documentUri: String,
                          itemId: String,
                          newTransaction: Transaction,
                          request: DynamicRequest,
                          existingContent: Option[Content],
-                         existingContentStatic: Option[ContentBase]): Content = {
+                         existingContentStatic: Option[ContentBase],
+                         ttl: Option[Int]
+                        ): Content = {
     implicit val mcx = request
 
     val isCollection = ContentLogic.isCollectionUri(documentUri)
@@ -351,7 +346,9 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
           isView = if (request.headers.hrl.location == ViewPut.location) Some(true) else None,
           body = newBody,
           createdAt = existingContent.map(_.createdAt).getOrElse(new Date),
-          modifiedAt = existingContent.flatMap(_.modifiedAt)
+          modifiedAt = existingContent.flatMap(_.modifiedAt),
+          ttl,
+          ttl
         )
 
       case Some(static) ⇒
@@ -370,7 +367,9 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
           isView = static.isView,
           body = newBody,
           createdAt = existingContent.map(_.createdAt).getOrElse(new Date),
-          modifiedAt = existingContent.flatMap(_.modifiedAt)
+          modifiedAt = existingContent.flatMap(_.modifiedAt),
+          ttl,
+          ttl
         )
     }
   }
@@ -380,7 +379,9 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
                            newTransaction: Transaction,
                            request: DynamicRequest,
                            existingContent: Option[Content],
-                           existingContentStatic: Option[ContentBase]): Content = {
+                           existingContentStatic: Option[ContentBase],
+                           ttl: Option[Int]
+                          ): Content = {
     implicit val mcx = request
 
     val isCollection = ContentLogic.isCollectionUri(documentUri)
@@ -424,7 +425,9 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
           isView = content.isView,
           body = newBody,
           createdAt = content.createdAt,
-          modifiedAt = Some(now)
+          modifiedAt = Some(now),
+          ttl,
+          ttl
         )
 
       case _ ⇒
@@ -435,7 +438,9 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
           isView = None,
           body = newBody,
           createdAt = now,
-          modifiedAt = None
+          modifiedAt = None,
+          ttl,
+          ttl
         )
     }
   }
@@ -485,7 +490,9 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
         isView = content.isView,
         body = None,
         createdAt = existingContent.map(_.createdAt).getOrElse(new Date()),
-        modifiedAt = Some(new Date())
+        modifiedAt = Some(new Date()),
+        None,
+        None
       )
   }
 

@@ -272,7 +272,7 @@ class QueryCollectionsSpec extends FlatSpec
       .runAsync
       .futureValue
 
-    res2.statusCode shouldBe Status.OK
+    res2.headers.statusCode shouldBe Status.OK
     res2.body.content shouldBe Lst.from(c1x, c3x)
     verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq.empty, Seq(CkField("t0", true)), 50)
   }
@@ -295,7 +295,7 @@ class QueryCollectionsSpec extends FlatSpec
       .runAsync
       .futureValue
 
-    res2.statusCode shouldBe Status.OK
+    res2.headers.statusCode shouldBe Status.OK
     res2.body.content shouldBe Lst.from(c3x, c1x)
     verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq.empty, Seq(CkField("t0", false), CkField("item_id", false)), 50)
   }
@@ -332,7 +332,7 @@ class QueryCollectionsSpec extends FlatSpec
       .runAsync
       .futureValue
 
-    res2.statusCode shouldBe Status.OK
+    res2.headers.statusCode shouldBe Status.OK
     res2.body.content shouldBe Lst.empty
     verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq(FieldFilter("t0", Text("hello"), FilterEq), FieldFilter("item_id", Text("item2"), FilterGt)), Seq(CkField("t0", true), CkField("item_id", true)), 50)
   }

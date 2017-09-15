@@ -6,11 +6,11 @@ import akka.actor.ActorRef
 import akka.event.LoggingAdapter
 import akka.pattern.ask
 import com.datastax.driver.core.utils.UUIDs
-import com.hypertino.binders.value.{Null, Value}
+import com.hypertino.binders.value.{Null, Number, Value}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model.{DynamicRequest, _}
 import com.hypertino.hyperbus.serialization.MessageReader
-import com.hypertino.hyperstorage.api.{ContentDelete, ContentPut, ViewDelete, ViewPut}
+import com.hypertino.hyperstorage.api._
 import com.hypertino.hyperstorage.db.{Transaction, _}
 import com.hypertino.hyperstorage.indexing.{IndexLogic, ItemIndexer}
 import com.hypertino.hyperstorage.metrics.Metrics
@@ -276,7 +276,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
                   true
                 }
                 if (matches) {
-                  addViewItem(viewDef.documentUri, id, content.bodyValue, owner, ttl)
+                  addViewItem(viewDef.documentUri, id, content, owner, ttl)
                 } else {
                   deleteViewItem(viewDef.documentUri, id, owner, ttl)
                 }
@@ -292,9 +292,28 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
   }
 
 
-  private def addViewItem(documentUri: String, itemId: String, bodyValue: Value, owner: ActorRef, ttl: Long)(implicit mcx: MessagingContext): Task[Any] = {
+  private def addViewItem(documentUri: String, itemId: String, content: Content, owner: ActorRef, ttl: Long)
+                         (implicit mcx: MessagingContext): Task[Any] = {
     implicit val timeout = akka.util.Timeout(Duration(ttl - System.currentTimeMillis() + 3000, duration.MILLISECONDS))
-    Task.fromFuture(owner ? PrimaryContentTask(documentUri, ttl, ContentPut(documentUri + "/" + itemId, DynamicBody(bodyValue)).serializeToString, expectsResult = true, isClientOperation = false)).map{
+
+    val contentTtl = content.realTtl
+    val headers = if (contentTtl>0) {
+      HeadersMap(HyperStorageHeader.HYPER_STORAGE_TTL → Number(contentTtl))
+    } else {
+      HeadersMap.empty
+    }
+
+    Task.fromFuture(owner ? PrimaryContentTask(
+      documentUri,
+      ttl,
+      ContentPut(
+        documentUri + "/" + itemId,
+        DynamicBody(content.bodyValue),
+        $headersMap = headers
+      ).serializeToString,
+      expectsResult = true,
+      isClientOperation = false
+    )).map{
       _ ⇒ handlePrimaryWorkerTaskResult
     }
   }

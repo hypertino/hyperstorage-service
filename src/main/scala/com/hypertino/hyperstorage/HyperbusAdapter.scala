@@ -4,7 +4,6 @@ import java.util.concurrent.{ConcurrentHashMap, ConcurrentMap}
 
 import akka.actor.ActorRef
 import akka.pattern.ask
-import com.hypertino.HyperStorageHeader
 import com.hypertino.binders.value.{Lst, Null, Number, Obj, Text, Value}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model._
@@ -108,7 +107,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
 
     primaryTask.flatMap { result ⇒
       if ((result.headers.statusCode == Ok.statusCode || result.headers.statusCode == Created.statusCode) &&
-        request.headers.get(HyperStorageHeader.WAIT).contains(Text("full"))) {
+        request.headers.get(HyperStorageHeader.HYPER_STORAGE_WAIT).contains(Text("full"))) {
         val transactionId = result.body.content.transaction_id.toString()
         waitForTransaction(transactionId).map(_ ⇒ result)
       }
@@ -119,7 +118,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
   }
 
   private def notifyWaitTask(event: RequestBase): Ack = {
-    event.headers.get(HyperStorageHeader.TRANSACTION).foreach { transaction ⇒
+    event.headers.get(HyperStorageHeader.HYPER_STORAGE_TRANSACTION).foreach { transaction ⇒
       val task = waitTasks.get(transaction.toString)
       if (task != null)
         task()
@@ -200,7 +199,12 @@ class HyperbusAdapter(hyperbus: Hyperbus,
         }
 
         val hb = Headers.builder
-        revision.foreach(r ⇒ hb += Header.REVISION → Number(r))
+        revision.foreach { r ⇒
+          hb += Header.REVISION → Number(r)
+//          hb += HyperStorageHeader.ETAG → Text('"' + r.toHexString + '"')
+//          todo: it's very dangerous to have ETAG for the whole collection, because of filtering/sorting
+        }
+
         count.foreach(c ⇒ hb += Header.COUNT → Number(c))
         nextPageUrl.foreach(url ⇒ hb.withLink(Map("next_page_url" → url)))
 
@@ -422,9 +426,18 @@ class HyperbusAdapter(hyperbus: Hyperbus,
       case None ⇒
         notFound
       case Some(content) ⇒
+        val headers = HeadersMap(Header.REVISION → content.revision, HyperStorageHeader.ETAG → Text('"' + content.revision.toHexString + '"'))
         if (!content.isDeleted.contains(true)) {
-          val body = DynamicBody(content.bodyValue)
-          Ok(body, HeadersMap(Header.REVISION → content.revision))
+          if (
+            (request.headers.contains(HyperStorageHeader.IF_MATCH) ||
+              request.headers.contains(HyperStorageHeader.IF_NONE_MATCH)) &&
+              ContentLogic.checkPrecondition(request,Some(content))) {
+            NotModified(EmptyBody, headers)
+          }
+          else {
+            val body = DynamicBody(content.bodyValue)
+            Ok(body, HeadersMap(Header.REVISION → content.revision, HyperStorageHeader.ETAG → Text('"' + content.revision.toHexString + '"')))
+          }
         } else {
           notFound
         }

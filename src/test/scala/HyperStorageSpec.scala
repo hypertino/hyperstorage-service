@@ -4,7 +4,6 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import akka.actor.{Actor, ActorRef, Props}
 import akka.testkit.TestActorRef
 import com.datastax.driver.core.utils.UUIDs
-import com.hypertino.HyperStorageHeader
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperbus.serialization.SerializationOptions
@@ -15,7 +14,6 @@ import com.hypertino.hyperstorage.sharding._
 import com.hypertino.hyperstorage.workers.primary.{PrimaryContentTask, PrimaryWorker, PrimaryWorkerTaskResult}
 import com.hypertino.hyperstorage.workers.secondary._
 import mock.FaultClientTransport
-import akka.pattern.ask
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.time.{Millis, Span}
 import org.scalatest.{FlatSpec, Matchers}
@@ -426,7 +424,7 @@ class HyperStorageSpec extends FlatSpec
 
     val path = "abcde"
     val createTask = hyperbus.ask(
-      ContentPut(path, DynamicBody(Obj.from("a" → 10, "x" → "hello")), HeadersMap(HyperStorageHeader.WAIT → "full")))
+      ContentPut(path, DynamicBody(Obj.from("a" → 10, "x" → "hello")), HeadersMap(HyperStorageHeader.HYPER_STORAGE_WAIT → "full")))
       .runAsync
 
     val r1: Content = eventually {

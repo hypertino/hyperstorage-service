@@ -284,7 +284,7 @@ class IntegratedSpec extends FlatSpec
     ).runAsync
 
     whenReady(f5) { response ⇒
-      response.statusCode should equal(Status.OK)
+      response.headers.statusCode should equal(Status.OK)
       response.body.content should equal(
         Lst.from(c2x, c1x)
       )
