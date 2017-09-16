@@ -24,26 +24,11 @@ class TtlTest extends FlatSpec
   implicit val emptyContext = MessagingContext.empty
 
   "ttl" should "work on documents" in {
-    val hyperbus = testHyperbus()
-    val tk = testKit()
-    import tk._
-
     cleanUpCassandra()
-
-    val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
-    val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
-    val workerSettings = Map(
-      "hyperstorage-primary-worker" → (workerProps, 1, "pgw-"),
-      "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
-    )
-
-    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))
-    val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
-    // wait while subscription is completes
-    Thread.sleep(2000)
+    val hyperbus = integratedHyperbus(db)
 
     val docCreated = hyperbus.ask(ContentPut("abc", DynamicBody(Obj.from("a" → 10)),
-      $headersMap = HeadersMap(HyperStorageHeader.HYPER_STORAGE_TTL → 1)))
+      headers = Headers(HyperStorageHeader.HYPER_STORAGE_TTL → 1)))
       .runAsync
       .futureValue
 
@@ -81,7 +66,7 @@ class TtlTest extends FlatSpec
     }
 
     val docCreated = hyperbus.ask(ContentPut("abc/1", DynamicBody(Obj.from("a" → 10)),
-      $headersMap = HeadersMap(HyperStorageHeader.HYPER_STORAGE_TTL → 3)))
+      headers = Headers(HyperStorageHeader.HYPER_STORAGE_TTL → 3)))
       .runAsync
       .futureValue
 
@@ -126,7 +111,7 @@ class TtlTest extends FlatSpec
     f2.futureValue.headers.statusCode should equal(Status.CREATED)
 
     val itemCreated = hyperbus.ask(ContentPut("abc~/1", DynamicBody(Obj.from("a" → 10)),
-      $headersMap=HeadersMap(HyperStorageHeader.HYPER_STORAGE_TTL → 3)))
+      headers=Headers(HyperStorageHeader.HYPER_STORAGE_TTL → 3)))
       .runAsync
       .futureValue
     itemCreated shouldBe a[Created[_]]

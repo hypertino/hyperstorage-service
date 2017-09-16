@@ -24,23 +24,8 @@ class IncrementTest extends FlatSpec
   implicit val emptyContext = MessagingContext.empty
 
   "increment" should "work" in {
-    val hyperbus = testHyperbus()
-    val tk = testKit()
-    import tk._
-
     cleanUpCassandra()
-
-    val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
-    val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
-    val workerSettings = Map(
-      "hyperstorage-primary-worker" → (workerProps, 1, "pgw-"),
-      "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
-    )
-
-    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))
-    val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
-    // wait while subscription is completes
-    Thread.sleep(2000)
+    val hyperbus = integratedHyperbus(db)
 
     val create = hyperbus.ask(ContentPut("abc", DynamicBody(Obj.from("a" → 10, "b" → 8, "x" → "hello"))))
       .runAsync
@@ -57,7 +42,7 @@ class IncrementTest extends FlatSpec
 
     val patchIncrement = hyperbus.ask(ContentPatch("abc",
       DynamicBody(Obj.from("a" → 3, "b" → -2)),
-      $headersMap = HeadersMap(Header.CONTENT_TYPE → "hyperstorage-content-increment"))
+      headers=Headers(Header.CONTENT_TYPE → "hyperstorage-content-increment"))
     )
       .runAsync
       .futureValue

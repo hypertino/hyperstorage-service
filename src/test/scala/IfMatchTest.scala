@@ -45,27 +45,27 @@ class IfMatchTest extends FlatSpec
     etag shouldBe Text("\"1\"")
     val wrongEtag = "\"" + etag.toString + "x" + "\""
 
-    val notModified = hyperbus.ask(ContentGet("abc", $headersMap=HeadersMap(HyperStorageHeader.IF_MATCH → etag)))
+    val notModified = hyperbus.ask(ContentGet("abc", headers=Headers(HyperStorageHeader.IF_MATCH → etag)))
       .runAsync
       .futureValue
 
     notModified shouldBe a[NotModified[_]]
 
-    val deleteFail = hyperbus.ask(ContentDelete("abc", $headersMap=HeadersMap(HyperStorageHeader.IF_MATCH → wrongEtag)))
+    val deleteFail = hyperbus.ask(ContentDelete("abc", headers=Headers(HyperStorageHeader.IF_MATCH → wrongEtag)))
       .runAsync
       .failed
       .futureValue
 
     deleteFail shouldBe a[PreconditionFailed[_]]
 
-    val deleteFail2 = hyperbus.ask(ContentDelete("abc", $headersMap=HeadersMap(HyperStorageHeader.IF_NONE_MATCH → "*")))
+    val deleteFail2 = hyperbus.ask(ContentDelete("abc", headers=Headers(HyperStorageHeader.IF_NONE_MATCH → "*")))
       .runAsync
       .failed
       .futureValue
 
     deleteFail2 shouldBe a[PreconditionFailed[_]]
 
-    val delete = hyperbus.ask(ContentDelete("abc", $headersMap=HeadersMap(HyperStorageHeader.IF_MATCH → etag)))
+    val delete = hyperbus.ask(ContentDelete("abc", headers=Headers(HyperStorageHeader.IF_MATCH → etag)))
       .runAsync
       .futureValue
 
@@ -76,7 +76,7 @@ class IfMatchTest extends FlatSpec
     cleanUpCassandra()
     val hyperbus = integratedHyperbus(db)
 
-    val createFail = hyperbus.ask(ContentPut("abc", DynamicBody(Obj.from("a" → 10, "x" → "hello")), $headersMap=HeadersMap(HyperStorageHeader.IF_MATCH → "\"1\"")))
+    val createFail = hyperbus.ask(ContentPut("abc", DynamicBody(Obj.from("a" → 10, "x" → "hello")), headers=Headers(HyperStorageHeader.IF_MATCH → "\"1\"")))
       .runAsync
       .failed
       .futureValue
@@ -94,20 +94,20 @@ class IfMatchTest extends FlatSpec
 
     create shouldBe a[Created[_]]
 
-    val create2 = hyperbus.ask(ContentPut("abc~/2", DynamicBody(Obj.from("a" → 2)), $headersMap=HeadersMap(HyperStorageHeader.IF_NONE_MATCH → "*")))
+    val create2 = hyperbus.ask(ContentPut("abc~/2", DynamicBody(Obj.from("a" → 2)), headers=Headers(HyperStorageHeader.IF_NONE_MATCH → "*")))
       .runAsync
       .futureValue
 
     create2 shouldBe a[Created[_]]
 
-    val createFail1 = hyperbus.ask(ContentPut("abc~/2", DynamicBody(Obj.from("a" → 2)), $headersMap=HeadersMap(HyperStorageHeader.IF_NONE_MATCH → "*")))
+    val createFail1 = hyperbus.ask(ContentPut("abc~/2", DynamicBody(Obj.from("a" → 2)), headers=Headers(HyperStorageHeader.IF_NONE_MATCH → "*")))
       .runAsync
       .failed
       .futureValue
 
     createFail1 shouldBe a[PreconditionFailed[_]]
 
-    val createFail2 = hyperbus.ask(ContentPut("abc~/3", DynamicBody(Obj.from("a" → 10, "x" → "hello")), $headersMap=HeadersMap(HyperStorageHeader.IF_MATCH → "\"1\"")))
+    val createFail2 = hyperbus.ask(ContentPut("abc~/3", DynamicBody(Obj.from("a" → 10, "x" → "hello")), headers=Headers(HyperStorageHeader.IF_MATCH → "\"1\"")))
       .runAsync
       .failed
       .futureValue

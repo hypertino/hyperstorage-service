@@ -424,7 +424,7 @@ class HyperStorageSpec extends FlatSpec
 
     val path = "abcde"
     val createTask = hyperbus.ask(
-      ContentPut(path, DynamicBody(Obj.from("a" → 10, "x" → "hello")), HeadersMap(HyperStorageHeader.HYPER_STORAGE_WAIT → "full")))
+      ContentPut(path, DynamicBody(Obj.from("a" → 10, "x" → "hello")), Headers(HyperStorageHeader.HYPER_STORAGE_WAIT → "full")))
       .runAsync
 
     val r1: Content = eventually {

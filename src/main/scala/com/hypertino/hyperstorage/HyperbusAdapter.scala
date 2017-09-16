@@ -1,6 +1,6 @@
 package com.hypertino.hyperstorage
 
-import java.util.concurrent.{ConcurrentHashMap, ConcurrentMap}
+import java.util.concurrent.ConcurrentHashMap
 
 import akka.actor.ActorRef
 import akka.pattern.ask
@@ -9,7 +9,6 @@ import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperbus.serialization.{MessageReader, SerializationOptions}
 import com.hypertino.hyperbus.subscribe.Subscribable
-import com.hypertino.hyperbus.transport.api.CommandEvent
 import com.hypertino.hyperbus.util.IdGenerator
 import com.hypertino.hyperstorage.api.{HyperStorageIndexSortItem, _}
 import com.hypertino.hyperstorage.db._
@@ -24,10 +23,8 @@ import com.hypertino.parser.{HEval, HParser}
 import monix.eval.{Callback, Task}
 import monix.execution.{Ack, Cancelable, Scheduler}
 import monix.execution.Ack.Continue
-import com.hypertino.hyperstorage.utils.Sort._
 import com.hypertino.hyperstorage.utils.{Sort, SortBy}
 import com.typesafe.scalalogging.StrictLogging
-import org.slf4j.LoggerFactory
 
 import scala.concurrent.Future
 import scala.concurrent.duration._
@@ -198,7 +195,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
           None
         }
 
-        val hb = Headers.builder
+        val hb = MessageHeaders.builder
         revision.foreach { r ⇒
           hb += Header.REVISION → Number(r)
 //          hb += HyperStorageHeader.ETAG → Text('"' + r.toHexString + '"')
@@ -426,7 +423,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
       case None ⇒
         notFound
       case Some(content) ⇒
-        val headers = HeadersMap(Header.REVISION → content.revision, HyperStorageHeader.ETAG → Text('"' + content.revision.toHexString + '"'))
+        val headers = Headers(Header.REVISION → content.revision, HyperStorageHeader.ETAG → Text('"' + content.revision.toHexString + '"'))
         if (!content.isDeleted.contains(true)) {
           if (
             (request.headers.contains(HyperStorageHeader.IF_MATCH) ||
@@ -436,7 +433,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
           }
           else {
             val body = DynamicBody(content.bodyValue)
-            Ok(body, HeadersMap(Header.REVISION → content.revision, HyperStorageHeader.ETAG → Text('"' + content.revision.toHexString + '"')))
+            Ok(body, Headers(Header.REVISION → content.revision, HyperStorageHeader.ETAG → Text('"' + content.revision.toHexString + '"')))
           }
         } else {
           notFound

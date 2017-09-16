@@ -298,9 +298,9 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
 
     val contentTtl = content.realTtl
     val headers = if (contentTtl>0) {
-      HeadersMap(HyperStorageHeader.HYPER_STORAGE_TTL → Number(contentTtl))
+      Headers(HyperStorageHeader.HYPER_STORAGE_TTL → Number(contentTtl))
     } else {
-      HeadersMap.empty
+      Headers.empty
     }
 
     Task.fromFuture(owner ? PrimaryContentTask(
@@ -309,7 +309,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
       ContentPut(
         documentUri + "/" + itemId,
         DynamicBody(content.bodyValue),
-        $headersMap = headers
+        headers=headers
       ).serializeToString,
       expectsResult = true,
       isClientOperation = false

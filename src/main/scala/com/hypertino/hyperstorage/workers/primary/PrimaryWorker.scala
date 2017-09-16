@@ -90,7 +90,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 
             (newDocumentUri, newItemId, Some(idField), request.copy(
               //uri = Uri(request.uri.pattern, request.uri.args + "path" → Specific(request.path + "/" + id)),
-              headers = Headers
+              headers = MessageHeaders
                 .builder
                 .++=(request.headers)
                 .withMethod(Method.PUT)
@@ -108,7 +108,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
           if (itemId.isEmpty) {
             if (ContentLogic.isCollectionUri(documentUri) && itemId.isEmpty && request.headers.hrl.location == ViewPut.location) {
               // todo: validate template_uri & filter_by
-              val newHeaders = Headers
+              val newHeaders = MessageHeaders
                 .builder
                 .++=(request.headers)
                 .+=(TransactionLogic.HB_HEADER_TEMPLATE_URI → request.body.content.template_uri)
@@ -279,7 +279,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     // this is required to correctly publish patch events
     implicit val so = SerializationOptions.forceOptionalFields
     val transactionBody = request.copy(
-      headers = Headers.builder
+      headers = MessageHeaders.builder
         .++=(request.headers)
         .+=(Header.REVISION → Number(revision))
         .+=(Header.COUNT → Number(recordCount))

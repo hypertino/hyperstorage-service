@@ -46,11 +46,11 @@ trait IndexDefTaskWorker extends SecondaryWorkerBase {
     {
       try {
         validateCollectionUri(task.key)
-        val deserializer: RequestDeserializer[RequestBase] = (reader: Reader, headersMap: HeadersMap) ⇒ {
-          val requestHeaders = RequestHeaders(headersMap)
+        val deserializer: RequestDeserializer[RequestBase] = (reader: Reader, headers: Headers) ⇒ {
+          val requestHeaders = RequestHeaders(headers)
           requestHeaders.method match {
-            case Method.POST ⇒ IndexPost(reader, headersMap)
-            case Method.DELETE ⇒ IndexDelete(reader, headersMap)
+            case Method.POST ⇒ IndexPost(reader, headers)
+            case Method.DELETE ⇒ IndexDelete(reader, headers)
           }
         }
 
