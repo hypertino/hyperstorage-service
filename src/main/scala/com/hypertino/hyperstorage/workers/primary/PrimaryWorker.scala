@@ -10,7 +10,7 @@ import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.serialization.{MessageReader, SerializationOptions}
-import com.hypertino.hyperbus.util.IdGenerator
+import com.hypertino.hyperbus.util.{IdGenerator, SeqGenerator}
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.api._
 import com.hypertino.hyperstorage.db._
@@ -19,6 +19,9 @@ import com.hypertino.hyperstorage.metrics.Metrics
 import com.hypertino.hyperstorage.sharding.{ShardTask, ShardTaskComplete}
 import com.hypertino.hyperstorage.workers.secondary.BackgroundContentTask
 import com.hypertino.metrics.MetricsTracker
+import com.hypertino.parser.HEval
+import com.hypertino.parser.ast.Identifier
+import com.hypertino.parser.eval.Context
 
 import scala.concurrent.Future
 import scala.concurrent.duration.FiniteDuration
@@ -201,8 +204,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       if (!ContentLogic.checkPrecondition(request, existingContent)) Future.failed {
         PreconditionFailed(ErrorBody("not-matched", Some(s"ETag doesn't match")))
       } else {
-        val newTransaction = createNewTransaction(documentUri, itemId, request, existingContent, existingContentStatic)
-        val newContent = updateContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic)
+        val (newTransaction,newContent) = updateContent(documentUri, itemId, request, existingContent, existingContentStatic)
         val obsoleteIndexItems = if (request.headers.method != Method.POST && ContentLogic.isCollectionUri(documentUri) && !itemId.isEmpty) {
           findObsoleteIndexItems(existingContent, newContent, indexDefs)
         }
@@ -265,7 +267,9 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
                                    itemId: String,
                                    request: DynamicRequest,
                                    existingContent: Option[Content],
-                                   existingContentStatic: Option[ContentBase]): Transaction = {
+                                   existingContentStatic: Option[ContentBase],
+                                   transactionBodyValue: Option[Value] = None
+                                  ): Transaction = {
     val revision = existingContentStatic match {
       case None ⇒ 1
       case Some(content) ⇒ content.revision + 1
@@ -278,7 +282,8 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     // always preserve null fields in transaction
     // this is required to correctly publish patch events
     implicit val so = SerializationOptions.forceOptionalFields
-    val transactionBody = request.copy(
+    val transaction = request.copy(
+      body = transactionBodyValue.map(DynamicBody(_)).getOrElse(request.body),
       headers = MessageHeaders.builder
         .++=(request.headers)
         .+=(Header.REVISION → Number(revision))
@@ -287,31 +292,29 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
         .withMethod("feed:" + request.headers.method)
         .requestHeaders()
     ).serializeToString
-    TransactionLogic.newTransaction(documentUri, itemId, revision, transactionBody, uuid)
+    TransactionLogic.newTransaction(documentUri, itemId, revision, transaction, uuid)
   }
 
   private def updateContent(documentUri: String,
                             itemId: String,
-                            newTransaction: Transaction,
                             request: DynamicRequest,
                             existingContent: Option[Content],
-                            existingContentStatic: Option[ContentBase]): Content = {
+                            existingContentStatic: Option[ContentBase]): (Transaction,Content) = {
     val ttl = request.headers.get(HyperStorageHeader.HYPER_STORAGE_TTL).map(_.toInt)
     request.headers.method match {
-      case Method.PUT ⇒ putContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic, ttl)
-      case Method.PATCH ⇒ patchContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic, ttl)
-      case Method.DELETE ⇒ deleteContent(documentUri, itemId, newTransaction, request, existingContent, existingContentStatic)
+      case Method.PUT ⇒ putContent(documentUri, itemId, request, existingContent, existingContentStatic, ttl)
+      case Method.PATCH ⇒ patchContent(documentUri, itemId, request, existingContent, existingContentStatic, ttl)
+      case Method.DELETE ⇒ deleteContent(documentUri, itemId, request, existingContent, existingContentStatic)
     }
   }
 
   private def putContent(documentUri: String,
                          itemId: String,
-                         newTransaction: Transaction,
                          request: DynamicRequest,
                          existingContent: Option[Content],
                          existingContentStatic: Option[ContentBase],
                          ttl: Option[Int]
-                        ): Content = {
+                        ): (Transaction,Content) = {
     implicit val mcx = request
 
     val isCollection = ContentLogic.isCollectionUri(documentUri)
@@ -326,7 +329,8 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
         Some(request.body.serializeToString)
       }
 
-    existingContentStatic match {
+    val newTransaction = createNewTransaction(documentUri, itemId, request, existingContent, existingContentStatic)
+    val newContent = existingContentStatic match {
       case None ⇒
         val newCount = if (isCollection) {
           if (itemId.isEmpty) {
@@ -372,16 +376,16 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
           ttl
         )
     }
+    (newTransaction,newContent)
   }
 
   private def patchContent(documentUri: String,
                            itemId: String,
-                           newTransaction: Transaction,
                            request: DynamicRequest,
                            existingContent: Option[Content],
                            existingContentStatic: Option[ContentBase],
                            ttl: Option[Int]
-                          ): Content = {
+                          ): (Transaction,Content) = {
     implicit val mcx = request
 
     val isCollection = ContentLogic.isCollectionUri(documentUri)
@@ -408,15 +412,28 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
         }
       }
 
-    val newBody = if (request.headers.contentType.contains("hyperstorage-content-increment")) {
-      incrementBody(existingBody, request.body.content) // todo: publish real patch body! and increment (for events!!)
+    val patch = if (request.headers.contentType.contains(HyperStoragePatchType.HYPERSTORAGE_CONTENT_INCREMENT)) {
+      incrementBodyPatch(existingBody, request.body.content)
+    }
+    else if (request.headers.contentType.contains(HyperStoragePatchType.HYPERSTORAGE_CONTENT_EVALUATE)) {
+      evaluateBodyPatch(existingBody, request)
     }
     else {
-      mergeBody(existingBody, request.body.content)
+      request.body.content
+    }
+    if (isCollection) {
+      val idFieldName = ContentLogic.getIdFieldName(documentUri)
+      val newIdField = patch(idFieldName)
+      if (newIdField.nonEmpty && newIdField != existingBody(idFieldName)) {
+        throw Conflict(ErrorBody("field-is-protected", Some(s"$idFieldName is read only")))
+      }
     }
 
+    val newTransaction = createNewTransaction(documentUri, itemId, request, existingContent, existingContentStatic, Some(patch))
+    val newBody = mergeBody(existingBody, patch)
+
     val now = new Date()
-    existingContent match {
+    val newContent = existingContent match {
       case Some(content) if !content.isDeleted.contains(true) ⇒
         Content(documentUri, itemId, newTransaction.revision,
           transactionList = newTransaction.uuid +: content.transactionList,
@@ -443,6 +460,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
           ttl
         )
     }
+    (newTransaction,newContent)
   }
 
   private def mergeBody(existing: Value, patch: Value): Option[String] = {
@@ -454,12 +472,44 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     }
   }
 
-  private def incrementBody(existing: Value, patch: Value): Option[String] = {
-    import com.hypertino.binders.json.JsonBinders._
-    val newBodyContent = filterNulls(existing + patch)
-    newBodyContent match {
-      case Null ⇒ None
-      case other ⇒ Some(other.toJson)
+  private def incrementBodyPatch(existing: Value, patch: Value): Value = {
+    patch match {
+      case Obj(items) ⇒
+        existing match {
+          case Obj(existingItems) ⇒ Obj(
+            items.map { case (field, increment) ⇒
+              field → existingItems
+                .get(field)
+                .map(_ + increment)
+                .getOrElse(increment)
+            }
+          )
+
+          case _ ⇒
+            Obj(items)
+        }
+      case _ ⇒
+        existing + patch
+    }
+  }
+
+  private def evaluateBodyPatch(existingBody: Value, request: DynamicRequest): Value = {
+    val context = ExpressionEvaluatorContext(request, existingBody)
+    evaluateField(request.body.content, context)
+  }
+
+  private def evaluateField(field: Value, context: ExpressionEvaluatorContext): Value = {
+    field match {
+      case Text(s) ⇒
+        HEval(s, context)
+
+      case Lst(items) ⇒
+        items.map(evaluateField(_, context))
+
+      case Obj(items) ⇒
+        Obj(items.map(kv ⇒ kv._1 → evaluateField(kv._2, context)))
+
+      case _ ⇒ field
     }
   }
 
@@ -469,31 +519,33 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 
   private def deleteContent(documentUri: String,
                             itemId: String,
-                            newTransaction: Transaction,
                             request: DynamicRequest,
                             existingContent: Option[Content],
-                            existingContentStatic: Option[ContentBase]): Content = existingContentStatic match {
-    case None ⇒
-      implicit val mcx = request
-      throw NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
+                            existingContentStatic: Option[ContentBase]): (Transaction,Content) = {
+    implicit val mcx: MessagingContext = request
+    existingContentStatic match {
+      case None ⇒
+        throw NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
 
-    case Some(content) ⇒
-      implicit val mcx = request
-      if (content.isView.contains(true) && request.headers.hrl.location != ViewDelete.location && itemId.isEmpty) {
-        throw Conflict(ErrorBody("collection-is-view", Some(s"Can't delete view collection directly")))
-      }
+      case Some(content) ⇒
+        if (content.isView.contains(true) && request.headers.hrl.location != ViewDelete.location && itemId.isEmpty) {
+          throw Conflict(ErrorBody("collection-is-view", Some(s"Can't delete view collection directly")))
+        }
 
-      Content(documentUri, itemId, newTransaction.revision,
-        transactionList = newTransaction.uuid +: content.transactionList,
-        isDeleted = Some(true),
-        count = content.count.map(_ - 1),
-        isView = content.isView,
-        body = None,
-        createdAt = existingContent.map(_.createdAt).getOrElse(new Date()),
-        modifiedAt = Some(new Date()),
-        None,
-        None
-      )
+        val newTransaction = createNewTransaction(documentUri, itemId, request, existingContent, existingContentStatic)
+        val newContent = Content(documentUri, itemId, newTransaction.revision,
+          transactionList = newTransaction.uuid +: content.transactionList,
+          isDeleted = Some(true),
+          count = content.count.map(_ - 1),
+          isView = content.isView,
+          body = None,
+          createdAt = existingContent.map(_.createdAt).getOrElse(new Date()),
+          modifiedAt = Some(new Date()),
+          None,
+          None
+        )
+        (newTransaction,newContent)
+    }
   }
 
   private def taskWaitResult(owner: ActorRef,
@@ -557,4 +609,27 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 object PrimaryWorker {
   def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgroundTaskTimeout: FiniteDuration) =
     Props(classOf[PrimaryWorker], hyperbus, db, tracker, backgroundTaskTimeout)
+}
+
+case class ExpressionEvaluatorContext(request: DynamicRequest, original: Value) extends Context{
+  private lazy val obj = Obj.from(
+    "headers" → Obj(request.headers),
+    "location" → request.headers.hrl.location,
+    "query" → request.headers.hrl.query,
+    "method" → request.headers.method,
+    "body" → request.body.content,
+    "original" → original
+  )
+
+  override def identifier = {
+    case identifier ⇒ obj(identifier.segments.map(Text))
+  }
+  override def binaryOperation: PartialFunction[(Value, Identifier, Value), Value] = Map.empty
+  override def customOperators = Seq.empty
+  override def function: PartialFunction[(Identifier, Seq[Value]), Value] = {
+    case (Identifier(Seq("new_id")), _) ⇒ IdGenerator.create()
+    case (Identifier(Seq("new_seq")), _) ⇒ SeqGenerator.create()
+  }
+  override def unaryOperation = Map.empty
+  override def binaryOperationLeftArgument = Map.empty
 }

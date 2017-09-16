@@ -13,7 +13,7 @@ import org.scalatest.{FlatSpec, Matchers}
 
 import scala.concurrent.duration._
 
-class IncrementTest extends FlatSpec
+class IncrementPatchTest extends FlatSpec
   with Matchers
   with ScalaFutures
   with CassandraFixture
@@ -42,7 +42,7 @@ class IncrementTest extends FlatSpec
 
     val patchIncrement = hyperbus.ask(ContentPatch("abc",
       DynamicBody(Obj.from("a" → 3, "b" → -2)),
-      headers=Headers(Header.CONTENT_TYPE → "hyperstorage-content-increment"))
+      headers=Headers(Header.CONTENT_TYPE → HyperStoragePatchType.HYPERSTORAGE_CONTENT_INCREMENT))
     )
       .runAsync
       .futureValue
