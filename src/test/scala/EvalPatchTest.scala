@@ -32,9 +32,13 @@ class EvalPatchTest extends FlatSpec
 
     ok shouldBe a[Ok[_]]
 
-    val patchEval = hyperbus.ask(ContentPatch("abc",
-      DynamicBody(Obj.from("a" → "original.a * 2", "b" → "original.b + 1", "x" → "original.x + ' john'")),
-      headers=Headers(Header.CONTENT_TYPE → HyperStoragePatchType.HYPERSTORAGE_CONTENT_EVALUATE))
+    val patch = ContentPatch("abc",
+      DynamicBody(Obj.from("a" → "original.a * 2", "b" → "original.b + 1", "x" → "original.x + ' john'"),
+        Some(HyperStoragePatchType.HYPERSTORAGE_CONTENT_EVALUATE))
+      )
+
+    val patchEval = hyperbus.ask(
+      patch
     )
       .runAsync
       .futureValue
