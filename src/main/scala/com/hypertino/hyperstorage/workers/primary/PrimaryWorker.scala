@@ -345,7 +345,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
         }
         Content(documentUri, itemId, newTransaction.revision,
           transactionList = List(newTransaction.uuid),
-          isDeleted = None,
+          isDeleted = existingContent.flatMap(_.isDeleted.map(_ ⇒ false)),
           count = newCount,
           isView = if (request.headers.hrl.location == ViewPut.location) Some(true) else None,
           body = newBody,
@@ -366,7 +366,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
         }
         Content(documentUri, itemId, newTransaction.revision,
           transactionList = newTransaction.uuid +: static.transactionList,
-          isDeleted = None,
+          isDeleted = existingContent.flatMap(_.isDeleted.map(_ ⇒ false)),
           count = newCount,
           isView = static.isView,
           body = newBody,
@@ -437,7 +437,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       case Some(content) if !content.isDeleted.contains(true) ⇒
         Content(documentUri, itemId, newTransaction.revision,
           transactionList = newTransaction.uuid +: content.transactionList,
-          isDeleted = None,
+          isDeleted = existingContent.flatMap(_.isDeleted.map(_ ⇒ false)),
           count = content.count,
           isView = content.isView,
           body = newBody,
@@ -450,7 +450,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       case _ ⇒
         Content(documentUri, itemId, newTransaction.revision,
           transactionList = List(newTransaction.uuid),
-          isDeleted = None,
+          isDeleted = existingContent.flatMap(_.isDeleted.map(_ ⇒ false)),
           count = if (isCollection) Some(count + 1) else None,
           isView = None,
           body = newBody,

@@ -272,6 +272,55 @@ class HyperStorageSpec extends FlatSpec
     }
   }
 
+  it should "Put resource over the previously deleted" in {
+    val hyperbus = testHyperbus()
+    val tk = testKit()
+    import tk._
+
+    cleanUpCassandra()
+
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
+
+    val path = "test-resource-" + UUID.randomUUID().toString
+    val taskPutStr = ContentPut(path,
+      DynamicBody(Obj.from("text1" → "abc", "text2" → "klmn"))
+    ).serializeToString
+
+    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskPutStr, expectsResult=true,isClientOperation=true)
+    expectMsgType[BackgroundContentTask]
+    expectMsgType[ShardTaskComplete]
+
+    whenReady(db.selectContent(path, "")) { result =>
+      result shouldNot be(None)
+      result.get.isDeleted shouldBe None
+    }
+
+    val task = ContentDelete(path)
+
+    val taskStr = task.serializeToString
+    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr, expectsResult=true,isClientOperation=true)
+    expectMsgType[BackgroundContentTask]
+    expectMsgPF() {
+      case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.OK &&
+        response(result.content).headers.correlationId == task.headers.correlationId ⇒ {
+        true
+      }
+    }
+
+    whenReady(db.selectContent(path, "")) { result =>
+      result.get.isDeleted shouldBe Some(true)
+    }
+
+    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskPutStr, expectsResult=true,isClientOperation=true)
+    expectMsgType[BackgroundContentTask]
+    expectMsgType[ShardTaskComplete]
+
+    whenReady(db.selectContent(path, "")) { result =>
+      result shouldNot be(None)
+      result.get.isDeleted shouldBe Some(false)
+    }
+  }
+
   it should "Test multiple transactions" in {
     val hyperbus = testHyperbus()
     val tk = testKit()
