@@ -172,13 +172,18 @@ abstract class RecoveryWorker[T <: WorkerState](
                 log.error(s"Recovery result received for '$completePath' while expecting for the '$documentUri'")
                 Future.successful()
               }
+            // todo: do we need this here?
             case BackgroundContentTaskNoSuchResourceException(notFountPath) ⇒
-              log.error(s"Tried to recover not existing resource: '$notFountPath'. Exception is ignored")
+              log.warning(s"Tried to recover not existing resource: '$notFountPath'. Exception is ignored")
               Future.successful()
             case (NonFatal(e), _) ⇒
               Future.failed(e)
             case other ⇒
               Future.failed(throw new RuntimeException(s"Unexpected result from recovery task: $other"))
+          } recoverWith {
+            case BackgroundContentTaskNoSuchResourceException(notFountPath) ⇒
+              log.warning(s"Tried to recover not existing resource: '$notFountPath'. Exception is ignored")
+              Future.successful()
           }
         }
       }

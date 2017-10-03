@@ -56,7 +56,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
         tracker.timeOfFuture(Metrics.SECONDARY_PROCESS_TIME) {
           db.selectContentStatic(task.documentUri) flatMap {
             case None ⇒
-              log.error(s"Didn't found resource to background complete, dismissing task: $task")
+              log.warning(s"Didn't found resource to background complete, dismissing task: $task")
               Future.failed(BackgroundContentTaskNoSuchResourceException(task.documentUri))
             case Some(content) ⇒
               try {
