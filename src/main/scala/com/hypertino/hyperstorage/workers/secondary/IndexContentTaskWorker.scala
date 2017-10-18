@@ -45,7 +45,7 @@ trait IndexContentTaskWorker extends ItemIndexer with SecondaryWorkerBase {
               db.selectIndexContentStatic(indexDef.tableName, indexDef.documentUri, indexDef.indexId) flatMap { indexContentStaticO ⇒
                 val countBefore: Long = indexContentStaticO.flatMap(_.count).getOrElse(0l)
                 FutureUtils.serial(collectionItems.toSeq) { item ⇒
-                  indexItem(indexDef, item, idFieldName, countBefore)
+                  indexItem(indexDef, item, idFieldName, Some(countBefore+1))
                 } flatMap { insertedItemIds ⇒
 
                   if (insertedItemIds.isEmpty) {

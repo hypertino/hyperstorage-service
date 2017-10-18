@@ -37,7 +37,7 @@ import scala.util.control.NonFatal
 
 @SerialVersionUID(1L) case class BackgroundContentTaskFailedException(documentUri: String, reason: String) extends RuntimeException(s"Background task for $documentUri is failed: $reason")
 
-trait BackgroundContentTaskCompleter extends ItemIndexer {
+trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBase {
   def hyperbus: Hyperbus
   def db: Db
   def tracker: MetricsTracker
@@ -161,8 +161,10 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
       val isCollectionDelete = incompleteTransactions.exists { it ⇒
         it.transaction.itemId.isEmpty && it.unwrappedBody.headers.method == Method.FEED_DELETE
       }
+
       // todo: cache index meta
-      val indexDefsTask = Task.eval(Task.fromFuture(db.selectIndexDefs(contentStatic.documentUri).map(_.toList))).flatten.memoize
+      val indexDefsTask = createIndexFromTemplateOrLoad(contentStatic.documentUri).memoize
+
       if (isCollectionDelete) {
         // todo: what if after collection delete, there is a transaction with insert?
         // todo: delete view if collection is deleted
@@ -221,7 +223,8 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
                         contentTask.flatMap {
                           case Some(item) if !item.isDeleted.contains(true) ⇒
                             Task.fromFuture(deleteObsoleteFuture.flatMap { countAfterDelete ⇒
-                              indexItem(indexDef, item, idFieldName, countAfterDelete)
+                              val count = if (indexDef.status == IndexDef.STATUS_NORMAL) Some(countAfterDelete+1) else None
+                              indexItem(indexDef, item, idFieldName, count)
                             })
 
                           case _ ⇒
@@ -243,6 +246,25 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
     } else {
       val contentTask = Task.eval(Task.fromFuture(db.selectContent(contentStatic.documentUri, ""))).flatten.memoize
       updateView(contentStatic.documentUri,contentTask,incompleteTransactions.last, owner, ttl)
+    }
+  }
+
+  private def createIndexFromTemplateOrLoad(documentUri: String): Task[List[IndexDef]] = {
+    Task.zip2(
+      Task.eval(Task.fromFuture(db.selectIndexDefs(documentUri).map(_.toList))).flatten,
+      Task.eval(Task.fromFuture(db.selectTemplateIndexDefs().map(_.toList))).flatten
+    ).flatMap { case (existingIndexes, templateDefs) ⇒
+      val newIndexTasks = templateDefs.filterNot(t ⇒ existingIndexes.exists(_.indexId == t.indexId)).map { templateDef ⇒
+        ContentLogic.pathAndTemplateToId(documentUri + "/A", templateDef.templateUri).map { _ ⇒
+          Task.fromFuture(insertIndexDef(documentUri, templateDef.indexId, templateDef.sortByParsed, templateDef.filterBy, templateDef.materialize))
+            .map(Some(_))
+        } getOrElse {
+          Task.now(None) // todo: cache that this document doesn't match to template
+        }
+      }
+      Task.gatherUnordered(newIndexTasks).map { newIndexes ⇒
+        existingIndexes ++ newIndexes.flatten
+      }
     }
   }
 
@@ -285,7 +307,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer {
             }
           }
         } getOrElse {
-          Task.unit
+          Task.unit // todo: cache that this document doesn't match to template
         }
       }
     }

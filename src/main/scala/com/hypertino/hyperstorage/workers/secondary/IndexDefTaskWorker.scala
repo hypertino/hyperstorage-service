@@ -11,11 +11,11 @@ import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperbus.serialization.{MessageReader, RequestDeserializer}
 import com.hypertino.hyperbus.util.IdGenerator
+import com.hypertino.hyperstorage.TransactionLogic
 import com.hypertino.hyperstorage.api.{IndexPost, _}
 import com.hypertino.hyperstorage.db._
 import com.hypertino.hyperstorage.indexing.{IndexDefTransaction, IndexLogic, IndexManager}
 import com.hypertino.hyperstorage.sharding.ShardTaskComplete
-import com.hypertino.hyperstorage.{ResourcePath, _}
 import com.hypertino.metrics.MetricsTracker
 
 import scala.concurrent.duration._
@@ -71,7 +71,6 @@ trait IndexDefTaskWorker extends SecondaryWorkerBase {
       IdGenerator.create()
     )
 
-    val tableName = IndexLogic.tableName(post.body.sortBy)
     post.body.filterBy.foreach(IndexLogic.validateFilterExpression(_).get)
 
     db.selectIndexDefs(post.path) flatMap { indexDefs ⇒
@@ -80,26 +79,14 @@ trait IndexDefTaskWorker extends SecondaryWorkerBase {
           throw Conflict(ErrorBody("already-exists", Some(s"Index '$indexId' already exists")))
         }
       }
-      val indexDef = IndexDef(post.path, indexId, IndexDef.STATUS_INDEXING,
-        IndexLogic.serializeSortByFields(post.body.sortBy), post.body.filterBy, tableName, defTransactionId = UUIDs.timeBased(),
-        post.body.materialize.getOrElse(true)
-      )
-      val pendingIndex = PendingIndex(TransactionLogic.partitionFromUri(post.path), post.path, indexId, None, indexDef.defTransactionId)
+      insertIndexDef(post.path,
+        indexId,
+        post.body.sortBy,
+        post.body.filterBy,
+        post.body.materialize.getOrElse(true)) map { _ ⇒ // IndexManager.IndexCommandAccepted
 
-      // validate: id, sort, expression, etc
-      db.insertPendingIndex(pendingIndex) flatMap { _ ⇒
-        db.insertIndexDef(indexDef) flatMap { _ ⇒
-          implicit val timeout = Timeout(60.seconds)
-          indexManager ? IndexManager.IndexCreatedOrDeleted(IndexDefTransaction(
-            post.path,
-            indexId,
-            pendingIndex.defTransactionId
-          )) map { _ ⇒ // IndexManager.IndexCommandAccepted
-
-            // todo: !!!! LOCATION header
-            Created(HyperStorageIndexCreated(indexId, path = post.path))
-          }
-        }
+        // todo: !!!! LOCATION header
+        Created(HyperStorageIndexCreated(indexId, path = post.path))
       }
     } map { result ⇒
       ShardTaskComplete(task, result)

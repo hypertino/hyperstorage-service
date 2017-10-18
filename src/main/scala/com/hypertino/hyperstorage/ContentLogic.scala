@@ -91,7 +91,7 @@ object ContentLogic {
   }
 
   def pathAndTemplateToId(path: String, template: String): Option[String] = {
-    val templateTokens = UriPathParser.tokens(template)
+    val templateTokens = UriPathParser.tokens(template) // todo: cache this!
     val pathTokens = UriPathParser.tokens(path)
     var matches = true
     val idElements = mutable.MutableList[String]()

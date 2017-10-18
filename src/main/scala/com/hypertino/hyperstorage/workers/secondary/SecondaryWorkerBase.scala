@@ -1,14 +1,26 @@
 package com.hypertino.hyperstorage.workers.secondary
 
+import akka.actor.ActorRef
 import akka.event.LoggingAdapter
+import akka.util.Timeout
+import com.datastax.driver.core.utils.UUIDs
 import com.hypertino.hyperbus.model.{ErrorBody, HyperbusError, InternalServerError, MessagingContext}
-import com.hypertino.hyperstorage.{ContentLogic, ResourcePath}
+import com.hypertino.hyperstorage.api.HyperStorageIndexSortItem
+import com.hypertino.hyperstorage.db.{Db, IndexDef, PendingIndex}
+import com.hypertino.hyperstorage.indexing.{IndexDefTransaction, IndexLogic, IndexManager}
+import com.hypertino.hyperstorage.{ContentLogic, ResourcePath, TransactionLogic}
 import com.hypertino.hyperstorage.sharding.ShardTaskComplete
+import akka.pattern.ask
 
+import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
+import scala.concurrent.duration._
 
 trait SecondaryWorkerBase {
   def log: LoggingAdapter
+  def db: Db
+  def indexManager: ActorRef
+  implicit def executionContext: ExecutionContext
 
   protected def validateCollectionUri(uri: String) = {
     val ResourcePath(documentUri, itemId) = ContentLogic.splitPath(uri)
@@ -26,4 +38,27 @@ trait SecondaryWorkerBase {
       }
       ShardTaskComplete(task, IndexDefTaskTaskResult(he.serializeToString))
   }
+
+  protected def insertIndexDef(documentUri: String, indexId: String, sortBy: Seq[HyperStorageIndexSortItem], filterBy: Option[String], materialize: Boolean): Future[IndexDef] = {
+    val tableName = IndexLogic.tableName(sortBy)
+    val indexDef = IndexDef(documentUri, indexId, IndexDef.STATUS_INDEXING,
+      IndexLogic.serializeSortByFields(sortBy), filterBy, tableName, defTransactionId = UUIDs.timeBased(),
+      materialize
+    )
+    val pendingIndex = PendingIndex(TransactionLogic.partitionFromUri(documentUri), documentUri, indexId, None, indexDef.defTransactionId)
+    // validate: id, sort, expression, etc
+    db.insertPendingIndex(pendingIndex) flatMap { _ ⇒
+      db.insertIndexDef(indexDef) flatMap { _ ⇒
+        implicit val timeout = Timeout(60.seconds)
+        indexManager ? IndexManager.IndexCreatedOrDeleted(IndexDefTransaction(
+          documentUri,
+          indexId,
+          pendingIndex.defTransactionId
+        )) map { _ ⇒
+          indexDef
+        }
+      }
+    }
+  }
+
 }

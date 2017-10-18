@@ -890,4 +890,51 @@ abstract class IndexingSpec extends FlatSpec
       indexContent shouldBe empty
     }
   }
+
+  it should "create index by template" in {
+    cleanUpCassandra()
+    val hyperbus = integratedHyperbus(db)
+
+    val c1 = Obj.from("a" → "hello", "b" → 100500)
+
+    val tf = hyperbus.ask(TemplateIndexPut("t1", HyperStorageTemplateIndex("a-1~/{*}", Seq.empty, None, materialize=Some(materialize)))).runAsync
+    tf.futureValue.statusCode should equal(Status.CREATED)
+
+    val fa1 = hyperbus.ask(ContentPut("a-1~/item1", DynamicBody(c1))).runAsync
+    fa1.futureValue.headers.statusCode should equal(Status.CREATED)
+
+//    val fb1 = hyperbus.ask(ContentPut("b-1~/item1", DynamicBody(c1))).runAsync
+//    fb1.futureValue.headers.statusCode should equal(Status.CREATED)
+
+
+    val templateIndexDefs = db.selectTemplateIndexDefs("*").futureValue.toList
+    templateIndexDefs.size shouldBe 1
+
+    templateIndexDefs.head.templateUri shouldBe "a-1~/{*}"
+    templateIndexDefs.head.indexId shouldBe "t1"
+    templateIndexDefs.head.materialize shouldBe materialize
+
+    eventually {
+      val indexDef = db.selectIndexDef("a-1~", "t1").futureValue
+      indexDef shouldBe defined
+      indexDef.get.documentUri shouldBe "a-1~"
+      indexDef.get.indexId shouldBe "t1"
+      indexDef.get.materialize shouldBe materialize
+      indexDef.get.status shouldBe IndexDef.STATUS_NORMAL
+
+      val indexContent = db.selectIndexCollection("index_content", "a-1~", "t1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+      indexContent.size shouldBe 1
+      indexContent.head.documentUri shouldBe "a-1~"
+      indexContent.head.itemId shouldBe "item1"
+      indexContent.head.count shouldBe Some(1l)
+      if (materialize) {
+        indexContent.head.body.get should include("\"item1\"")
+      }
+      else {
+        indexContent.head.body shouldBe None
+      }
+    }
+
+    db.selectIndexDef("b-1~", "t1").futureValue.toList shouldBe empty
+  }
 }

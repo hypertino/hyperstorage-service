@@ -97,6 +97,15 @@ case class PendingIndex(
                          defTransactionId: UUID
                        )
 
+trait WithSortBy {
+  def sortBy: Option[String]
+
+  lazy val sortByParsed: Seq[HyperStorageIndexSortItem] = sortBy.map{ str ⇒
+    import com.hypertino.binders.json.JsonBinders._
+    str.parseJson[Seq[HyperStorageIndexSortItem]]
+  }.getOrElse(Seq.empty)
+}
+
 case class IndexDef(
                      documentUri: String,
                      indexId: String,
@@ -106,12 +115,7 @@ case class IndexDef(
                      tableName: String,
                      defTransactionId: UUID,
                      materialize: Boolean
-                   ) {
-  lazy val sortByParsed: Seq[HyperStorageIndexSortItem] = sortBy.map{ str ⇒
-    import com.hypertino.binders.json.JsonBinders._
-    str.parseJson[Seq[HyperStorageIndexSortItem]]
-  }.getOrElse(Seq.empty)
-}
+                   ) extends WithSortBy
 
 
 case class IndexContentStatic(
@@ -141,6 +145,15 @@ case class IndexContent(
                          createdAt: Date,
                          modifiedAt: Option[Date]
                        ) extends CollectionContent
+
+case class TemplateIndexDef(
+                             key: String,
+                             indexId: String,
+                             templateUri: String,
+                             sortBy: Option[String],
+                             filterBy: Option[String],
+                             materialize: Boolean
+                           ) extends WithSortBy
 
 object IndexDef {
   val STATUS_INDEXING = 0
@@ -485,6 +498,20 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
 
   def deleteViewDef(key: String, documentUri: String): Future[Unit] = cql"""
       delete from view_def where key=$key and document_uri=$documentUri
+    """.execute()
+
+  def selectTemplateIndexDefs(key: String = "*"): Future[Iterator[TemplateIndexDef]] = cql"""
+      select key, index_id, template_uri, sort_by, filter_by, materialize
+      from template_index_def
+      where key = $key
+    """.all[TemplateIndexDef]
+
+  def insertTemplateIndexDef(templateIndexDef: TemplateIndexDef): Future[Unit] = cql"""
+      insert into template_index_def(key, index_id, template_uri, sort_by, filter_by, materialize) values (?,?,?,?,?,?)
+    """.bind(templateIndexDef).execute()
+
+  def deleteTemplateIndexDef(key: String, indexId: String): Future[Unit] = cql"""
+      delete from template_index_def where key=$key and index_id=$indexId
     """.execute()
 
   private def bindSortFields(cql: Statement[CamelCaseToSnakeCaseConverter.type], sortFields: Seq[(String, Value)]) = {

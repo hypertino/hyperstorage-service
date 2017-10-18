@@ -51,6 +51,16 @@ create table view_def(
     primary key (key, document_uri)
 );
 
+create table template_index_def(
+    key text,                                           -- '*' for all records
+    index_id text,                                      -- becomes index_def.index_id
+    template_uri text,                                  -- view uri template
+    sort_by text,					-- index sort expression, JSON encoded
+    filter_by text,					-- filter expression
+    materialize boolean,                                -- copy data into the index to avoid access to main table when selecting
+    primary key (key, index_id)
+);
+
 create table pending_index(
     partition int,
     document_uri text,

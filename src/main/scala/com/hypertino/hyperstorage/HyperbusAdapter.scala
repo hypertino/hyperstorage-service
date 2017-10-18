@@ -74,6 +74,26 @@ class HyperbusAdapter(hyperbus: Hyperbus,
   def onViewPut(implicit request: ViewPut) = executeRequest(request, request.path)
   def onViewDelete(implicit request: ViewDelete) = executeRequest(request, request.path)
 
+  def onTemplateIndexPut(implicit request: TemplateIndexPut) = Task.eval{
+    val templateIndexDef = TemplateIndexDef(
+      key = "*",
+      indexId=request.indexId,
+      templateUri=request.body.templateUri,
+      sortBy=IndexLogic.serializeSortByFields(request.body.sortBy),
+      filterBy=request.body.filterBy,
+      materialize=request.body.materialize.getOrElse(false)
+    )
+
+    Task.fromFuture(db.insertTemplateIndexDef(templateIndexDef)).map { _ ⇒
+      Created(HyperStorageTemplateIndexCreated(templateIndexDef.indexId))
+    }
+  }.flatten
+
+  def onTemplateIndexDelete(implicit request: TemplateIndexDelete) = Task.eval{
+    Task.fromFuture(db.deleteTemplateIndexDef("*", request.indexId)).map { _ ⇒
+      NoContent(EmptyBody)
+    }
+  }.flatten
 
   def onContentFeedPut(event: ContentFeedPut): Ack = notifyWaitTask(event)
   def onContentFeedPatch(event: ContentFeedPatch): Ack = notifyWaitTask(event)
@@ -81,7 +101,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
 
   override def groupName(existing: Option[String]): Option[String] = existing.map(_ + "-" + fixedGroupName).orElse(fixedGroupName)
 
-  // todo: implement onViewGet/onViewsGet
+  // todo: implement onViewGet/onViewsGet/onTemplateIndexesGet
 
   def off(): Task[Unit] = {
     Task.eval(subscriptions.foreach(_.cancel()))
