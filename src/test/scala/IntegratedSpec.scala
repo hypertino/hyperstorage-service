@@ -94,7 +94,7 @@ class IntegratedSpec extends FlatSpec
 
     create shouldBe a[Created[_]]
     create.body shouldBe a[HyperStorageTransactionCreated]
-    val userId = create.body.target.user_id
+    val userId = create.body.target.dynamic.user_id
     userId shouldBe a[Text]
 
     val ok = hyperbus.ask(ContentGet(s"users/${userId.toString}"))
@@ -328,7 +328,7 @@ class IntegratedSpec extends FlatSpec
       response.body
     }
 
-    val id1 = tr1.target.id
+    val id1 = tr1.target.dynamic.id
     val c1x = c1 + Obj.from("id" → id1)
 
     val putEventFuture = putEventPromise.future
@@ -350,7 +350,7 @@ class IntegratedSpec extends FlatSpec
       response.body
     }
 
-    val id2 = tr2.target.id
+    val id2 = tr2.target.dynamic.id
     val c2x = c2 + Obj.from("id" → id2)
 
     val f4 = hyperbus.ask(ContentGet("collection-2~", perPage = Some(50))).runAsync

@@ -125,7 +125,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
     primaryTask.flatMap { result ⇒
       if ((result.headers.statusCode == Ok.statusCode || result.headers.statusCode == Created.statusCode) &&
         request.headers.get(HyperStorageHeader.HYPER_STORAGE_WAIT).contains(Text("full"))) {
-        val transactionId = result.body.content.transaction_id.toString()
+        val transactionId = result.body.content.dynamic.transaction_id.toString()
         waitForTransaction(transactionId).map(_ ⇒ result)
       }
       else {

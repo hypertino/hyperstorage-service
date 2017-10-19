@@ -338,7 +338,7 @@ class HyperStorageSpec extends FlatSpec
     worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr1, expectsResult=true,isClientOperation=true)
     expectMsgType[BackgroundContentTask]
     val result1 = expectMsgType[ShardTaskComplete]
-    transactionList += response(result1.result.asInstanceOf[PrimaryWorkerTaskResult].content).body.content.transaction_id.toString
+    transactionList += response(result1.result.asInstanceOf[PrimaryWorkerTaskResult].content).body.content.dynamic.transaction_id.toString
 
     val taskStr2 = ContentPatch(path,
       DynamicBody(Obj.from("text" → "abc", "text2" → "klmn"))
@@ -346,7 +346,7 @@ class HyperStorageSpec extends FlatSpec
     worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr2, expectsResult=true,isClientOperation=true)
     expectMsgType[BackgroundContentTask]
     val result2 = expectMsgType[ShardTaskComplete]
-    transactionList += response(result2.result.asInstanceOf[PrimaryWorkerTaskResult].content).body.content.transaction_id.toString
+    transactionList += response(result2.result.asInstanceOf[PrimaryWorkerTaskResult].content).body.content.dynamic.transaction_id.toString
 
     val taskStr3 = ContentDelete(path).serializeToString
     worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr3, expectsResult=true,isClientOperation=true)
@@ -354,7 +354,7 @@ class HyperStorageSpec extends FlatSpec
     val workerResult = expectMsgType[ShardTaskComplete]
     val r = response(workerResult.result.asInstanceOf[PrimaryWorkerTaskResult].content)
     r.headers.statusCode should equal(Status.OK)
-    transactionList += r.body.content.transaction_id.toString
+    transactionList += r.body.content.dynamic.transaction_id.toString
     // todo: list of transactions!s
 
     val transactionsC = whenReady(db.selectContent(path, "")) { result =>

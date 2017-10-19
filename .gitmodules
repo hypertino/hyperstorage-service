@@ -4,3 +4,6 @@
 [submodule "api/hyperstorage-service-api"]
 	path = api/hyperstorage-service-api
 	url = git@github.com:hypertino/hyperstorage-service-api.git
+[submodule "travis"]
+	path = travis
+	url = git@github.com:hypertino/scala-travis-script.git

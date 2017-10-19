@@ -114,8 +114,8 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
               val newHeaders = MessageHeaders
                 .builder
                 .++=(request.headers)
-                .+=(TransactionLogic.HB_HEADER_TEMPLATE_URI → request.body.content.template_uri)
-                .+=(TransactionLogic.HB_HEADER_FILTER → request.body.content.filter_by)
+                .+=(TransactionLogic.HB_HEADER_TEMPLATE_URI → request.body.content.dynamic.template_uri)
+                .+=(TransactionLogic.HB_HEADER_FILTER → request.body.content.dynamic.filter_by)
                 .requestHeaders()
               (documentUri, itemId, None, request.copy(body=DynamicBody(Null), headers=newHeaders))
             }
@@ -602,7 +602,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
   }
 
   implicit class RequestWrapper(val request: DynamicRequest) {
-    def path: String = request.headers.hrl.query.path.toString
+    def path: String = request.headers.hrl.query.dynamic.path.toString
   }
 }
 

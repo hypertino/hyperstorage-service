@@ -177,7 +177,7 @@ object IndexLogic {
 
   def greater(a: Value, b: Value, sortFieldType: String): Boolean = {
     sortFieldType match {
-      case HyperStorageIndexSortFieldType.DECIMAL ⇒ a.asBigDecimal > b.asBigDecimal
+      case HyperStorageIndexSortFieldType.DECIMAL ⇒ a.toBigDecimal > b.toBigDecimal
       case _ => a.toString > b.toString
     }
   }
