@@ -28,7 +28,7 @@ class TtlTest extends FlatSpec
     val hyperbus = integratedHyperbus(db)
 
     val docCreated = hyperbus.ask(ContentPut("abc", DynamicBody(Obj.from("a" → 10)),
-      headers = Headers(HyperStorageHeader.HYPER_STORAGE_TTL → 1)))
+      headers = Headers(HyperStorageHeader.HYPER_STORAGE_TTL → 3)))
       .runAsync
       .futureValue
 

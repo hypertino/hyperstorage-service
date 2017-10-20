@@ -255,7 +255,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
       Task.eval(Task.fromFuture(db.selectTemplateIndexDefs().map(_.toList))).flatten
     ).flatMap { case (existingIndexes, templateDefs) ⇒
       val newIndexTasks = templateDefs.filterNot(t ⇒ existingIndexes.exists(_.indexId == t.indexId)).map { templateDef ⇒
-        ContentLogic.pathAndTemplateToId(documentUri + "/A", templateDef.templateUri).map { _ ⇒
+        ContentLogic.pathAndTemplateToId(documentUri, templateDef.templateUri).map { _ ⇒
           Task.fromFuture(insertIndexDef(documentUri, templateDef.indexId, templateDef.sortByParsed, templateDef.filterBy, templateDef.materialize))
             .map(Some(_))
         } getOrElse {

@@ -897,7 +897,7 @@ abstract class IndexingSpec extends FlatSpec
 
     val c1 = Obj.from("a" → "hello", "b" → 100500)
 
-    val tf = hyperbus.ask(TemplateIndexPut("t1", HyperStorageTemplateIndex("a-1~/{*}", Seq.empty, None, materialize=Some(materialize)))).runAsync
+    val tf = hyperbus.ask(TemplateIndexPut("t1", HyperStorageTemplateIndex("a-1~", Seq.empty, None, materialize=Some(materialize)))).runAsync
     tf.futureValue.statusCode should equal(Status.CREATED)
 
     val fa1 = hyperbus.ask(ContentPut("a-1~/item1", DynamicBody(c1))).runAsync
@@ -910,7 +910,7 @@ abstract class IndexingSpec extends FlatSpec
     val templateIndexDefs = db.selectTemplateIndexDefs("*").futureValue.toList
     templateIndexDefs.size shouldBe 1
 
-    templateIndexDefs.head.templateUri shouldBe "a-1~/{*}"
+    templateIndexDefs.head.templateUri shouldBe "a-1~"
     templateIndexDefs.head.indexId shouldBe "t1"
     templateIndexDefs.head.materialize shouldBe materialize
 
