@@ -110,12 +110,12 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
         case Method.PUT ⇒
           if (itemId.isEmpty) {
             if (ContentLogic.isCollectionUri(documentUri) && itemId.isEmpty && request.headers.hrl.location == ViewPut.location) {
-              // todo: validate template_uri & filter_by
+              // todo: validate template_uri & filter
               val newHeaders = MessageHeaders
                 .builder
                 .++=(request.headers)
                 .+=(TransactionLogic.HB_HEADER_TEMPLATE_URI → request.body.content.dynamic.template_uri)
-                .+=(TransactionLogic.HB_HEADER_FILTER → request.body.content.dynamic.filter_by)
+                .+=(TransactionLogic.HB_HEADER_FILTER → request.body.content.dynamic.filter)
                 .requestHeaders()
               (documentUri, itemId, None, request.copy(body=DynamicBody(Null), headers=newHeaders))
             }

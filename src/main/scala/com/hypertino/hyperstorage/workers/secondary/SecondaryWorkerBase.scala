@@ -39,10 +39,10 @@ trait SecondaryWorkerBase {
       ShardTaskComplete(task, IndexDefTaskTaskResult(he.serializeToString))
   }
 
-  protected def insertIndexDef(documentUri: String, indexId: String, sortBy: Seq[HyperStorageIndexSortItem], filterBy: Option[String], materialize: Boolean): Future[IndexDef] = {
+  protected def insertIndexDef(documentUri: String, indexId: String, sortBy: Seq[HyperStorageIndexSortItem], filter: Option[String], materialize: Boolean): Future[IndexDef] = {
     val tableName = IndexLogic.tableName(sortBy)
     val indexDef = IndexDef(documentUri, indexId, IndexDef.STATUS_INDEXING,
-      IndexLogic.serializeSortByFields(sortBy), filterBy, tableName, defTransactionId = UUIDs.timeBased(),
+      IndexLogic.serializeSortByFields(sortBy), filter, tableName, defTransactionId = UUIDs.timeBased(),
       materialize
     )
     val pendingIndex = PendingIndex(TransactionLogic.partitionFromUri(documentUri), documentUri, indexId, None, indexDef.defTransactionId)

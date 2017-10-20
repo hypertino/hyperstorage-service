@@ -1,15 +1,15 @@
 create table content (
 	document_uri text,				-- Unique document path
 	item_id text,					-- collection item identifier, empty string for a document
-	revision bigint static,			-- revision of document
-	transaction_list list<timeuuid> static,	-- transactions in progress TODO: this leads to tombstone!!!!
+	revision bigint static,			        -- revision of document
+	transaction_list list<timeuuid> static,	        -- transactions in progress TODO: this leads to tombstone!!!!
 	is_deleted boolean static,			-- flag that document is deleted (collection items removed from table)
-	count bigint static,                         -- count of items in collection
-	is_view boolean static,                      -- view, can't be updated directly
+	count bigint static,                            -- count of items in collection
+	is_view boolean static,                         -- view, can't be updated directly
 	body text,					-- body content
 	created_at timestamp,
 	modified_at timestamp,
-	ttl int,                                     -- we use this because selecting ttl(body) returns null just before expiration
+	ttl int,                                        -- we use this because selecting ttl(body) returns null just before expiration
 	primary key (document_uri, item_id)
 );
 
@@ -36,7 +36,7 @@ create table index_def(
     index_id text,					-- index id
     status int,						-- 0 - new index (in progress), 1 - deleting (in progress), 2 - ready (indexed)
     sort_by text,					-- index sort expression, JSON encoded
-    filter_by text,					-- filter expression
+    filter text,					-- filter expression
     table_name text,					-- table name with index content
     def_transaction_id timeuuid,			-- identifies ID of transaction creating index (see pending index)
     materialize boolean,                                -- copy data into the index to avoid access to main table when selecting
@@ -47,7 +47,7 @@ create table view_def(
     key text,                                           -- '*' for all records
     document_uri text,                                  -- document_uri to lookup in index_def,
     template_uri text,                                  -- view uri template
-    filter_by text,					-- filter expression
+    filter text,					-- filter expression
     primary key (key, document_uri)
 );
 
@@ -56,7 +56,7 @@ create table template_index_def(
     index_id text,                                      -- becomes index_def.index_id
     template_uri text,                                  -- view uri template
     sort_by text,					-- index sort expression, JSON encoded
-    filter_by text,					-- filter expression
+    filter text,					-- filter expression
     materialize boolean,                                -- copy data into the index to avoid access to main table when selecting
     primary key (key, index_id)
 );

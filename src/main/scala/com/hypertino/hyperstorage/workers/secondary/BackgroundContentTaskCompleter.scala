@@ -97,11 +97,11 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
             val viewTask: Task[Unit] = event.headers.hrl.location match {
               case l if l == ViewPut.location ⇒
                 val templateUri = event.headers.getOrElse(TransactionLogic.HB_HEADER_TEMPLATE_URI, Null).toString
-                val filterBy = event.headers.getOrElse(TransactionLogic.HB_HEADER_FILTER, Null) match {
+                val filter = event.headers.getOrElse(TransactionLogic.HB_HEADER_FILTER, Null) match {
                   case Null ⇒ None
                   case other ⇒ Some(other.toString)
                 }
-                Task.fromFuture(db.insertViewDef(ViewDef(key="*", task.documentUri, templateUri, filterBy)))
+                Task.fromFuture(db.insertViewDef(ViewDef(key="*", task.documentUri, templateUri, filter)))
               case l if l == ViewDelete.location ⇒
                 Task.fromFuture(db.deleteViewDef(key="*", task.documentUri))
               case _ ⇒
@@ -256,7 +256,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
     ).flatMap { case (existingIndexes, templateDefs) ⇒
       val newIndexTasks = templateDefs.filterNot(t ⇒ existingIndexes.exists(_.indexId == t.indexId)).map { templateDef ⇒
         ContentLogic.pathAndTemplateToId(documentUri, templateDef.templateUri).map { _ ⇒
-          Task.fromFuture(insertIndexDef(documentUri, templateDef.indexId, templateDef.sortByParsed, templateDef.filterBy, templateDef.materialize))
+          Task.fromFuture(insertIndexDef(documentUri, templateDef.indexId, templateDef.sortByParsed, templateDef.filter, templateDef.materialize))
             .map(Some(_))
         } getOrElse {
           Task.now(None) // todo: cache that this document doesn't match to template
@@ -284,13 +284,13 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
           else {
             contentTask.flatMap {
               case Some(content) ⇒
-                val matches = viewDef.filterBy.map { filterBy ⇒
+                val matches = viewDef.filter.map { filter ⇒
                   try {
-                    IndexLogic.evaluateFilterExpression(filterBy, content.bodyValue)
+                    IndexLogic.evaluateFilterExpression(filter, content.bodyValue)
                   } catch {
                     case NonFatal(e) ⇒
                       if (log.isDebugEnabled) {
-                        log.debug(s"Can't evaluate expression: `$filterBy` for $path", e)
+                        log.debug(s"Can't evaluate expression: `$filter` for $path", e)
                       }
                       false
                   }

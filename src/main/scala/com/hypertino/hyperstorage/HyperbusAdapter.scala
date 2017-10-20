@@ -80,7 +80,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
       indexId=request.indexId,
       templateUri=request.body.templateUri,
       sortBy=IndexLogic.serializeSortByFields(request.body.sortBy),
-      filterBy=request.body.filterBy,
+      filter=request.body.filter,
       materialize=request.body.materialize.getOrElse(false)
     )
 
@@ -249,7 +249,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
     // todo: this should be cached, heavy operations here
     val sources = indexDefs.flatMap { indexDef ⇒
       if (indexDef.status == IndexDef.STATUS_NORMAL) Some {
-        val filterAST = indexDef.filterBy.map(HParser(_))
+        val filterAST = indexDef.filter.map(HParser(_))
         val indexSortBy = indexDef.sortByParsed :+ defIdSort
         (IndexLogic.weighIndex(queryFilterExpression, querySortBy, filterAST, indexSortBy), indexSortBy, Some(indexDef))
       }

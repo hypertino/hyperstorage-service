@@ -16,13 +16,13 @@ trait ItemIndexer {
     val contentValue = item.bodyValue
     val sortBy = IndexLogic.extractSortFieldValues(idFieldName, indexDef.sortByParsed, contentValue)
 
-    val write: Boolean = !item.isDeleted.contains(true) && (indexDef.filterBy.map { filterBy ⇒
+    val write: Boolean = !item.isDeleted.contains(true) && (indexDef.filter.map { filter ⇒
       try {
-        IndexLogic.evaluateFilterExpression(filterBy, contentValue)
+        IndexLogic.evaluateFilterExpression(filter, contentValue)
       } catch {
         case NonFatal(e) ⇒
           if (log.isDebugEnabled) {
-            log.debug(s"Can't evaluate expression: `$filterBy` for $item", e)
+            log.debug(s"Can't evaluate expression: `$filter` for $item", e)
           }
           false
       }

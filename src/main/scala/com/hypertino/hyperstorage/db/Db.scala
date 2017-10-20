@@ -111,7 +111,7 @@ case class IndexDef(
                      indexId: String,
                      status: Int,
                      sortBy: Option[String],
-                     filterBy: Option[String],
+                     filter: Option[String],
                      tableName: String,
                      defTransactionId: UUID,
                      materialize: Boolean
@@ -132,7 +132,7 @@ case class ViewDef(
                     key: String,
                     documentUri: String,
                     templateUri: String,
-                    filterBy: Option[String]
+                    filter: Option[String]
                   )
 
 case class IndexContent(
@@ -151,7 +151,7 @@ case class TemplateIndexDef(
                              indexId: String,
                              templateUri: String,
                              sortBy: Option[String],
-                             filterBy: Option[String],
+                             filter: Option[String],
                              materialize: Boolean
                            ) extends WithSortBy
 
@@ -375,19 +375,19 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     """.bind(pendingIndex).execute()
 
   def selectIndexDef(documentUri: String, indexId: String): Future[Option[IndexDef]] = cql"""
-      select document_uri, index_id, status, sort_by, filter_by, table_name, def_transaction_id, materialize
+      select document_uri, index_id, status, sort_by, filter, table_name, def_transaction_id, materialize
       from index_def
       where document_uri = $documentUri and index_id=$indexId
     """.oneOption[IndexDef]
 
   def selectIndexDefs(documentUri: String): Future[Iterator[IndexDef]] = cql"""
-      select document_uri, index_id, status, sort_by, filter_by, table_name, def_transaction_id, materialize
+      select document_uri, index_id, status, sort_by, filter, table_name, def_transaction_id, materialize
       from index_def
       where document_uri = $documentUri
     """.all[IndexDef]
 
   def insertIndexDef(indexDef: IndexDef): Future[Unit] = cql"""
-      insert into index_def(document_uri, index_id, status, sort_by, filter_by, table_name, def_transaction_id, materialize)
+      insert into index_def(document_uri, index_id, status, sort_by, filter, table_name, def_transaction_id, materialize)
       values (?,?,?,?,?,?,?,?)
     """.bind(indexDef).execute()
 
@@ -518,13 +518,13 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
   }
 
   def selectViewDefs(key: String = "*"): Future[Iterator[ViewDef]] = cql"""
-      select key, document_uri, template_uri, filter_by
+      select key, document_uri, template_uri, filter
       from view_def
       where key = $key
     """.all[ViewDef]
 
   def insertViewDef(viewDef: ViewDef): Future[Unit] = cql"""
-      insert into view_def(key, document_uri, template_uri, filter_by) values (?,?,?,?)
+      insert into view_def(key, document_uri, template_uri, filter) values (?,?,?,?)
     """.bind(viewDef).execute()
 
   def deleteViewDef(key: String, documentUri: String): Future[Unit] = cql"""
@@ -532,13 +532,13 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     """.execute()
 
   def selectTemplateIndexDefs(key: String = "*"): Future[Iterator[TemplateIndexDef]] = cql"""
-      select key, index_id, template_uri, sort_by, filter_by, materialize
+      select key, index_id, template_uri, sort_by, filter, materialize
       from template_index_def
       where key = $key
     """.all[TemplateIndexDef]
 
   def insertTemplateIndexDef(templateIndexDef: TemplateIndexDef): Future[Unit] = cql"""
-      insert into template_index_def(key, index_id, template_uri, sort_by, filter_by, materialize) values (?,?,?,?,?,?)
+      insert into template_index_def(key, index_id, template_uri, sort_by, filter, materialize) values (?,?,?,?,?,?)
     """.bind(templateIndexDef).execute()
 
   def deleteTemplateIndexDef(key: String, indexId: String): Future[Unit] = cql"""

@@ -71,7 +71,7 @@ trait IndexDefTaskWorker extends SecondaryWorkerBase {
       IdGenerator.create()
     )
 
-    post.body.filterBy.foreach(IndexLogic.validateFilterExpression(_).get)
+    post.body.filter.foreach(IndexLogic.validateFilterExpression(_).get)
 
     db.selectIndexDefs(post.path) flatMap { indexDefs ⇒
       indexDefs.foreach { existingIndex ⇒
@@ -82,7 +82,7 @@ trait IndexDefTaskWorker extends SecondaryWorkerBase {
       insertIndexDef(post.path,
         indexId,
         post.body.sortBy,
-        post.body.filterBy,
+        post.body.filter,
         post.body.materialize.getOrElse(true)) map { _ ⇒ // IndexManager.IndexCommandAccepted
 
         // todo: !!!! LOCATION header
