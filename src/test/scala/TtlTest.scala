@@ -1,17 +1,11 @@
-import akka.testkit.TestActorRef
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model._
-import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.api._
-import com.hypertino.hyperstorage.sharding._
-import com.hypertino.hyperstorage.workers.primary.PrimaryWorker
-import com.hypertino.hyperstorage.workers.secondary.SecondaryWorker
+import com.hypertino.hyperstorage.db.{FieldFilter, FilterGt}
 import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
-import org.scalatest.time.{Millis, Seconds, Span}
+import org.scalatest.time.{Seconds, Span}
 import org.scalatest.{FlatSpec, Matchers}
-
-import scala.concurrent.duration._
 
 class TtlTest extends FlatSpec
   with Matchers
@@ -121,7 +115,7 @@ class TtlTest extends FlatSpec
     itemCreated2 shouldBe a[Created[_]]
 
     eventually {
-      val indexContent = db.selectIndexCollection("index_content", "abc~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+      val indexContent = db.selectIndexCollection("index_content", "abc~", "index1", Seq(FieldFilter("item_id","",FilterGt)), Seq.empty, 10).futureValue.toSeq
       indexContent.size shouldBe 2
     }
 
@@ -141,7 +135,7 @@ class TtlTest extends FlatSpec
     itemOk2 shouldBe a[Ok[_]]
 
     eventually {
-      val indexContent = db.selectIndexCollection("index_content", "abc~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+      val indexContent = db.selectIndexCollection("index_content", "abc~", "index1", Seq(FieldFilter("item_id","",FilterGt)), Seq.empty, 10).futureValue.toSeq
       indexContent.size shouldBe 1
     }
   }
