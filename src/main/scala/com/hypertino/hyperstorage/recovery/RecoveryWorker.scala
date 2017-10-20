@@ -180,10 +180,6 @@ abstract class RecoveryWorker[T <: WorkerState](
               Future.failed(e)
             case other ⇒
               Future.failed(throw new RuntimeException(s"Unexpected result from recovery task: $other"))
-          } recoverWith {
-            case BackgroundContentTaskNoSuchResourceException(notFountPath) ⇒
-              log.warning(s"Tried to recover not existing resource: '$notFountPath'. Exception is ignored")
-              Future.successful()
           }
         }
       }

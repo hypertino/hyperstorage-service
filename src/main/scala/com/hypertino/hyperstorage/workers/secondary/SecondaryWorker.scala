@@ -22,7 +22,9 @@ trait SecondaryTaskTrait extends ShardTask {
   def group = "hyperstorage-secondary-worker"
 }
 
-@SerialVersionUID(1L) case class SecondaryTaskFailed(key: String, reason: String) extends RuntimeException(s"Secondary task for '$key' is failed with reason $reason")
+trait SecondaryTaskError
+
+@SerialVersionUID(1L) case class SecondaryTaskFailed(key: String, reason: String) extends RuntimeException(s"Secondary task for '$key' is failed with reason $reason") with SecondaryTaskError
 
 class SecondaryWorker(val hyperbus: Hyperbus, val db: Db, val tracker: MetricsTracker, val indexManager: ActorRef, implicit val scheduler: Scheduler) extends Actor with ActorLogging
   with BackgroundContentTaskCompleter
@@ -47,6 +49,10 @@ class SecondaryWorker(val hyperbus: Hyperbus, val db: Db, val tracker: MetricsTr
 
 
   private def withSecondaryTaskFailed(task: SecondaryTaskTrait): PartialFunction[Throwable, ShardTaskComplete] = {
+    case e: SecondaryTaskError ⇒
+      log.error(e, s"Can't execute $task")
+      ShardTaskComplete(task, e)
+
     case NonFatal(e) ⇒
       log.error(e, s"Can't execute $task")
       ShardTaskComplete(task, SecondaryTaskFailed(task.key, e.toString))
