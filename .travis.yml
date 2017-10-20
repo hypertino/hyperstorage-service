@@ -5,10 +5,7 @@ scala:
   - 2.11.11
 
 sudo: false
-script:
-  - sbt ++$TRAVIS_SCALA_VERSION 'testOnly IndexingSpecMaterialized'
-  - sbt ++$TRAVIS_SCALA_VERSION 'testOnly IndexingSpecNonMaterialized'
-#  - $TRAVIS_BUILD_DIR/travis/script/build.sh
+script: $TRAVIS_BUILD_DIR/travis/script/build.sh
 
 jdk:
   - oraclejdk8

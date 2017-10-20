@@ -187,7 +187,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
             it.transaction.itemId → obsoleteSeq
         }.groupBy(_._1).mapValues(_.map(_._2)).map(kv ⇒ kv._1 → kv._2.flatten)
 
-        Task.wander(itemIds.keys) { itemId ⇒
+        Task.traverse(itemIds.keys) { itemId ⇒
           // todo: cache content
           val contentTask = Task.eval(Task.fromFuture{
             if (log.isDebugEnabled) {
@@ -203,7 +203,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
             .flatMap { _ ⇒
               indexDefsTask
                 .flatMap { indexDefs ⇒
-                  Task.wander(indexDefs) { indexDef ⇒
+                  Task.traverse(indexDefs) { indexDef ⇒
                     if (log.isDebugEnabled) {
                       log.debug(s"Indexing content ${contentStatic.documentUri}/$itemId for $indexDef")
                     }
