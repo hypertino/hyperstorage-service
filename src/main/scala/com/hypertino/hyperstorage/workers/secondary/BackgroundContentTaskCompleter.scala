@@ -220,23 +220,31 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
                           Math.max(countBefore - deleted.sum, 0)
                         }
 
-                        contentTask.flatMap {
-                          case Some(item) if !item.isDeleted.contains(true) ⇒
-                            Task.fromFuture(deleteObsoleteFuture.flatMap { countAfterDelete ⇒
-                              val count = if (indexDef.status == IndexDef.STATUS_NORMAL) Some(countAfterDelete+1) else None
-                              indexItem(indexDef, item, idFieldName, count)
-                            })
-
-                          case _ ⇒
-                            if (log.isDebugEnabled) {
-                              log.debug(s"No content to index for ${contentStatic.documentUri}/$itemId")
-                            }
-                            Task.fromFuture(
-                              deleteObsoleteFuture.flatMap { countAfterDelete ⇒
-                                val revision = incompleteTransactions.map(t ⇒ t.transaction.revision).max
-                                db.updateIndexRevisionAndCount(indexDef.tableName, indexDef.documentUri, indexDef.indexId, revision, countAfterDelete)
+                        contentTask
+                          .flatMap {
+                            case Some(item) if !item.isDeleted.contains(true) ⇒
+                              Task.fromFuture(deleteObsoleteFuture.flatMap { countAfterDelete ⇒
+                                val count = if (indexDef.status == IndexDef.STATUS_NORMAL) Some(countAfterDelete + 1) else None
+                                indexItem(indexDef, item, idFieldName, count).map(_._2)
                               })
-                        }
+
+                            case _ ⇒
+                              if (log.isDebugEnabled) {
+                                log.debug(s"No content to index for ${contentStatic.documentUri}/$itemId")
+                              }
+                              Task.now(false)
+                          }
+                          .flatMap {
+                            case true ⇒
+                              Task.now(Unit)
+
+                            case false ⇒
+                              Task.fromFuture(
+                                deleteObsoleteFuture.flatMap { countAfterDelete ⇒
+                                  val revision = incompleteTransactions.map(t ⇒ t.transaction.revision).max
+                                  db.updateIndexRevisionAndCount(indexDef.tableName, indexDef.documentUri, indexDef.indexId, revision, countAfterDelete)
+                                })
+                          }
                       }
                   }
                 }

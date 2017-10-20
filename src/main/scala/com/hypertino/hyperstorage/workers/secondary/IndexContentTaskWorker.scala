@@ -11,8 +11,10 @@ import com.hypertino.hyperstorage.sharding.ShardTaskComplete
 import com.hypertino.hyperstorage.utils.FutureUtils
 import com.hypertino.metrics.MetricsTracker
 import monix.execution.Scheduler
+import monix.execution.atomic.AtomicLong
 
 import scala.concurrent.{ExecutionContext, Future}
+import scala.util.Success
 import scala.util.control.NonFatal
 
 @SerialVersionUID(1L) case class IndexContentTask(ttl: Long, indexDefTransaction: IndexDefTransaction, lastItemId: Option[String], processId: Long, expectsResult: Boolean) extends SecondaryTaskTrait {
@@ -43,9 +45,12 @@ trait IndexContentTaskWorker extends ItemIndexer with SecondaryWorkerBase {
 
             db.selectContentCollection(task.indexDefTransaction.documentUri, bucketSize, task.lastItemId.map((_, FilterGt))) flatMap { collectionItems ⇒
               db.selectIndexContentStatic(indexDef.tableName, indexDef.documentUri, indexDef.indexId) flatMap { indexContentStaticO ⇒
-                val countBefore: Long = indexContentStaticO.flatMap(_.count).getOrElse(0l)
+                val countBefore = AtomicLong(indexContentStaticO.flatMap(_.count).getOrElse(0l))
                 FutureUtils.serial(collectionItems.toSeq) { item ⇒
-                  indexItem(indexDef, item, idFieldName, Some(countBefore+1))
+                  indexItem(indexDef, item, idFieldName, Some(countBefore.get+1)).andThen {
+                    case Success((_, true)) ⇒ countBefore.increment()
+                    case _ ⇒
+                  }
                 } flatMap { insertedItemIds ⇒
 
                   if (insertedItemIds.isEmpty) {
@@ -57,7 +62,7 @@ trait IndexContentTaskWorker extends ItemIndexer with SecondaryWorkerBase {
                       }
                     }
                   } else {
-                    val last = insertedItemIds.last
+                    val last = insertedItemIds.last._1
                     db.updatePendingIndexLastItemId(TransactionLogic.partitionFromUri(task.indexDefTransaction.documentUri), task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId, task.indexDefTransaction.defTransactionId, last) map { _ ⇒
                       IndexContentTaskResult(Some(last), task.processId)
                     }

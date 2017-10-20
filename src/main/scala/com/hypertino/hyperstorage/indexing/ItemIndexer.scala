@@ -12,7 +12,7 @@ trait ItemIndexer {
   def db: Db
   implicit def scheduler: Scheduler
 
-  def indexItem(indexDef: IndexDef, item: Content, idFieldName: String, count: Option[Long]): Future[String] = {
+  def indexItem(indexDef: IndexDef, item: Content, idFieldName: String, count: Option[Long]): Future[(String,Boolean)] = {
     val contentValue = item.bodyValue
     val sortBy = IndexLogic.extractSortFieldValues(idFieldName, indexDef.sortByParsed, contentValue)
 
@@ -41,12 +41,12 @@ trait ItemIndexer {
         item.createdAt, item.modifiedAt
       )
       db.insertIndexItem(indexDef.tableName, sortBy, indexContent, item.realTtl) map { _ ⇒
-        item.itemId
+        (item.itemId, write)
       }
     }
     else {
       Future.successful {
-        item.itemId
+        (item.itemId, write)
       }
     }
   }
