@@ -38,7 +38,7 @@ libraryDependencies ++= Seq(
 //  "com.hypertino"               %% "hyperbus-t-zeromq"            % "0.2-SNAPSHOT",
 
   "com.hypertino"               %% "cassandra-binders"            % "0.3.0",
-  "com.hypertino"               %% "expression-parser"            % "0.2.0",
+  "com.hypertino"               %% "expression-parser"            % "0.2.1",
 
   "com.typesafe.akka"           %% "akka-cluster"                 % "2.4.20",
   "com.typesafe.akka"           %% "akka-slf4j"                   % "2.4.20",

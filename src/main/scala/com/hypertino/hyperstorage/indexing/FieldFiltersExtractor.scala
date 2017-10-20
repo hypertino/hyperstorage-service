@@ -5,15 +5,13 @@ import com.hypertino.hyperstorage.db._
 import com.hypertino.parser.ast.{BinaryOperation, Expression, Identifier}
 import com.hypertino.parser.{HEval, HParser}
 
-class FieldFiltersExtractor(idFieldName: String, sortByFields: Seq[HyperStorageIndexSortItem]) {
+class FieldFiltersExtractor(idFieldName: String, sortByFields: Seq[HyperStorageIndexSortItem]) extends FieldFiltersTools {
   private final val size = sortByFields.size
   private final val sortByFieldsMap = sortByFields.zipWithIndex.map{
     case (s,index) ⇒ (parseIdentifier(s.fieldName), (s,index,
         IndexLogic.tableFieldName(idFieldName, s, size, index)
       ))
   }.toMap
-  final val compareOps = Set(">", ">=", "<", "<=", "=").map(Identifier(_))
-  final val andOp = parseIdentifier("and")
 
   def extract(expression: Expression): Seq[FieldFilter] = {
     expression match {
@@ -21,7 +19,7 @@ class FieldFiltersExtractor(idFieldName: String, sortByFields: Seq[HyperStorageI
         fieldFilterSeq(left, op.segments.head, right)
 
       case bop @ BinaryOperation(left, op, right: Identifier) if compareOps.contains(op) && AstComparator.isConstantExpression(left) ⇒
-        fieldFilterSeq(right, swapOp(op.segments.head), left)
+        fieldFilterSeq(right, FilterOperator(op.segments.head).swap.stringOp, left)
 
       case bop @ BinaryOperation(left, op, right) if op == andOp ⇒
         extract(left) ++ extract(right)
@@ -35,32 +33,8 @@ class FieldFiltersExtractor(idFieldName: String, sortByFields: Seq[HyperStorageI
       FieldFilter(
         sf._3,
         new HEval().eval(constExpr),
-        filterOp(op)
+        FilterOperator(op)
       )
     }.toSeq
-  }
-
-  private def swapOp(op: String) = {
-    op match {
-      case ">" ⇒ "<"
-      case ">=" ⇒ "<="
-      case "<" ⇒ ">"
-      case "<=" ⇒ ">="
-      case "=" ⇒ "="
-    }
-  }
-
-  private def filterOp(op: String) = {
-    op match {
-      case ">" ⇒ FilterGt
-      case ">=" ⇒ FilterGtEq
-      case "<" ⇒ FilterLt
-      case "<=" ⇒ FilterLtEq
-      case "=" ⇒ FilterEq
-    }
-  }
-
-  private def parseIdentifier(s: String): Identifier = {
-    new HParser(s).Ident.run().get
   }
 }

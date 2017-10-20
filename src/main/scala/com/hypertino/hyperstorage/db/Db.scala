@@ -161,12 +161,43 @@ object IndexDef {
   val STATUS_NORMAL = 2
 }
 
-sealed trait FilterOperator
-case object FilterEq extends FilterOperator
-case object FilterGt extends FilterOperator
-case object FilterGtEq extends FilterOperator
-case object FilterLt extends FilterOperator
-case object FilterLtEq extends FilterOperator
+sealed trait FilterOperator {
+  def stringOp: String
+  def swap: FilterOperator
+}
+case object FilterEq extends FilterOperator {
+  final val stringOp = "="
+  def swap: FilterOperator = FilterEq
+}
+case object FilterGt extends FilterOperator {
+  final val stringOp = ">"
+  def swap: FilterOperator = FilterLt
+}
+case object FilterGtEq extends FilterOperator {
+  final val stringOp = ">="
+  def swap: FilterOperator = FilterLtEq
+}
+case object FilterLt extends FilterOperator {
+  final val stringOp = "<"
+  def swap: FilterOperator = FilterGt
+}
+case object FilterLtEq extends FilterOperator {
+  final val stringOp = "<="
+  def swap: FilterOperator = FilterGtEq
+}
+
+object FilterOperator {
+  def apply(op: String): FilterOperator = {
+    op match {
+      case FilterGt.`stringOp` ⇒ FilterGt
+      case FilterGtEq.`stringOp` ⇒ FilterGtEq
+      case FilterLt.`stringOp` ⇒ FilterLt
+      case FilterLtEq.`stringOp` ⇒ FilterLtEq
+      case FilterEq.`stringOp` ⇒ FilterEq
+    }
+  }
+}
+
 case class CkField(name: String, ascending: Boolean)
 case class FieldFilter(name: String, value: Value, op: FilterOperator)
 

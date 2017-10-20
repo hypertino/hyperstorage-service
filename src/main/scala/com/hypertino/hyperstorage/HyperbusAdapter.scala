@@ -12,14 +12,14 @@ import com.hypertino.hyperbus.subscribe.Subscribable
 import com.hypertino.hyperbus.util.IdGenerator
 import com.hypertino.hyperstorage.api.{HyperStorageIndexSortItem, _}
 import com.hypertino.hyperstorage.db._
-import com.hypertino.hyperstorage.indexing.{FieldFiltersExpression, FieldFiltersExtractor, IndexLogic, OrderFieldsLogic}
+import com.hypertino.hyperstorage.indexing._
 import com.hypertino.hyperstorage.metrics.Metrics
 import com.hypertino.hyperstorage.workers.primary.{PrimaryContentTask, PrimaryWorkerTaskResult}
 import com.hypertino.hyperstorage.workers.secondary.IndexDefTask
 import com.hypertino.metrics.MetricsTracker
 import com.hypertino.parser.ast.{Expression, Identifier}
 import com.hypertino.parser.eval.ValueContext
-import com.hypertino.parser.{HEval, HParser}
+import com.hypertino.parser.{HEval, HFormatter, HParser}
 import monix.eval.{Callback, Task}
 import monix.execution.{Ack, Cancelable, Scheduler}
 import monix.execution.Ack.Continue
@@ -196,7 +196,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
           selectCollection(resourcePath.documentUri, indexDefs, request.filter, sortBy, pageSize, skipMax, idFieldName)
         }
         else {
-          Future{(List.empty, None, None, Seq.empty)}
+          Future{(List.empty, None, None, None)}
         }
     } yield {
       if (contentStatic.isDefined && contentStatic.forall(!_.isDeleted.contains(true))) {
@@ -204,10 +204,10 @@ class HyperbusAdapter(hyperbus: Hyperbus,
         val revision = if (pageSize == 0) Some(contentStatic.get.revision) else revisionOpt
         val count = if (pageSize == 0) contentStatic.get.count else countOpt
 
-        val nextPageUrl: Option[HRL] = if (nextPageFieldFilter.nonEmpty) Some {
+        val nextPageUrl: Option[HRL] = if (nextPageFieldFilter.isDefined) Some {
           ContentGet(path = resourcePath.documentUri,
             sortBy = Some(Sort.generateQueryParam(sortBy)),
-            filter = Some(FieldFiltersExpression.toExpresion(idFieldName, nextPageFieldFilter)),
+            filter = nextPageFieldFilter.map(HFormatter(_)),
             perPage = Some(pageSize)
           ).headers.hrl
         }
@@ -241,7 +241,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
                                pageSize: Int,
                                skipMax: Int,
                                idFieldName: String)
-                              (implicit messagingContext: MessagingContext): Future[(List[Value], Option[Long], Option[Long], Seq[FieldFilter])] = {
+                              (implicit messagingContext: MessagingContext): Future[(List[Value], Option[Long], Option[Long], Option[Expression])] = {
 
     val queryFilterExpression = queryFilter.flatMap(Option.apply).map(HParser(_))
     val defIdSort = HyperStorageIndexSortItem(idFieldName, Some(HyperStorageIndexSortFieldType.TEXT), Some(HyperStorageIndexSortOrder.ASC))
@@ -274,7 +274,8 @@ class HyperbusAdapter(hyperbus: Hyperbus,
         CollectionQueryOptions(documentUri, indexDefOpt, indexSortFields, reversed, pageSize, pageSize, skipMax, endOfTime, queryFilterFields, ckFields, queryFilterExpression, sortMatchIsExact, idFieldName),
         Seq.empty,0,0,None
       )  map { case (list, revisionOpt, countOpt, nextPageFieldFilter) ⇒
-        (list.take(pageSize), revisionOpt, countOpt, nextPageFieldFilter)
+
+        (list.take(pageSize), revisionOpt, countOpt, nextPageFilterExpression(idFieldName, queryFilterExpression, nextPageFieldFilter))
       }
     }
     else {
@@ -287,12 +288,24 @@ class HyperbusAdapter(hyperbus: Hyperbus,
         } else {
           if (querySortBy.nonEmpty) {
             implicit val ordering = new CollectionOrdering(querySortBy)
-            (list.sorted.take(pageSize), revisionOpt, countOpt, nextPageFieldFilter)
+            (list.sorted.take(pageSize), revisionOpt, countOpt, nextPageFilterExpression(idFieldName, queryFilterExpression, nextPageFieldFilter))
           }
           else
-            (list.take(pageSize), revisionOpt, countOpt, nextPageFieldFilter)
+            (list.take(pageSize), revisionOpt, countOpt, nextPageFilterExpression(idFieldName, queryFilterExpression, nextPageFieldFilter))
         }
       }
+    }
+  }
+
+  private def nextPageFilterExpression(idFieldName: String, queryFilterExpression: Option[Expression], nextPageFieldFilter: Seq[FieldFilter]): Option[Expression] = {
+    if (nextPageFieldFilter.isEmpty) {
+      None
+    }
+    else {
+      val translated = nextPageFieldFilter.map { f ⇒
+        FieldFilter(FieldFiltersExpression.translate(f.name, idFieldName), f.value, f.op)
+      }
+      FieldFilterMerger.merge(queryFilterExpression, translated)
     }
   }
 

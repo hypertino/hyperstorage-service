@@ -157,6 +157,39 @@ class QueryCollectionsSpec extends FlatSpec
     res2.body.content shouldBe Lst.empty
   }
 
+  it should "Query by id asc and return Link header with extra filter expression" in {
+    val hyperbus = setup()
+    setupIndexes(hyperbus)
+    // query by id asc
+    val res = hyperbus
+      .ask(ContentGet("collection-1~", perPage = Some(1), sortBy = Some("id"), filter=Some("b > 0")))
+      .runAsync
+      .futureValue
+    res.headers.statusCode shouldBe Status.OK
+    res.headers.link shouldBe Map("next_page_url" → HRL(
+      location = "hb://hyperstorage/content/{path}",
+      query =
+        Obj.from(
+          "path" → "collection-1~",
+          "skip_max" → Null,
+          "per_page" → 1,
+          "filter" → "(id > \"item1\") and (b > 0)",
+          "sort_by" → "id"
+        )
+    ))
+
+    res.body.content shouldBe Lst.from(c1x)
+    verify(db).selectContentCollection("collection-1~", 1, None, true)
+
+    val res2 = hyperbus
+      .ask(ContentGet("collection-1~", perPage = Some(1), sortBy = Some("id"), filter = Some("id > \"item3\"")))
+      .runAsync
+      .futureValue
+    res2.headers.statusCode shouldBe Status.OK
+    res2.headers.link shouldBe Map.empty
+    res2.body.content shouldBe Lst.empty
+  }
+
   it should "Query by id desc" in {
     val hyperbus = setup()
     setupIndexes(hyperbus)
