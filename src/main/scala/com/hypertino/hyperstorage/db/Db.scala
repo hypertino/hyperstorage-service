@@ -272,22 +272,48 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) extends S
 
   def insertContent(content: Content): Future[Unit] = {
     logger.debug(s"Inserting: $content")
-    val fields = Seq("document_uri", "item_id", "revision", "transaction_list", "body", "created_at") ++
+
+    val staticFields = Seq("revision", "transaction_list") ++
       content.isView.map(_ ⇒ "is_view") ++
       content.isDeleted.map(_ ⇒ "is_deleted") ++
-      content.count.map(_ ⇒ "count") ++
+      content.count.map(_ ⇒ "count")
+
+    val nonStaticfields = Seq("item_id", "body", "created_at") ++
       content.modifiedAt.map(_ ⇒ "modified_at") ++
       content.ttl.map(_ ⇒ "ttl")
 
-    val fieldNames = fields mkString ","
-    val qs = fields.map(_ ⇒ "?") mkString ","
     val ttlValue = Dynamic(content.realTtl.toString)
 
-    cql"""
-      insert into content( ${Dynamic(fieldNames)})
-      values( ${Dynamic(qs)} )
-      using ttl $ttlValue
-    """.bindPartial(content).execute()
+    val cql = if (content.realTtl > 0 && content.itemId.length > 0) {
+      val nsFields = Seq("document_uri") ++ nonStaticfields
+      val nsFieldNames = nsFields mkString ","
+      val nsQs = nsFields.map(_ ⇒ "?") mkString ","
+      val sFields = Seq("document_uri") ++ staticFields
+      val sFieldNames = sFields mkString ","
+      val sQs = sFields.map(_ ⇒ "?") mkString ","
+
+      cql"""
+        begin batch
+          insert into content(${Dynamic(sFieldNames)})
+          values( ${Dynamic(sQs)} );
+          insert into content(${Dynamic(nsFieldNames)})
+          values( ${Dynamic(nsQs)} )
+          using ttl $ttlValue;
+        apply batch;
+      """
+    }
+    else
+    {
+      val fields = Seq("document_uri") ++ staticFields ++ nonStaticfields
+      val fieldNames = fields mkString ","
+      val qs = fields.map(_ ⇒ "?") mkString ","
+      cql"""
+        insert into content( ${Dynamic(fieldNames)})
+        values( ${Dynamic(qs)} )
+        using ttl $ttlValue
+      """
+    }
+    cql.bindPartial(content).execute()
   }
 
   def deleteContentItem(content: ContentBase, itemId: String): Future[Unit] = {
@@ -421,11 +447,25 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) extends S
     val sortFieldPlaces = if (sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_ ⇒ "?").mkString(",", ",", ""))
     val ttlValue = Dynamic(ttl.toString)
 
-    val cql = cql"""
-      insert into $tableName(document_uri,index_id,item_id,revision,count,body,created_at,modified_at$sortFieldNames)
-      values(?,?,?,?,?,?,?,?$sortFieldPlaces)
-      using ttl $ttlValue
-    """.bindPartial(indexContent)
+    val cql =
+    if (ttl > 0) {
+      cql"""
+        begin batch
+          insert into $tableName(document_uri,index_id,revision,count)
+          values(?,?,?,?);
+          insert into $tableName(document_uri,index_id,item_id,body,created_at,modified_at$sortFieldNames)
+          values(?,?,?,?,?,?$sortFieldPlaces)
+          using ttl $ttlValue;
+        apply batch;
+      """.bindPartial(indexContent)
+    }
+    else {
+      cql"""
+        insert into $tableName(document_uri,index_id,item_id,revision,count,body,created_at,modified_at$sortFieldNames)
+        values(?,?,?,?,?,?,?,?$sortFieldPlaces)
+        using ttl $ttlValue
+      """.bindPartial(indexContent)
+    }
 
     bindSortFields(cql, sortFields)
     cql.execute()
