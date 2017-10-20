@@ -210,7 +210,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
 
                     Task.fromFuture(db.selectIndexContentStatic(indexDef.tableName, indexDef.documentUri, indexDef.indexId))
                       .flatMap { indexContentStaticO ⇒
-
+                        log.debug(s"Index $indexDef static data: $indexContentStaticO")
                         val countBefore: Long = indexContentStaticO.flatMap(_.count).getOrElse(0l)
                         // todo: refactor, this is crazy
                         val seq: Seq[Seq[(String, Value)]] = itemIds(itemId).filter(_._1 == indexDef.indexId).map(_._2)

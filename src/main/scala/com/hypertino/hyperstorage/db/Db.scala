@@ -8,6 +8,7 @@ import com.hypertino.binders.value.{Null, Number, Text, Value}
 import com.hypertino.hyperstorage.{CassandraConnector, ContentLogic}
 import com.hypertino.hyperstorage.api.HyperStorageIndexSortItem
 import com.hypertino.inflector.naming.CamelCaseToSnakeCaseConverter
+import com.typesafe.scalalogging.StrictLogging
 import org.slf4j.LoggerFactory
 
 import scala.concurrent.{ExecutionContext, Future}
@@ -205,10 +206,9 @@ private[db] case class CheckPoint(lastQuantum: Long)
 private[db] case class IndexItemId(itemId: String)
 private[db] case class ContentTtl(ttl: Int)
 
-class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
+class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) extends StrictLogging {
   private[this] lazy val session: com.datastax.driver.core.Session = connector.connect()
   private[this] lazy implicit val sessionQueryCache = new GuavaSessionQueryCache[CamelCaseToSnakeCaseConverter.type](session)
-  val log = LoggerFactory.getLogger(getClass)
 
   def preStart(): Unit = {
     session
@@ -222,7 +222,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     }
     catch {
       case NonFatal(e) ⇒
-        log.error(s"Can't close C* session", e)
+        logger.error(s"Can't close C* session", e)
     }
   }
 
@@ -271,6 +271,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     """.oneOption[ContentStatic]
 
   def insertContent(content: Content): Future[Unit] = {
+    logger.debug(s"Inserting: $content")
     val fields = Seq("document_uri", "item_id", "revision", "transaction_list", "body", "created_at") ++
       content.isView.map(_ ⇒ "is_view") ++
       content.isDeleted.map(_ ⇒ "is_deleted") ++
@@ -289,7 +290,9 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
     """.bindPartial(content).execute()
   }
 
-  def deleteContentItem(content: ContentBase, itemId: String): Future[Unit] = cql"""
+  def deleteContentItem(content: ContentBase, itemId: String): Future[Unit] = {
+    logger.debug(s"Deleting: $content")
+    cql"""
       begin batch
         update content
         set transaction_list = ${content.transactionList}, revision = ${content.revision}, count = ${content.count}
@@ -298,6 +301,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
         where document_uri = ${content.documentUri} and item_id = $itemId;
       apply batch;
     """.execute()
+  }
 
   def selectTransaction(dtQuantum: Long, partition: Int, documentUri: String, uuid: UUID): Future[Option[Transaction]] = cql"""
       select dt_quantum,partition,document_uri,item_id,uuid,revision,body,obsolete_index_items,completed_at from transaction
@@ -411,6 +415,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
   }
 
   def insertIndexItem(indexTable: String, sortFields: Seq[(String, Value)], indexContent: IndexContent, ttl: Int): Future[Unit] = {
+    logger.debug(s"Inserting indexed: $indexTable, $sortFields, $ttl, $indexContent")
     val tableName = Dynamic(indexTable)
     val sortFieldNames = if (sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_._1).mkString(",", ",", ""))
     val sortFieldPlaces = if (sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_ ⇒ "?").mkString(",", ",", ""))
@@ -475,6 +480,8 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
                       indexId: String,
                       itemId: String,
                       sortFields: Seq[(String,Value)]): Future[Long] = {
+    logger.debug(s"Deleting indexed: $indexTable, $sortFields, $indexId, $documentUri, $itemId")
+
     val tableName = Dynamic(indexTable)
 
     val sortFieldsFilter = Dynamic(sortFields map { case (name, _) ⇒
@@ -509,6 +516,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) {
   }
 
   def updateIndexRevisionAndCount(indexTable: String, documentUri: String, indexId: String, revision: Long, count: Long): Future[Unit] = {
+    logger.debug(s"Update index revision: $indexTable, $indexId, $documentUri, rev $revision, count $count")
     val tableName = Dynamic(indexTable)
     cql"""
       update $tableName

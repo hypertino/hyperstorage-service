@@ -6,7 +6,7 @@
         </encoder>
     </appender>
     <logger name="com.hypertino.binders.cassandra">
-        <level value="trace" />
+        <level value="info" />
     </logger>
     <logger name="org.apache.cassandra">
         <level value="warn" />
@@ -17,7 +17,7 @@
     <logger name="com.datastax.driver">
         <level value="warn" />
     </logger>
-    <root level="trace">
+    <root level="debug">
         <appender-ref ref="stdout"/>
     </root>
 </configuration>
