@@ -389,6 +389,23 @@ abstract class IndexingSpec extends FlatSpec
       )), Seq.empty, 10).futureValue.toSeq
       indexContent shouldBe empty
     }
+
+    val f4 = hyperbus.ask(ContentGet(
+      path = "collection-1~",
+      filter = Some("b > 10"),
+      perPage = Some(50)
+    )).runAsync
+    val rc4 = f4.futureValue
+    rc4.body.content shouldBe Lst.empty
+
+    val f5 = hyperbus.ask(ContentGet(
+      path = "collection-1~",
+      filter = Some("b > 10"),
+      sortBy = Some("a"),
+      perPage = Some(50)
+    )).runAsync
+    val rc5 = f5.futureValue
+    rc5.body.content shouldBe Lst.empty
   }
 
   it should "Putting over existing item should update index" in {

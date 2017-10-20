@@ -320,11 +320,24 @@ class HyperbusAdapter(hyperbus: Hyperbus,
         )
 
       case Some(indexDef) ⇒
+        val filterFields = if(ops.filterFields.isEmpty) {
+          val v = if (ops.indexSortBy.head.fieldType.getOrElse(HyperStorageIndexSortFieldType.TEXT) == HyperStorageIndexSortFieldType.TEXT) {
+            Text("")
+          } else {
+            Number(BigDecimal("1e-100"))
+          }
+          val fieldName = IndexLogic.tableFieldName(ops.idFieldName, ops.indexSortBy.head, ops.indexSortBy.size, 0)
+          Seq(FieldFilter(fieldName, v, FilterGt))
+        }
+        else {
+          ops.filterFields
+        }
+
         val si = db.selectIndexCollection(
           indexDef.tableName,
           ops.documentUri,
           indexDef.indexId,
-          ops.filterFields,
+          filterFields,
           ops.ckFields,
           ops.limit
         )
