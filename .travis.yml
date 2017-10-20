@@ -5,7 +5,9 @@ scala:
   - 2.11.11
 
 sudo: false
-script: $TRAVIS_BUILD_DIR/travis/script/build.sh
+script:
+  - sbt ++$TRAVIS_SCALA_VERSION testOnly *IndexingSpec
+#  - $TRAVIS_BUILD_DIR/travis/script/build.sh
 
 jdk:
   - oraclejdk8
