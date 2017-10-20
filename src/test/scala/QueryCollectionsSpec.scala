@@ -298,7 +298,7 @@ class QueryCollectionsSpec extends FlatSpec
 
     res.headers.statusCode shouldBe Status.OK
     res.body.content shouldBe Lst.from(c1x, c3x)
-    verify(db).selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq(CkField("item_id", true)), 50)
+    verify(db).selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter("item_id","",FilterGt)), Seq(CkField("item_id", true)), 50)
 
     val res2 = hyperbus
       .ask(ContentGet("collection-1~", perPage = Some(50), sortBy = Some("a"), filter = Some("b > 10")))
@@ -307,7 +307,7 @@ class QueryCollectionsSpec extends FlatSpec
 
     res2.headers.statusCode shouldBe Status.OK
     res2.body.content shouldBe Lst.from(c1x, c3x)
-    verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq.empty, Seq(CkField("t0", true)), 50)
+    verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq(FieldFilter("t0","",FilterGt)), Seq(CkField("t0", true)), 50)
   }
 
   it should "Query when filter matches index filter and reversed sort order" in {
@@ -321,7 +321,7 @@ class QueryCollectionsSpec extends FlatSpec
 
     res.headers.statusCode shouldBe Status.OK
     res.body.content shouldBe Lst.from(c3x, c1x)
-    verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq.empty, Seq(CkField("t0", false)), 50)
+    verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq(FieldFilter("t0","",FilterGt)), Seq(CkField("t0", false)), 50)
 
     val res2 = hyperbus
       .ask(ContentGet("collection-1~", perPage = Some(50), sortBy = Some("-a,-id"), filter = Some("b > 10")))
@@ -330,7 +330,7 @@ class QueryCollectionsSpec extends FlatSpec
 
     res2.headers.statusCode shouldBe Status.OK
     res2.body.content shouldBe Lst.from(c3x, c1x)
-    verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq.empty, Seq(CkField("t0", false), CkField("item_id", false)), 50)
+    verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq(FieldFilter("t0","",FilterGt)), Seq(CkField("t0", false), CkField("item_id", false)), 50)
   }
 
   it should "Query when filter partially matches index filter and sort order" in {
@@ -344,7 +344,7 @@ class QueryCollectionsSpec extends FlatSpec
 
     res.headers.statusCode shouldBe Status.OK
     res.body.content shouldBe Lst.from(c1x)
-    verify(db).selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq(CkField("item_id", true)), 50)
+    verify(db).selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter("item_id","",FilterGt)), Seq(CkField("item_id", true)), 50)
   }
 
   it should "Query when filter partially matches index filter and sort order with CK field filter" in {
@@ -381,7 +381,7 @@ class QueryCollectionsSpec extends FlatSpec
 
     res.headers.statusCode shouldBe Status.OK
     res.body.content shouldBe Lst.from(c2x, c3x)
-    verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq.empty, Seq(CkField("t0", true)), 2)
+    verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0","",FilterGt)), Seq(CkField("t0", true)), 2)
     verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", Seq(FieldFilter("t0", Text("hello"), FilterEq), FieldFilter("item_id", Text("item1"), FilterGt)), Seq(CkField("t0", true)), 501)
   }
 
