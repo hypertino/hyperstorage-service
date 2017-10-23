@@ -1,0 +1,32 @@
+#%RAML 1.0
+title: HyperStorage API
+baseUri: hb://hyperstorage-internal
+
+types:
+  NodeStatus:
+    enum: [unknown,passive,activating,active,deactivating]
+
+  Node:
+    type: object
+    properties:
+      id: string
+      status: NodeStatus
+      clusterHash: integer
+
+  NodeUpdated:
+    type: object
+    properties:
+      acceptorId: string
+      status: NodeStatus
+      acceptedStatus: NodeStatus
+      clusterHash: integer
+
+/node:
+  get:
+    responses:
+      200:
+        body:
+          application/json: Node
+
+/nodes:
+  post:

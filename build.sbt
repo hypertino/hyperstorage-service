@@ -2,7 +2,7 @@ name := "hyperstorage"
 
 organization := "com.hypertino"
 
-version := "0.4-SNAPSHOT"
+version := "0.5-SNAPSHOT"
 
 crossScalaVersions := Seq("2.12.3", "2.11.11")
 
@@ -12,6 +12,11 @@ ramlHyperbusSources := Seq(
   ramlSource(
     path = "api/hyperstorage-service-api/hyperstorage.raml",
     packageName = "com.hypertino.hyperstorage.api",
+    isResource = false
+  ),
+  ramlSource(
+    path = "api/internal/internal-api.raml",
+    packageName = "com.hypertino.hyperstorage.internal.api",
     isResource = false
   )
 )
