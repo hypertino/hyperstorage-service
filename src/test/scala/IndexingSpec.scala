@@ -333,7 +333,7 @@ abstract class IndexingSpec extends FlatSpec
     val c2 = Obj.from("a" → "goodbye")
     val c2x = c2 + Obj.from("id" → "item1")
     val f2 = hyperbus.ask(ContentPatch("collection-1~/item1", DynamicBody(c2))).runAsync
-    f2.futureValue.statusCode should equal(Status.OK)
+    f2.futureValue.headers.statusCode should equal(Status.OK)
 
     eventually {
       val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
@@ -374,7 +374,7 @@ abstract class IndexingSpec extends FlatSpec
 
     val c3 = Obj.from("b" → 5)
     val f3 = hyperbus.ask(ContentPatch("collection-1~/item1", DynamicBody(c3))).runAsync
-    f3.futureValue.statusCode should equal(Status.OK)
+    f3.futureValue.headers.statusCode should equal(Status.OK)
 
     eventually {
       val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
