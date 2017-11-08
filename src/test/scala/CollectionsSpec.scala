@@ -224,7 +224,7 @@ class CollectionsSpec extends FlatSpec
     val ResourcePath(documentUri, itemId) = ContentLogic.splitPath(path)
 
     val taskPutStr = ContentPut(path,
-      DynamicBody(Obj.from("text1" → "abc", "text2" → "klmn"))
+      DynamicBody(Obj.from("str" → "abc"))
     ).serializeToString
 
     worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPutStr, expectsResult=true,isClientOperation=true)
@@ -245,6 +245,20 @@ class CollectionsSpec extends FlatSpec
 
     db.selectContent(documentUri, itemId).futureValue.get.isDeleted shouldBe Some(true)
     db.selectContent(documentUri, "").futureValue.get.isDeleted shouldBe Some(true)
+
+    val itemId2 = "el2"
+    val path2 = documentUri + "/" + itemId2
+
+    val taskPut2Str = ContentPut(path2,
+      DynamicBody(Obj.from("str" → "klmn"))
+    ).serializeToString
+
+    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPut2Str, expectsResult=true,isClientOperation=true)
+    expectMsgType[BackgroundContentTask]
+    expectMsgType[ShardTaskComplete]
+
+    db.selectContent(documentUri, itemId2).futureValue.get.isDeleted shouldBe None
+    db.selectContent(documentUri, itemId).futureValue shouldBe None
   }
 
   it should "put empty collection" in {

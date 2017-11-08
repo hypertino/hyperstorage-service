@@ -329,6 +329,14 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) extends S
     """.execute()
   }
 
+  def purgeCollection(documentUri: String): Future[Unit] = {
+    logger.debug(s"Purging collection: $documentUri")
+    cql"""
+      delete from content
+      where document_uri = $documentUri;
+    """.execute()
+  }
+
   def selectTransaction(dtQuantum: Long, partition: Int, documentUri: String, uuid: UUID): Future[Option[Transaction]] = cql"""
       select dt_quantum,partition,document_uri,item_id,uuid,revision,body,obsolete_index_items,completed_at from transaction
       where dt_quantum=$dtQuantum and partition=$partition and document_uri=$documentUri and uuid=$uuid

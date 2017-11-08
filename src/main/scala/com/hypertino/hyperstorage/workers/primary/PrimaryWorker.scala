@@ -218,7 +218,14 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
             db.deleteContentItem(newContent, itemId)
           }
           else {
-            db.insertContent(newContent)
+            if (isCollectionUri(documentUri) && existingContentStatic.exists(_.isDeleted.contains(true))) {
+              db.purgeCollection(documentUri).flatMap { _ ⇒
+                db.insertContent(newContent)
+              }
+            }
+            else {
+              db.insertContent(newContent)
+            }
           }
         } map { _ ⇒
           newTransactionWithOI
