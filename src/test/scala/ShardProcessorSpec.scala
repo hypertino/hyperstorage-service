@@ -1,8 +1,8 @@
-import com.hypertino.hyperstorage.sharding._
+import com.hypertino.hyperstorage.internal.api.NodeStatus
 import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.time.{Millis, Span}
-import org.scalatest.{FlatSpec, FreeSpec, Matchers}
+import org.scalatest.{FlatSpec, Matchers}
 
 import scala.concurrent.duration._
 
@@ -39,10 +39,10 @@ class ShardProcessorSpec extends FlatSpec
     val fsm = createShardProcessor("test-group", waitWhileActivates = false)
     val task = TestShardTask("abc", "t1")
     fsm ! task
-    fsm.stateName should equal(ShardMemberStatus.Activating)
+    fsm.stateName should equal(NodeStatus.ACTIVATING)
     task.isProcessed should equal(false)
     testKit().awaitCond(task.isProcessed)
-    fsm.stateName should equal(ShardMemberStatus.Active)
+    fsm.stateName should equal(NodeStatus.ACTIVE)
     shutdownShardProcessor(fsm)
   }
 

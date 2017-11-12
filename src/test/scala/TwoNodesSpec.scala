@@ -1,5 +1,6 @@
 import akka.cluster.Cluster
-import com.hypertino.hyperstorage.sharding.{ShardMemberStatus, ShutdownProcessor}
+import com.hypertino.hyperstorage.internal.api.NodeStatus
+import com.hypertino.hyperstorage.sharding.ShutdownProcessor
 import org.scalatest._
 import org.scalatest.concurrent.ScalaFutures
 
@@ -17,8 +18,8 @@ class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
       (createShardProcessor("test-group", waitWhileActivates = false), actorSystem2, testKit(2))
     }
 
-    testKit1.awaitCond(fsm1.stateName == ShardMemberStatus.Active && fsm1.stateData.members.nonEmpty)
-    testKit2.awaitCond(fsm2.stateName == ShardMemberStatus.Active && fsm2.stateData.members.nonEmpty)
+    testKit1.awaitCond(fsm1.stateName == NodeStatus.ACTIVE && fsm1.stateData.nodes.nonEmpty)
+    testKit2.awaitCond(fsm2.stateName == NodeStatus.ACTIVE && fsm2.stateData.nodes.nonEmpty)
 
     shutdownShardProcessor(fsm1)(actorSystem1)
     shutdownCluster(1)
@@ -32,20 +33,20 @@ class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
       (createShardProcessor("test-group", waitWhileActivates = false), actorSystem1, testKit(1))
     }
 
-    testKit1.awaitCond(fsm1.stateName == ShardMemberStatus.Active && fsm1.stateData.members.isEmpty)
+    testKit1.awaitCond(fsm1.stateName == NodeStatus.ACTIVE && fsm1.stateData.nodes.isEmpty)
 
     val (fsm2, actorSystem2, testKit2) = {
       implicit val actorSystem2 = testActorSystem(2)
       (createShardProcessor("test-group", waitWhileActivates = false), actorSystem2, testKit(2))
     }
 
-    testKit2.awaitCond(fsm2.stateName == ShardMemberStatus.Active && fsm2.stateData.members.nonEmpty, 5 second)
+    testKit2.awaitCond(fsm2.stateName == NodeStatus.ACTIVE && fsm2.stateData.nodes.nonEmpty, 5 second)
 
     shutdownShardProcessor(fsm1)(actorSystem1)
     shutdownCluster(1)
     //shutdownActorSystem(1)
 
-    testKit2.awaitCond(fsm2.stateName == ShardMemberStatus.Active && fsm2.stateData.members.isEmpty, 10 second)
+    testKit2.awaitCond(fsm2.stateName == NodeStatus.ACTIVE && fsm2.stateData.nodes.isEmpty, 10 second)
     shutdownShardProcessor(fsm2)(actorSystem2)
   }
 
@@ -60,8 +61,8 @@ class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
       (createShardProcessor("test-group", waitWhileActivates = false), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
     }
 
-    testKit1.awaitCond(fsm1.stateName == ShardMemberStatus.Active && fsm1.stateData.members.nonEmpty, 5 second)
-    testKit2.awaitCond(fsm2.stateName == ShardMemberStatus.Active && fsm2.stateData.members.nonEmpty, 5 second)
+    testKit1.awaitCond(fsm1.stateName == NodeStatus.ACTIVE && fsm1.stateData.nodes.nonEmpty, 5 second)
+    testKit2.awaitCond(fsm2.stateName == NodeStatus.ACTIVE && fsm2.stateData.nodes.nonEmpty, 5 second)
 
     val task1 = TestShardTask("abc1", "t1")
     fsm1 ! task1
@@ -85,8 +86,8 @@ class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
       (createShardProcessor("test-group", waitWhileActivates = false), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
     }
 
-    testKit1.awaitCond(fsm1.stateName == ShardMemberStatus.Active && fsm1.stateData.members.nonEmpty, 5 second)
-    testKit2.awaitCond(fsm2.stateName == ShardMemberStatus.Active && fsm2.stateData.members.nonEmpty, 5 second)
+    testKit1.awaitCond(fsm1.stateName == NodeStatus.ACTIVE && fsm1.stateData.nodes.nonEmpty, 5 second)
+    testKit2.awaitCond(fsm2.stateName == NodeStatus.ACTIVE && fsm2.stateData.nodes.nonEmpty, 5 second)
 
     val task1 = TestShardTask("abc1", "t3")
     fsm2 ! task1
@@ -110,13 +111,13 @@ class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
       (createShardProcessor("test-group", waitWhileActivates = false), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
     }
 
-    testKit1.awaitCond(fsm1.stateName == ShardMemberStatus.Active && fsm1.stateData.members.nonEmpty)
-    testKit2.awaitCond(fsm2.stateName == ShardMemberStatus.Active && fsm2.stateData.members.nonEmpty)
+    testKit1.awaitCond(fsm1.stateName == NodeStatus.ACTIVE && fsm1.stateData.nodes.nonEmpty)
+    testKit2.awaitCond(fsm2.stateName == NodeStatus.ACTIVE && fsm2.stateData.nodes.nonEmpty)
 
     fsm1 ! ShutdownProcessor
 
     testKit1.awaitCond({
-      fsm1.stateName == ShardMemberStatus.Deactivating
+      fsm1.stateName == NodeStatus.DEACTIVATING
     }, 10.second)
 
     val task1 = TestShardTask("abc1", "t5", sleep = 500)
@@ -130,11 +131,11 @@ class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
 
     testKit2.awaitCond({
       assert(!(
-        fsm2.stateData.members.filterNot(_._2.status == ShardMemberStatus.Passive).nonEmpty
+          !fsm2.stateData.nodes.forall(_._2.status == NodeStatus.PASSIVE)
           &&
           (task2.isProcessed || task1.isProcessed)
         ))
-      fsm2.stateData.members.isEmpty
+      fsm2.stateData.nodes.isEmpty
     }, 10 second)
 
     testKit2.awaitCond(task1.isProcessed && task2.isProcessed)
@@ -160,7 +161,7 @@ class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
     }
 
     testKit1.awaitCond({
-      assert(fsm2.stateName == ShardMemberStatus.Activating)
+      assert(fsm2.stateName == NodeStatus.ACTIVATING)
       task1.isProcessed
     }, 10 second)
 

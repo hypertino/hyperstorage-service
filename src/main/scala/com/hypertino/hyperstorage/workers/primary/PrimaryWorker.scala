@@ -525,7 +525,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     implicit val mcx: MessagingContext = request
     existingContentStatic match {
       case None ⇒
-        throw NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
+        throw NotFound(ErrorBody("not-found", Some(s"Resource '${request.path}' is not found")))
 
       case Some(content) ⇒
         if (content.isView.contains(true) && request.headers.hrl.location != ViewDelete.location && itemId.isEmpty) {

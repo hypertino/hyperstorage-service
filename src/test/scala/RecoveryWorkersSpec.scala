@@ -8,8 +8,8 @@ import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.api._
+import com.hypertino.hyperstorage.internal.api.NodeStatus
 import com.hypertino.hyperstorage.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
-import com.hypertino.hyperstorage.sharding.ShardMemberStatus.Active
 import com.hypertino.hyperstorage.sharding._
 import com.hypertino.hyperstorage.workers.primary.{PrimaryContentTask, PrimaryWorker}
 import com.hypertino.hyperstorage.workers.secondary.{BackgroundContentTask, BackgroundContentTaskFailedException, BackgroundContentTaskResult}
@@ -61,11 +61,11 @@ class RecoveryWorkersSpec extends FlatSpec
     val hotWorker = TestActorRef(hotWorkerProps)
     val selfAddress = Address("tcp", "127.0.0.1")
     val shardData = ShardedClusterData(Map(
-      selfAddress → ShardMember(ActorSelection(self, ""), ShardMemberStatus.Active, ShardMemberStatus.Active)
-    ), selfAddress, ShardMemberStatus.Active)
+      selfAddress.toString → ShardNode(ActorSelection(self, ""), NodeStatus.ACTIVE, NodeStatus.ACTIVE, selfAddress.toString)
+    ), selfAddress.toString, NodeStatus.ACTIVE)
 
     // start recovery check
-    hotWorker ! UpdateShardStatus(self, Active, shardData)
+    hotWorker ! UpdateShardStatus(self, NodeStatus.ACTIVE, shardData)
 
     val backgroundWorkerTask2 = processorProbe.expectMsgType[BackgroundContentTask](max = 30.seconds)
     backgroundWorkerTask.documentUri should equal(backgroundWorkerTask2.documentUri)
@@ -115,11 +115,11 @@ class RecoveryWorkersSpec extends FlatSpec
     val hotWorker = TestActorRef(staleWorkerProps)
     val selfAddress = Address("tcp", "127.0.0.1")
     val shardData = ShardedClusterData(Map(
-      selfAddress → ShardMember(ActorSelection(self, ""), ShardMemberStatus.Active, ShardMemberStatus.Active)
-    ), selfAddress, ShardMemberStatus.Active)
+      selfAddress.toString → ShardNode(ActorSelection(self, ""), NodeStatus.ACTIVE, NodeStatus.ACTIVE, selfAddress.toString)
+    ), selfAddress.toString, NodeStatus.ACTIVE)
 
     // start recovery check
-    hotWorker ! UpdateShardStatus(self, Active, shardData)
+    hotWorker ! UpdateShardStatus(self, NodeStatus.ACTIVE, shardData)
 
     val backgroundWorkerTask2 = processorProbe.expectMsgType[BackgroundContentTask](max = 30.seconds)
     backgroundWorkerTask.documentUri should equal(backgroundWorkerTask2.documentUri)

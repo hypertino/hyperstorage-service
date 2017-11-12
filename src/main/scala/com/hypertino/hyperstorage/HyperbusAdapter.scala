@@ -174,7 +174,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
 
   private def queryCollection(resourcePath: ResourcePath, request: ContentGet): Future[ResponseBase] = {
     implicit val mcx = request
-    val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
+    val notFound = NotFound(ErrorBody("not-found", Some(s"Resource '${request.path}' is not found")))
 
     val sortBy = Sort.parseQueryParam(request.sortBy)
 
@@ -464,7 +464,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
 
   private def queryDocument(resourcePath: ResourcePath, request: ContentGet): Future[ResponseBase] = {
     implicit val mcx = request
-    val notFound = NotFound(ErrorBody("not_found", Some(s"Resource '${request.path}' is not found")))
+    val notFound = NotFound(ErrorBody("not-found", Some(s"Resource '${request.path}' is not found")))
     db.selectContent(resourcePath.documentUri, resourcePath.itemId) map {
       case None ⇒
         notFound

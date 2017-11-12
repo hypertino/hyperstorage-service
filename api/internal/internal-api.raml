@@ -4,22 +4,25 @@ baseUri: hb://hyperstorage-internal
 
 types:
   NodeStatus:
-    enum: [unknown,passive,activating,active,deactivating]
+    enum: [passive,activating,active,deactivating,lost]
 
   Node:
     type: object
     properties:
-      id: string
+      node_id: string
       status: NodeStatus
-      clusterHash: integer
+      cluster_nodes: string
 
   NodeUpdated:
     type: object
     properties:
-      acceptorId: string
-      status: NodeStatus
-      acceptedStatus: NodeStatus
-      clusterHash: integer
+      source_node_id: string
+      source_status: NodeStatus
+      accepted_status: NodeStatus
+      cluster_nodes: string
+
+  NodesPostError:
+    enum: [unknown-node,cluster-not-matches]
 
 /node:
   get:
@@ -30,3 +33,11 @@ types:
 
 /nodes:
   post:
+    body:
+      application/json: Node
+    responses:
+      200:
+        body:
+          application/json: NodeUpdated
+      409:
+

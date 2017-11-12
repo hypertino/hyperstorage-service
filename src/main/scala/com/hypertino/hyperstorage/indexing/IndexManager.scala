@@ -6,7 +6,7 @@ import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperstorage.TransactionLogic
 import com.hypertino.hyperstorage.db.Db
-import com.hypertino.hyperstorage.sharding.ShardMemberStatus.{Active, Deactivating}
+import com.hypertino.hyperstorage.internal.api.NodeStatus
 import com.hypertino.hyperstorage.sharding.{ShardedClusterData, UpdateShardStatus}
 import com.hypertino.hyperstorage.utils.AkkaNaming
 import com.hypertino.metrics.MetricsTracker
@@ -31,7 +31,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
   var currentProcessId: Long = 0
 
   override def receive: Receive = {
-    case UpdateShardStatus(_, Active, stateData) ⇒
+    case UpdateShardStatus(_, NodeStatus.ACTIVE, stateData) ⇒
       clusterActivated(stateData, Seq.empty)
 
     case ShutdownIndexManager ⇒
@@ -44,13 +44,13 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
   }
 
   def running(clusterActor: ActorRef, stateData: ShardedClusterData): Receive = {
-    case UpdateShardStatus(_, Active, newStateData) ⇒
+    case UpdateShardStatus(_, NodeStatus.ACTIVE, newStateData) ⇒
       if (newStateData != stateData) {
         // restart with new partition list
         clusterActivated(newStateData, TransactionLogic.getPartitions(stateData))
       }
 
-    case UpdateShardStatus(_, Deactivating, _) ⇒
+    case UpdateShardStatus(_, NodeStatus.DEACTIVATING, _) ⇒
       indexWorkers.values.foreach(context.stop)
       context.become(stopping)
 
