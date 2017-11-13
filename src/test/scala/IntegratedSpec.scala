@@ -1,5 +1,6 @@
 import java.util.UUID
 
+import akka.actor.{ActorSystem, Props}
 import akka.testkit.TestActorRef
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model.{NotFound, _}
@@ -7,6 +8,7 @@ import com.hypertino.hyperbus.serialization.SerializationOptions
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.api._
 import com.hypertino.hyperstorage.sharding._
+import com.hypertino.hyperstorage.sharding.akkacluster.AkkaClusterShardingTransport
 import com.hypertino.hyperstorage.utils.SortBy
 import com.hypertino.hyperstorage.workers.primary.PrimaryWorker
 import com.hypertino.hyperstorage.workers.secondary.SecondaryWorker
@@ -44,7 +46,7 @@ class IntegratedSpec extends FlatSpec
       "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
     )
 
-    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))
+    val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
     Thread.sleep(2000)
@@ -83,7 +85,7 @@ class IntegratedSpec extends FlatSpec
       "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
     )
 
-    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))
+    val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
     Thread.sleep(2000)
@@ -119,7 +121,7 @@ class IntegratedSpec extends FlatSpec
       "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
     )
 
-    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))
+    val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
     Thread.sleep(2000)
@@ -169,7 +171,7 @@ class IntegratedSpec extends FlatSpec
       "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
     )
 
-    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))
+    val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
     Thread.sleep(2000)
@@ -224,7 +226,7 @@ class IntegratedSpec extends FlatSpec
       "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
     )
 
-    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))
+    val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
     Thread.sleep(2000)
@@ -305,7 +307,7 @@ class IntegratedSpec extends FlatSpec
       "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
     )
 
-    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))
+    val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
     Thread.sleep(2000)
@@ -402,7 +404,7 @@ class IntegratedSpec extends FlatSpec
       "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
     )
 
-    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))
+    val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
     Thread.sleep(2000)
@@ -456,7 +458,7 @@ class IntegratedSpec extends FlatSpec
       "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
     )
 
-    val processor = TestActorRef(ShardProcessor.props(workerSettings, "hyperstorage", tracker))
+    val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
     Thread.sleep(2000)
@@ -494,6 +496,11 @@ class IntegratedSpec extends FlatSpec
         .failed
         .futureValue shouldBe a[NotFound[_]]
     }
+  }
+
+  def shardProcessor(workerSettings: Map[String, (Props, Int, String)])(implicit as: ActorSystem) = {
+    val clusterTransport = TestActorRef(AkkaClusterShardingTransport.props("hyperstorage"))
+    TestActorRef(ShardProcessor.props(clusterTransport, workerSettings, tracker))
   }
 }
 

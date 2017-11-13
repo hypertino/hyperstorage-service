@@ -14,6 +14,7 @@ import com.hypertino.hyperstorage.indexing.IndexManager
 import com.hypertino.hyperstorage.internal.api.NodeStatus
 import com.hypertino.hyperstorage.modules.{HyperStorageServiceModule, SystemServicesModule}
 import com.hypertino.hyperstorage.sharding._
+import com.hypertino.hyperstorage.sharding.akkacluster.AkkaClusterShardingTransport
 import com.hypertino.hyperstorage.workers.primary.PrimaryWorker
 import com.hypertino.hyperstorage.workers.secondary.SecondaryWorker
 import com.hypertino.metrics.MetricsTracker
@@ -44,9 +45,10 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
   implicit def scheduler = inject [monix.execution.Scheduler]
 
   def createShardProcessor(groupName: String, workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
+    val clusterTransport = TestActorRef(AkkaClusterShardingTransport.props("hyperstorage"))
     val workerSettings = Map(groupName → (Props[TestWorker], workerCount, "test-worker"))
     val fsm = new TestFSMRef[String, ShardedClusterData, ShardProcessor](actorSystem,
-      ShardProcessor.props(workerSettings, "hyperstorage", tracker).withDispatcher("deque-dispatcher"),
+      ShardProcessor.props(clusterTransport, workerSettings, tracker).withDispatcher("deque-dispatcher"),
       GuardianExtractor.guardian(actorSystem),
       "hyperstorage"
     )
@@ -73,8 +75,9 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
       "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
     )
 
+    val clusterTransport = TestActorRef(AkkaClusterShardingTransport.props("hyperstorage"))
     val processor = new TestFSMRef[String, ShardedClusterData, ShardProcessor](system,
-      ShardProcessor.props(workerSettings, "hyperstorage", tracker).withDispatcher("deque-dispatcher"),
+      ShardProcessor.props(clusterTransport, workerSettings, tracker).withDispatcher("deque-dispatcher"),
       GuardianExtractor.guardian(system),
       "hyperstorage"
     )
