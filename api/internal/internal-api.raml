@@ -11,7 +11,7 @@ types:
     properties:
       node_id: string
       status: NodeStatus
-      cluster_nodes: string
+      cluster_hash: integer
 
   NodeUpdated:
     type: object
@@ -19,7 +19,7 @@ types:
       source_node_id: string
       source_status: NodeStatus
       accepted_status: NodeStatus
-      cluster_nodes: string
+      cluster_hash: integer
 
   NodesPostError:
     enum: [unknown-node,cluster-not-matches]
