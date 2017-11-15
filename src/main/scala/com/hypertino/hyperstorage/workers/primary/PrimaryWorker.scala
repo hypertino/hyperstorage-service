@@ -25,6 +25,7 @@ import com.hypertino.hyperstorage.db._
 import com.hypertino.hyperstorage.indexing.IndexLogic
 import com.hypertino.hyperstorage.metrics.Metrics
 import com.hypertino.hyperstorage.sharding.{ShardTask, ShardTaskComplete}
+import com.hypertino.hyperstorage.utils.ErrorCode
 import com.hypertino.hyperstorage.workers.secondary.BackgroundContentTask
 import com.hypertino.metrics.MetricsTracker
 import com.hypertino.parser.HEval
@@ -206,11 +207,11 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       && (request.headers.hrl.location != ViewPut.location ||
       request.headers.hrl.location != ViewDelete.location)
     ) Future.failed {
-      Conflict(ErrorBody("view-modification", Some(s"Can't modify view: $documentUri")))
+      Conflict(ErrorBody(ErrorCode.VIEW_MODIFICATION, Some(s"Can't modify view: $documentUri")))
     }
     else {
       if (!ContentLogic.checkPrecondition(request, existingContent)) Future.failed {
-        PreconditionFailed(ErrorBody("not-matched", Some(s"ETag doesn't match")))
+        PreconditionFailed(ErrorBody(ErrorCode.NOT_MATCHED, Some(s"ETag doesn't match")))
       } else {
         val (newTransaction,newContent) = updateContent(documentUri, itemId, request, existingContent, existingContentStatic)
         val obsoleteIndexItems = if (request.headers.method != Method.POST && ContentLogic.isCollectionUri(documentUri) && !itemId.isEmpty) {
@@ -336,7 +337,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     val newBody =
       if (isCollection && itemId.isEmpty) {
         if (!request.body.content.isEmpty)
-          throw Conflict(ErrorBody("collection-put-not-implemented", Some(s"Can't put non-empty collection")))
+          throw Conflict(ErrorBody(ErrorCode.COLLECTION_PUT_NOT_IMPLEMENTED, Some(s"Can't put non-empty collection")))
         else
           None
       }
@@ -372,7 +373,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 
       case Some(static) ⇒
         if (request.headers.hrl.location == ViewPut.location && !static.isView.contains(true)) {
-          throw Conflict(ErrorBody("collection-view-conflict", Some(s"Can't put view over existing collection")))
+          throw Conflict(ErrorBody(ErrorCode.COLLECTION_VIEW_CONFLICT, Some(s"Can't put view over existing collection")))
         }
         val newCount = if (isCollection) {
           static.count.map(_ + (if (existingContent.isEmpty) 1 else 0))
@@ -406,7 +407,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     val isCollection = ContentLogic.isCollectionUri(documentUri)
     val count: Long = if (isCollection) {
       if (itemId.isEmpty) {
-        throw Conflict(ErrorBody("collection-patch-not-implemented", Some(s"PATCH is not allowed for a collection~")))
+        throw Conflict(ErrorBody(ErrorCode.COLLECTION_PATCH_NOT_IMPLEMENTED, Some(s"PATCH is not allowed for a collection~")))
       }
       existingContentStatic.map(_.count.getOrElse(0l)).getOrElse(0l)
     } else {
@@ -440,7 +441,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       val idFieldName = ContentLogic.getIdFieldName(documentUri)
       val newIdField = patch(idFieldName)
       if (newIdField.nonEmpty && newIdField != existingBody(idFieldName)) {
-        throw Conflict(ErrorBody("field-is-protected", Some(s"$idFieldName is read only")))
+        throw Conflict(ErrorBody(ErrorCode.FIELD_IS_PROTECTED, Some(s"$idFieldName is read only")))
       }
     }
 
@@ -540,11 +541,11 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     implicit val mcx: MessagingContext = request
     existingContentStatic match {
       case None ⇒
-        throw NotFound(ErrorBody("not-found", Some(s"Resource '${request.path}' is not found")))
+        throw NotFound(ErrorBody(ErrorCode.NOT_FOUND, Some(s"Hyperstorage resource '${request.path}' is not found")))
 
       case Some(content) ⇒
         if (content.isView.contains(true) && request.headers.hrl.location != ViewDelete.location && itemId.isEmpty) {
-          throw Conflict(ErrorBody("collection-is-view", Some(s"Can't delete view collection directly")))
+          throw Conflict(ErrorBody(ErrorCode.COLLECTION_IS_VIEW, Some(s"Can't delete view collection directly")))
         }
 
         val newTransaction = createNewTransaction(documentUri, itemId, request, existingContent, existingContentStatic)
@@ -598,7 +599,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     val (response: HyperbusError[ErrorBody], logException) = e match {
       case h: HyperbusClientError[ErrorBody] @unchecked ⇒ (h, false)
       case h: HyperbusError[ErrorBody] @unchecked ⇒ (h, true)
-      case _ ⇒ (InternalServerError(ErrorBody("update-failed", Some(e.toString))), true)
+      case _ ⇒ (InternalServerError(ErrorBody(ErrorCode.UPDATE_FAILED, Some(e.toString))), true)
     }
 
     if (logException) {

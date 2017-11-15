@@ -31,7 +31,7 @@ import com.hypertino.parser.{HEval, HFormatter, HParser}
 import monix.eval.{Callback, Task}
 import monix.execution.{Ack, Cancelable, Scheduler}
 import monix.execution.Ack.Continue
-import com.hypertino.hyperstorage.utils.{Sort, SortBy}
+import com.hypertino.hyperstorage.utils.{ErrorCode, Sort, SortBy}
 import com.typesafe.scalalogging.StrictLogging
 
 import scala.concurrent.Future
@@ -182,7 +182,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
 
   private def queryCollection(resourcePath: ResourcePath, request: ContentGet): Future[ResponseBase] = {
     implicit val mcx = request
-    val notFound = NotFound(ErrorBody("not-found", Some(s"Resource '${request.path}' is not found")))
+    val notFound = NotFound(ErrorBody(ErrorCode.NOT_FOUND, Some(s"Hyperstorage resource '${request.path}' is not found")))
 
     val sortBy = Sort.parseQueryParam(request.sortBy)
 
@@ -292,7 +292,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
         Seq.empty,0,0,None
       ) map { case (list, revisionOpt, countOpt, nextPageFieldFilter) ⇒
         if (list.size>=(pageSize+skipMax)) {
-          throw GatewayTimeout(ErrorBody("query-skipped-rows-limited", Some(s"Maximum skipped row limit is reached: $skipMax")))
+          throw GatewayTimeout(ErrorBody(ErrorCode.QUERY_SKIPPED_ROWS_LIMITED, Some(s"Maximum skipped row limit is reached: $skipMax")))
         } else {
           if (querySortBy.nonEmpty) {
             implicit val ordering = new CollectionOrdering(querySortBy)
@@ -429,11 +429,11 @@ class HyperbusAdapter(hyperbus: Hyperbus,
 
   //todo exception context
     if (recursionCounter >= MAX_COLLECTION_SELECTS)
-      Future.failed(GatewayTimeout(ErrorBody("query-count-limited", Some(s"Maximum query count is reached: $recursionCounter"))))
+      Future.failed(GatewayTimeout(ErrorBody(ErrorCode.QUERY_COUNT_LIMITED, Some(s"Maximum query count is reached: $recursionCounter"))))
     else if (ops.endTimeInMillis <= System.currentTimeMillis)
-      Future.failed(GatewayTimeout(ErrorBody("query-timeout", Some(s"Timed out performing query #$recursionCounter"))))
+      Future.failed(GatewayTimeout(ErrorBody(ErrorCode.QUERY_TIMEOUT, Some(s"Timed out performing query #$recursionCounter"))))
     else if (skippedRows >= ops.skipRowsLimit)
-      Future.failed(GatewayTimeout(ErrorBody("query-skipped-rows-limited", Some(s"Maximum skipped row limit is reached: $skippedRows"))))
+      Future.failed(GatewayTimeout(ErrorBody(ErrorCode.QUERY_SKIPPED_ROWS_LIMITED, Some(s"Maximum skipped row limit is reached: $skippedRows"))))
     else {
       val fetchLimit = ops.limit + Math.max((recursionCounter * (ops.skipRowsLimit - ops.limit)/(MAX_COLLECTION_SELECTS*1.0)).toInt, 0)
       queryAndFilterRows(ops.copy(filterFields=IndexLogic.mergeLeastQueryFilterFields(ops.filterFields, leastFieldFilter),limit=fetchLimit)) flatMap {
@@ -472,7 +472,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
 
   private def queryDocument(resourcePath: ResourcePath, request: ContentGet): Future[ResponseBase] = {
     implicit val mcx = request
-    val notFound = NotFound(ErrorBody("not-found", Some(s"Resource '${request.path}' is not found")))
+    val notFound = NotFound(ErrorBody(ErrorCode.NOT_FOUND, Some(s"Hyperstorage resource '${request.path}' is not found")))
     db.selectContent(resourcePath.documentUri, resourcePath.itemId) map {
       case None ⇒
         notFound

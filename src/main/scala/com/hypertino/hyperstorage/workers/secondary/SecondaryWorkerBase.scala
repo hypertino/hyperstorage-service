@@ -19,6 +19,7 @@ import com.hypertino.hyperstorage.indexing.{IndexDefTransaction, IndexLogic, Ind
 import com.hypertino.hyperstorage.{ContentLogic, ResourcePath, TransactionLogic}
 import com.hypertino.hyperstorage.sharding.ShardTaskComplete
 import akka.pattern.ask
+import com.hypertino.hyperstorage.utils.ErrorCode
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
@@ -42,7 +43,7 @@ trait SecondaryWorkerBase {
       log.error(e, s"Can't execute $task")
       val he = e match {
         case h: HyperbusError[ErrorBody] @unchecked ⇒ h
-        case _ ⇒ InternalServerError(ErrorBody("failed", Some(e.toString)))(MessagingContext.empty)
+        case _ ⇒ InternalServerError(ErrorBody(ErrorCode.INTERNAL_SERVER_ERROR, Some(e.toString)))(MessagingContext.empty)
       }
       ShardTaskComplete(task, IndexDefTaskTaskResult(he.serializeToString))
   }

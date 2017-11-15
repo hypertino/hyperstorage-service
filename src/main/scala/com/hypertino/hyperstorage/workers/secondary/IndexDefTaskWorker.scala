@@ -24,6 +24,7 @@ import com.hypertino.hyperstorage.api.{IndexPost, _}
 import com.hypertino.hyperstorage.db._
 import com.hypertino.hyperstorage.indexing.{IndexDefTransaction, IndexLogic, IndexManager}
 import com.hypertino.hyperstorage.sharding.ShardTaskComplete
+import com.hypertino.hyperstorage.utils.ErrorCode
 import com.hypertino.metrics.MetricsTracker
 
 import scala.concurrent.duration._
@@ -84,7 +85,7 @@ trait IndexDefTaskWorker extends SecondaryWorkerBase {
     db.selectIndexDefs(post.path) flatMap { indexDefs ⇒
       indexDefs.foreach { existingIndex ⇒
         if (existingIndex.indexId == indexId) {
-          throw Conflict(ErrorBody("already-exists", Some(s"Index '$indexId' already exists")))
+          throw Conflict(ErrorBody(ErrorCode.ALREADY_EXISTS, Some(s"Index '$indexId' already exists")))
         }
       }
       insertIndexDef(post.path,
@@ -120,7 +121,7 @@ trait IndexDefTaskWorker extends SecondaryWorkerBase {
           }
         }
 
-      case _ ⇒ Future.successful(NotFound(ErrorBody("index-not-found", Some(s"Index ${delete.indexId} for ${delete.path} is not found"))))
+      case _ ⇒ Future.successful(NotFound(ErrorBody(ErrorCode.INDEX_NOT_FOUND, Some(s"Index ${delete.indexId} for ${delete.path} is not found"))))
     } map { result ⇒
       ShardTaskComplete(task, result)
     }
