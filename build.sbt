@@ -2,7 +2,7 @@ name := "hyperstorage"
 
 organization := "com.hypertino"
 
-version := "0.5-SNAPSHOT"
+version := "0.6-SNAPSHOT"
 
 crossScalaVersions := Seq("2.12.3", "2.11.11")
 
@@ -15,9 +15,9 @@ ramlHyperbusSources := Seq(
     isResource = false
   ),
   ramlSource(
-    path = "api/internal/internal-api.raml",
-    packageName = "com.hypertino.hyperstorage.internal.api",
-    isResource = false
+      path = "api/internal/internal-api.raml",
+      packageName = "com.hypertino.hyperstorage.internal.api",
+      isResource = false
   )
 )
 
@@ -38,7 +38,7 @@ libraryDependencies ++= Seq(
   "com.hypertino"               %% "service-metrics"              % "0.3.0",
   "com.hypertino"               %% "typesafe-config-binders"      % "0.2.0",
 
-  "com.hypertino"               %% "hyperbus"                     % "0.3-SNAPSHOT",
+  "com.hypertino"               %% "hyperbus"                     % "0.4-SNAPSHOT",
 //  "com.hypertino"               %% "hyperbus-t-kafka"             % "0.2-SNAPSHOT",
 //  "com.hypertino"               %% "hyperbus-t-zeromq"            % "0.2-SNAPSHOT",
 
