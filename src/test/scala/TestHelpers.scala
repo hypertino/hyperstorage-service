@@ -11,8 +11,10 @@ import com.hypertino.hyperbus.serialization.MessageReader
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.db.{Db, Transaction}
 import com.hypertino.hyperstorage.indexing.IndexManager
+import com.hypertino.hyperstorage.internal.api.NodeStatus
 import com.hypertino.hyperstorage.modules.{HyperStorageServiceModule, SystemServicesModule}
 import com.hypertino.hyperstorage.sharding._
+import com.hypertino.hyperstorage.sharding.akkacluster.AkkaClusterShardingTransport
 import com.hypertino.hyperstorage.workers.primary.PrimaryWorker
 import com.hypertino.hyperstorage.workers.secondary.SecondaryWorker
 import com.hypertino.metrics.MetricsTracker
@@ -43,18 +45,19 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
   implicit def scheduler = inject [monix.execution.Scheduler]
 
   def createShardProcessor(groupName: String, workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
+    val clusterTransport = TestActorRef(AkkaClusterShardingTransport.props("hyperstorage"))
     val workerSettings = Map(groupName → (Props[TestWorker], workerCount, "test-worker"))
-    val fsm = new TestFSMRef[ShardMemberStatus, ShardedClusterData, ShardProcessor](actorSystem,
-      ShardProcessor.props(workerSettings, "hyperstorage", tracker).withDispatcher("deque-dispatcher"),
+    val fsm = new TestFSMRef[String, ShardedClusterData, ShardProcessor](actorSystem,
+      ShardProcessor.props(clusterTransport, workerSettings, tracker).withDispatcher("deque-dispatcher"),
       GuardianExtractor.guardian(actorSystem),
       "hyperstorage"
     )
     //val fsm = TestFSMRef(new ShardProcessor(Props[TestWorker], workerCount), "hyperstorage")
     //val ShardProcessor: TestActorRef[ShardProcessor] = fsm
-    fsm.stateName should equal(ShardMemberStatus.Activating)
+    fsm.stateName should equal(NodeStatus.ACTIVATING)
     if (waitWhileActivates) {
       val t = new TestKit(actorSystem)
-      t.awaitCond(fsm.stateName == ShardMemberStatus.Active)
+      t.awaitCond(fsm.stateName == NodeStatus.ACTIVE)
     }
     fsm
   }
@@ -72,15 +75,16 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
       "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
     )
 
-    val processor = new TestFSMRef[ShardMemberStatus, ShardedClusterData, ShardProcessor](system,
-      ShardProcessor.props(workerSettings, "hyperstorage", tracker).withDispatcher("deque-dispatcher"),
+    val clusterTransport = TestActorRef(AkkaClusterShardingTransport.props("hyperstorage"))
+    val processor = new TestFSMRef[String, ShardedClusterData, ShardProcessor](system,
+      ShardProcessor.props(clusterTransport, workerSettings, tracker).withDispatcher("deque-dispatcher"),
       GuardianExtractor.guardian(system),
       "hyperstorage"
     )
 
-    processor.stateName should equal(ShardMemberStatus.Activating)
+    processor.stateName should equal(NodeStatus.ACTIVATING)
     if (waitWhileActivates) {
-      awaitCond(processor.stateName == ShardMemberStatus.Active)
+      awaitCond(processor.stateName == NodeStatus.ACTIVE)
     }
 
     processor ! SubscribeToShardStatus(indexManager)
@@ -136,11 +140,11 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     }
   }
 
-  def shutdownShardProcessor(fsm: TestFSMRef[ShardMemberStatus, ShardedClusterData, ShardProcessor])(implicit actorSystem: ActorSystem) = {
+  def shutdownShardProcessor(fsm: TestFSMRef[String, ShardedClusterData, ShardProcessor])(implicit actorSystem: ActorSystem) = {
     val probe = TestProbe()
     probe watch fsm
     fsm ! ShutdownProcessor
-    new TestKit(actorSystem).awaitCond(fsm.stateName == ShardMemberStatus.Deactivating, 10.second)
+    new TestKit(actorSystem).awaitCond(fsm.stateName == NodeStatus.DEACTIVATING, 10.second)
     probe.expectTerminated(fsm, 10.second)
   }
 

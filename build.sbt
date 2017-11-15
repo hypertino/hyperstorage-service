@@ -13,6 +13,11 @@ ramlHyperbusSources := Seq(
     path = "api/hyperstorage-service-api/hyperstorage.raml",
     packageName = "com.hypertino.hyperstorage.api",
     isResource = false
+  ),
+  ramlSource(
+    path = "api/internal/internal-api.raml",
+    packageName = "com.hypertino.hyperstorage.internal.api",
+    isResource = false
   )
 )
 

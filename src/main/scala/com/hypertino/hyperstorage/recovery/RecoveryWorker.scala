@@ -7,8 +7,8 @@ import akka.pattern.ask
 import com.codahale.metrics.Meter
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.db.{Content, Db}
+import com.hypertino.hyperstorage.internal.api.NodeStatus
 import com.hypertino.hyperstorage.metrics.Metrics
-import com.hypertino.hyperstorage.sharding.ShardMemberStatus.{Active, Deactivating}
 import com.hypertino.hyperstorage.sharding.{ShardedClusterData, UpdateShardStatus}
 import com.hypertino.hyperstorage.utils.FutureUtils
 import com.hypertino.hyperstorage.workers.secondary.{BackgroundContentTask, BackgroundContentTaskNoSuchResourceException, BackgroundContentTaskResult}
@@ -87,7 +87,7 @@ abstract class RecoveryWorker[T <: WorkerState](
   def trackIncompleteMeter: Meter
 
   def receive = {
-    case UpdateShardStatus(_, Active, stateData) ⇒
+    case UpdateShardStatus(_, NodeStatus.ACTIVE, stateData) ⇒
       clusterActivated(stateData, TransactionLogic.getPartitions(stateData))
 
     case ShutdownRecoveryWorker ⇒
@@ -95,13 +95,13 @@ abstract class RecoveryWorker[T <: WorkerState](
   }
 
   def running(stateData: ShardedClusterData, workerPartitions: Seq[Int]): Receive = {
-    case UpdateShardStatus(_, Active, newStateData) ⇒
+    case UpdateShardStatus(_, NodeStatus.ACTIVE, newStateData) ⇒
       if (newStateData != stateData) {
         // restart with new partition list
         clusterActivated(newStateData, TransactionLogic.getPartitions(newStateData))
       }
 
-    case UpdateShardStatus(_, Deactivating, _) ⇒
+    case UpdateShardStatus(_, NodeStatus.DEACTIVATING, _) ⇒
       context.unbecome()
 
     case StartCheck(processId) if processId == currentProcessId ⇒

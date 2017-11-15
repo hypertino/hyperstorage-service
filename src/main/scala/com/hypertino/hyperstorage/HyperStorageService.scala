@@ -8,6 +8,7 @@ import com.hypertino.hyperstorage.db.Db
 import com.hypertino.hyperstorage.indexing.IndexManager
 import com.hypertino.hyperstorage.metrics.MetricsReporter
 import com.hypertino.hyperstorage.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
+import com.hypertino.hyperstorage.sharding.akkacluster.AkkaClusterShardingTransport
 import com.hypertino.hyperstorage.sharding.{ShardProcessor, ShutdownProcessor, SubscribeToShardStatus}
 import com.hypertino.hyperstorage.workers.primary.PrimaryWorker
 import com.hypertino.hyperstorage.workers.secondary.SecondaryWorker
@@ -90,9 +91,12 @@ class HyperStorageService(implicit val scheduler: Scheduler,
     "hyperstorage-secondary-worker" → (secondaryWorkerProps, maxWorkers, "sgw-")
   )
 
+  // shard shard cluster transport
+  private val shardTransportRef = actorSystem.actorOf(AkkaClusterShardingTransport.props("hyperstorage"))
+
   // shard processor actor
   private val shardProcessorRef = actorSystem.actorOf(
-    ShardProcessor.props(workerSettings, "hyperstorage", tracker, shardSyncTimeout), "hyperstorage"
+    ShardProcessor.props(shardTransportRef, workerSettings, tracker, shardSyncTimeout), "hyperstorage"
   )
 
   private val hyperbusAdapter = new HyperbusAdapter(hyperbus, shardProcessorRef, db, tracker, requestTimeout)

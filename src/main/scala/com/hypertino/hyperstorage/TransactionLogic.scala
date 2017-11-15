@@ -47,7 +47,7 @@ object TransactionLogic {
         def isExpired = false
         def expectsResult = false
       }
-      if (data.taskIsFor(task) == data.selfAddress)
+      if (data.taskIsFor(task) == data.selfId)
         Some(partition)
       else
         None
