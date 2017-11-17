@@ -11,7 +11,6 @@ package com.hypertino.hyperstorage.workers.secondary
 import java.io.Reader
 
 import akka.actor.ActorRef
-import akka.event.LoggingAdapter
 import akka.pattern.ask
 import akka.util.Timeout
 import com.datastax.driver.core.utils.UUIDs
@@ -44,8 +43,6 @@ trait IndexDefTaskWorker extends SecondaryWorkerBase {
   def db: Db
 
   def tracker: MetricsTracker
-
-  def log: LoggingAdapter
 
   def indexManager: ActorRef
 

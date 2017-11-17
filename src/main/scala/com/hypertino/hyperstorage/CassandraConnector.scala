@@ -14,7 +14,7 @@ import com.datastax.driver.core._
 import com.datastax.driver.core.exceptions.NoHostAvailableException
 import com.datastax.driver.core.policies.{DCAwareRoundRobinPolicy, LatencyAwarePolicy, TokenAwarePolicy}
 import com.typesafe.config.Config
-import org.slf4j.LoggerFactory
+import com.typesafe.scalalogging.StrictLogging
 
 import scala.collection.JavaConversions._
 import scala.util.control.NonFatal
@@ -23,9 +23,7 @@ trait CassandraConnector {
   def connect(): Session
 }
 
-object CassandraConnector {
-  var log = LoggerFactory.getLogger(getClass)
-
+object CassandraConnector extends StrictLogging{
   def createCassandraSession(hosts: Seq[String], datacenter: String, keyspace: String, connectTimeoutMillis: Int = 3000, readTimeoutMillis: Int = 500) =
     CassandraSessionBuilder.build(hosts, datacenter, keyspace, connectTimeoutMillis, readTimeoutMillis)
 
@@ -36,11 +34,11 @@ object CassandraConnector {
     private val latch = new CountDownLatch(1)
 
     def waitForConnection() {
-      log.info("Waiting for connection. Latch count " + latch.getCount)
+      logger.info("Waiting for connection. Latch count " + latch.getCount)
 
       latch.await(connectTimeoutMillis, TimeUnit.MILLISECONDS)
 
-      log.info("Connection waited. Latch count " + latch.getCount)
+      logger.info("Connection waited. Latch count " + latch.getCount)
 
       if (latch.getCount > 0) {
         throw new RuntimeException("No cassandra host in up state")
@@ -48,24 +46,24 @@ object CassandraConnector {
     }
 
     def onAdd(p1: Host) {
-      log.info("Cassandra host add: " + p1)
+      logger.info("Cassandra host add: " + p1)
       latch.countDown()
     }
 
     def onSuspected(p1: Host) {
-      log.info("Cassandra host suspected: " + p1)
+      logger.info("Cassandra host suspected: " + p1)
     }
 
     def onRemove(p1: Host) {
-      log.info("Cassandra host remove: " + p1)
+      logger.info("Cassandra host remove: " + p1)
     }
 
     def onUp(p1: Host) {
-      log.info("Cassandra host up: " + p1)
+      logger.info("Cassandra host up: " + p1)
     }
 
     def onDown(p1: Host) {
-      log.info("Cassandra host down: " + p1)
+      logger.info("Cassandra host down: " + p1)
     }
   }
 
@@ -93,7 +91,7 @@ object CassandraConnector {
 
     private def newCluster(hosts: Seq[String], datacenter: String, connectTimeoutMillis: Int, readTimeoutMillis: Int):
     (Cluster, HostListener) = {
-      log.info(s"Create cassandra cluster: $hosts, dc=$datacenter, $connectTimeoutMillis, $readTimeoutMillis")
+      logger.info(s"Create cassandra cluster: $hosts, dc=$datacenter, $connectTimeoutMillis, $readTimeoutMillis")
 
       val cluster: Cluster = Option(datacenter).filter(_.nonEmpty)
         .foldLeft(Cluster.builder)((cluster, dcName) ⇒
@@ -123,12 +121,12 @@ object CassandraConnector {
     }
 
     private def session(cluster: Cluster, listener: HostListener, keyspace: String) = {
-      log.info(s"Start cassandra session: cluster=${cluster.getClusterName}, ks=$keyspace")
+      logger.info(s"Start cassandra session: cluster=${cluster.getClusterName}, ks=$keyspace")
 
       val session =
         try cluster.connect(keyspace) catch {
           case e: NoHostAvailableException ⇒
-            log.error("NoHostAvailableException on connect: " + e.getErrors)
+            logger.error("NoHostAvailableException on connect: " + e.getErrors)
             throw e
         }
 

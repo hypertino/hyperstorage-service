@@ -10,7 +10,7 @@ package com.hypertino.hyperstorage.indexing
 
 import java.util.UUID
 
-import akka.actor.{Actor, ActorLogging, ActorRef, Props}
+import akka.actor.{Actor, ActorRef, Props}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperstorage.TransactionLogic
 import com.hypertino.hyperstorage.db.Db
@@ -18,7 +18,7 @@ import com.hypertino.hyperstorage.internal.api.NodeStatus
 import com.hypertino.hyperstorage.sharding.{ShardedClusterData, UpdateShardStatus}
 import com.hypertino.hyperstorage.utils.AkkaNaming
 import com.hypertino.metrics.MetricsTracker
-import org.slf4j.LoggerFactory
+import com.typesafe.scalalogging.StrictLogging
 
 import scala.collection.mutable
 import scala.concurrent.ExecutionContext
@@ -30,7 +30,7 @@ case class IndexDefTransaction(documentUri: String, indexId: String, defTransact
 
 // todo: handle child termination without IndexingComplete
 class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndexWorkers: Int)
-  extends Actor with ActorLogging {
+  extends Actor with StrictLogging {
   import IndexManager._
 
   val indexWorkers = mutable.Map[IndexDefTransaction, ActorRef]()
@@ -94,7 +94,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
         }
       }
       else {
-        log.info(s"Received $key update but partition is handled by other node, ignored")
+        logger.info(s"Received $key update but partition is handled by other node, ignored")
       }
       sender() ! IndexCommandAccepted
   }
@@ -113,7 +113,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
   def clusterActivated(stateData: ShardedClusterData,
                        previousPartitions: Seq[Int]): Unit = {
     rev = rev + 1
-    log.info(s"Cluster is active $getClass is running. Current data: $stateData. rev=$rev")
+    logger.info(s"Cluster is active $getClass is running. Current data: $stateData. rev=$rev")
 
     val newPartitions = TransactionLogic.getPartitions(stateData)
     val newPartitionSet = newPartitions.toSet
@@ -192,15 +192,13 @@ object IndexManager {
   case class IndexingComplete(key: IndexDefTransaction)
   case object IndexCommandAccepted
 
-  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndexWorkers: Int) = Props(classOf[IndexManager],
-    hyperbus, db, tracker, maxIndexWorkers
+  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndexWorkers: Int) = Props(
+    new IndexManager(hyperbus, db, tracker, maxIndexWorkers)
   )
 }
 
-private[indexing] object IndexManagerImpl {
+private[indexing] object IndexManagerImpl extends StrictLogging {
   import IndexManager._
-  val log = LoggerFactory.getLogger(getClass)
-
   def fetchPendingIndexesFromDb(notifyActor: ActorRef, partition: Int, rev: Long, maxIndexWorkers: Int, db: Db)
                                (implicit ec: ExecutionContext): Unit = {
     db.selectPendingIndexes(partition, maxIndexWorkers) map { indexesIterator ⇒
@@ -209,7 +207,7 @@ private[indexing] object IndexManagerImpl {
       )
     } recover {
       case NonFatal(e) ⇒
-        log.error(s"Can't fetch pending indexes", e)
+        logger.error(s"Can't fetch pending indexes", e)
         notifyActor ! PartitionPendingFailed(rev)
     }
   }

@@ -9,7 +9,6 @@
 package com.hypertino.hyperstorage.workers.secondary
 
 import akka.actor.ActorRef
-import akka.event.LoggingAdapter
 import akka.util.Timeout
 import com.datastax.driver.core.utils.UUIDs
 import com.hypertino.hyperbus.model.{ErrorBody, HyperbusError, InternalServerError, MessagingContext}
@@ -20,13 +19,13 @@ import com.hypertino.hyperstorage.{ContentLogic, ResourcePath, TransactionLogic}
 import com.hypertino.hyperstorage.sharding.ShardTaskComplete
 import akka.pattern.ask
 import com.hypertino.hyperstorage.utils.ErrorCode
+import com.typesafe.scalalogging.StrictLogging
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
 import scala.concurrent.duration._
 
-trait SecondaryWorkerBase {
-  def log: LoggingAdapter
+trait SecondaryWorkerBase extends StrictLogging {
   def db: Db
   def indexManager: ActorRef
   implicit def executionContext: ExecutionContext
@@ -40,7 +39,7 @@ trait SecondaryWorkerBase {
 
   protected def withHyperbusException(task: SecondaryTaskTrait): PartialFunction[Throwable, ShardTaskComplete] = {
     case NonFatal(e) ⇒
-      log.error(e, s"Can't execute $task")
+      logger.error(s"Can't execute $task", e)
       val he = e match {
         case h: HyperbusError[ErrorBody] @unchecked ⇒ h
         case _ ⇒ InternalServerError(ErrorBody(ErrorCode.INTERNAL_SERVER_ERROR, Some(e.toString)))(MessagingContext.empty)

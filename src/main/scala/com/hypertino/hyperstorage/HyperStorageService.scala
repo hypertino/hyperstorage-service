@@ -23,8 +23,8 @@ import com.hypertino.hyperstorage.workers.secondary.SecondaryWorker
 import com.hypertino.metrics.MetricsTracker
 import com.hypertino.service.control.api.Service
 import com.typesafe.config.Config
+import com.typesafe.scalalogging.StrictLogging
 import monix.execution.Scheduler
-import org.slf4j.LoggerFactory
 import scaldi.{Injectable, Injector}
 
 import scala.concurrent.Future
@@ -45,10 +45,9 @@ case class HyperStorageConfig(
                         )
 
 class HyperStorageService(implicit val scheduler: Scheduler,
-                          implicit val injector: Injector) extends Service with Injectable {
+                          implicit val injector: Injector) extends Service with Injectable with StrictLogging {
 
-  private var log = LoggerFactory.getLogger(getClass)
-  log.info(s"Starting Hyperstorage service v${BuildInfo.version}...")
+  logger.info(s"Starting Hyperstorage service v${BuildInfo.version}...")
 
   // configuration
   private val config: Config = inject[Config]
@@ -58,7 +57,7 @@ class HyperStorageService(implicit val scheduler: Scheduler,
 
   private val serviceConfig = config.getValue("hyperstorage").read[HyperStorageConfig]
 
-  log.info(s"Hyperstorage configuration: $config")
+  logger.info(s"Hyperstorage configuration: $config")
 
   // metrics tracker
   private val tracker = inject[MetricsTracker]
@@ -67,7 +66,7 @@ class HyperStorageService(implicit val scheduler: Scheduler,
   import serviceConfig._
 
   // initialize
-  log.info(s"Initializing hyperbus...")
+  logger.info(s"Initializing hyperbus...")
   private val hyperbus = inject[Hyperbus]
 
   // currently we rely on the name of system
@@ -79,11 +78,11 @@ class HyperStorageService(implicit val scheduler: Scheduler,
   private val db = new Db(connector)
   // trigger connect to c* but continue initialization
   try {
-    log.info(s"Initializing database connection...")
+    logger.info(s"Initializing database connection...")
     db.preStart()
   } catch {
     case NonFatal(e) ⇒
-      log.error(s"Can't create C* session", e)
+      logger.error(s"Can't create C* session", e)
   }
 
   private val indexManagerProps = IndexManager.props(hyperbus, db, tracker, maxWorkers)
@@ -110,21 +109,21 @@ class HyperStorageService(implicit val scheduler: Scheduler,
   private val hyperbusAdapter = new HyperbusAdapter(hyperbus, shardProcessorRef, db, tracker, requestTimeout)
 
   private val hotPeriod = (hotRecovery.toMillis, failTimeout.toMillis)
-  log.info(s"Launching hot recovery $hotRecovery-$failTimeout")
+  logger.info(s"Launching hot recovery $hotRecovery-$failTimeout")
 
   private val hotRecoveryRef = actorSystem.actorOf(HotRecoveryWorker.props(hotPeriod, db, shardProcessorRef, tracker, hotRecoveryRetry, backgroundTaskTimeout), "hot-recovery")
   shardProcessorRef ! SubscribeToShardStatus(hotRecoveryRef)
 
   private val stalePeriod = (staleRecovery.toMillis, hotRecovery.toMillis)
-  log.info(s"Launching stale recovery $staleRecovery-$hotRecovery")
+  logger.info(s"Launching stale recovery $staleRecovery-$hotRecovery")
 
   private val staleRecoveryRef = actorSystem.actorOf(StaleRecoveryWorker.props(stalePeriod, db, shardProcessorRef, tracker, staleRecoveryRetry, backgroundTaskTimeout), "stale-recovery")
   shardProcessorRef ! SubscribeToShardStatus(staleRecoveryRef)
 
-  log.info(s"Launching index manager")
+  logger.info(s"Launching index manager")
   shardProcessorRef ! SubscribeToShardStatus(indexManagerRef)
 
-  log.info("Hyperstorage started!")
+  logger.info("Hyperstorage started!")
 
   // shutdown
   override def stopService(controlBreak: Boolean, timeout: FiniteDuration): Future[Unit] = {
@@ -134,16 +133,16 @@ class HyperStorageService(implicit val scheduler: Scheduler,
       hyperbusAdapter.off().timeout(timeout / 2).runAsync
     )
 
-    log.info("Stopping Hyperstorage service...")
+    logger.info("Stopping Hyperstorage service...")
     Future.sequence(step1)
       .recover(logException("Service didn't stopped gracefully"))
       .flatMap { _ ⇒
-        log.info("Stopping processor actor...")
+        logger.info("Stopping processor actor...")
         gracefulStop(shardProcessorRef, shutdownTimeout * 4 / 5, ShutdownProcessor)
       }
       .recover(logException("ProcessorActor didn't stopped gracefully"))
       .flatMap { _ ⇒
-        log.info(s"Stopping ActorSystem: ${actorSystem.name}...")
+        logger.info(s"Stopping ActorSystem: ${actorSystem.name}...")
         actorSystem.terminate()
       }
       .recover(logException("ActorSystem didn't stopped gracefully"))
@@ -152,12 +151,12 @@ class HyperStorageService(implicit val scheduler: Scheduler,
       }
       .recover(logException("ActorSystem didn't stopped gracefully"))
       .map { _ ⇒
-        log.info("Hyperstorage stopped.")
+        logger.info("Hyperstorage stopped.")
       }
   }
 
   private def logException(str: String): PartialFunction[Throwable, Unit] = {
     case NonFatal(e) ⇒
-      log.error(str, e)
+      logger.error(str, e)
   }
 }

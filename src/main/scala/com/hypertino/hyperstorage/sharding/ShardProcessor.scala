@@ -17,6 +17,7 @@ import com.hypertino.hyperstorage.internal.api._
 import com.hypertino.hyperstorage.metrics.Metrics
 import com.hypertino.hyperstorage.utils.AkkaNaming
 import com.hypertino.metrics.MetricsTracker
+import com.typesafe.scalalogging.StrictLogging
 
 import scala.collection.mutable
 import scala.concurrent.duration._
@@ -89,7 +90,7 @@ class ShardProcessor(clusterTransport: ActorRef,
                      workersSettings: Map[String, (Props, Int, String)],
                      tracker: MetricsTracker,
                      syncTimeout: FiniteDuration = 1000.millisecond)
-  extends FSMEx[String, ShardedClusterData] with Stash {
+  extends FSMEx[String, ShardedClusterData] with Stash with StrictLogging {
 
   val activeWorkers = workersSettings.map { case (groupName, _) ⇒
     groupName → mutable.ArrayBuffer[(ShardTask, ActorRef, ActorRef)]()
@@ -187,14 +188,14 @@ class ShardProcessor(clusterTransport: ActorRef,
       stay()
 
     case Event(e, s) =>
-      log.warning("received unhandled request {} in state {}/{}", e, stateName, s)
+      logger.warn("received unhandled request {} in state {}/{}", e, stateName, s)
       stay
   }
 
   onTransition {
     case a -> b ⇒
       if (a != b) {
-        log.info(s"Changing state from $a to $b")
+        logger.info(s"Changing state from $a to $b")
         safeUnstashAll()
       }
   }
@@ -217,12 +218,12 @@ class ShardProcessor(clusterTransport: ActorRef,
       val sync = NodesPost(Node(data.selfId, NodeStatus.ACTIVATING, newData.clusterHash))(MessagingContext.empty)
       clusterTransport ! TransportMessage(node, sync)
       setSyncTimer()
-      log.info(s"New member of shard cluster: $node. $sync was sent.")
+      logger.info(s"New member of shard cluster: $node. $sync was sent.")
 
       Some(newData)
     }
     else {
-      log.info(s"Self is up: ${data.selfId}")
+      logger.info(s"Self is up: ${data.selfId}")
       setSyncTimer()
       None
     }
@@ -234,17 +235,17 @@ class ShardProcessor(clusterTransport: ActorRef,
 
   def processReply(syncReply: Ok[NodeUpdated], data: ShardedClusterData): Option[ShardedClusterData] = {
     if (log.isDebugEnabled) {
-      log.debug(s"$syncReply received from $sender")
+      logger.debug(s"$syncReply received from $sender")
     }
     if (data.clusterHash != syncReply.body.clusterHash) {
-      log.info(s"ClusterHash for ${data.selfId} (${data.clusterHash}) is not matched for $syncReply. SyncReply is ignored")
+      logger.info(s"ClusterHash for ${data.selfId} (${data.clusterHash}) is not matched for $syncReply. SyncReply is ignored")
       None
     } else {
       data.nodes.get(syncReply.body.sourceNodeId) map { node ⇒
         data + (syncReply.body.sourceNodeId →
           node.copy(status = syncReply.body.sourceStatus, confirmedStatus = syncReply.body.acceptedStatus))
       } orElse {
-        log.warning(s"Got $syncReply from unknown node. Current nodes: ${data.nodes}")
+        logger.warn(s"Got $syncReply from unknown node. Current nodes: ${data.nodes}")
         None
       }
     }
@@ -252,7 +253,7 @@ class ShardProcessor(clusterTransport: ActorRef,
 
   def isActivationAllowed(data: ShardedClusterData): Boolean = {
     if (confirmStatus(data, NodeStatus.ACTIVATING, isFirst = false)) {
-      log.info(s"Synced with all members: ${data.nodes}. Activating")
+      logger.info(s"Synced with all members: ${data.nodes}. Activating")
       confirmStatus(data, NodeStatus.ACTIVE, isFirst = true)
       true
     }
@@ -270,7 +271,7 @@ class ShardProcessor(clusterTransport: ActorRef,
         clusterTransport ! TransportMessage(node.transportNode, sync)
         setSyncTimer()
         if (log.isDebugEnabled && !isFirst) {
-          log.debug(s"Didn't received reply from: $node. $sync was sent to.")
+          logger.debug(s"Didn't received reply from: $node. $sync was sent to.")
         }
       }
     }
@@ -279,10 +280,10 @@ class ShardProcessor(clusterTransport: ActorRef,
 
   def incomingSync(sync: NodesPost, data: ShardedClusterData): Option[ShardedClusterData] = {
     if (log.isDebugEnabled) {
-      log.debug(s"$sync received from $sender")
+      logger.debug(s"$sync received from $sender")
     }
     if (data.clusterHash != sync.body.clusterHash) { // todo: zmq, remove ClusterHash
-      log.info(s"ClusterHash for ${data.selfId} (${data.clusterHash}) is not matched for $sync")
+      logger.info(s"ClusterHash for ${data.selfId} (${data.clusterHash}) is not matched for $sync")
       None
     } else {
       data.nodes.get(sync.body.nodeId) map { member ⇒
@@ -290,7 +291,7 @@ class ShardProcessor(clusterTransport: ActorRef,
         val allowSync = if (sync.body.status == NodeStatus.ACTIVATING) {
           activeWorkers.values.flatten.forall { case (task, workerActor, _) ⇒
             if (newData.taskIsFor(task) == sync.body.nodeId) {
-              log.info(s"Ignoring sync request $sync while processing task $task by worker $workerActor")
+              logger.info(s"Ignoring sync request $sync while processing task $task by worker $workerActor")
               false
             } else {
               true
@@ -303,7 +304,7 @@ class ShardProcessor(clusterTransport: ActorRef,
         if (allowSync) { // todo: zmq, new name for nodeStatuses? vs clusterNodes
           val syncReply = Ok(NodeUpdated(data.selfId, stateName, sync.body.status, data.clusterHash))(MessagingContext.empty)
           if (log.isDebugEnabled) {
-            log.debug(s"Replying with $syncReply to $sender")
+            logger.debug(s"Replying with $syncReply to $sender")
           }
           sender() ! syncReply
         }
@@ -322,9 +323,9 @@ class ShardProcessor(clusterTransport: ActorRef,
         node, NodeStatus.PASSIVE, NodeStatus.PASSIVE
       ))
       if (log.isDebugEnabled) {
-        log.info(s"New node $node. State is unknown yet")
+        logger.info(s"New node $node. State is unknown yet")
       }
-      log.debug(s"Node ${node.nodeId} is added")
+      logger.debug(s"Node ${node.nodeId} is added")
       Some(newData)
     }
     else {
@@ -333,22 +334,22 @@ class ShardProcessor(clusterTransport: ActorRef,
   }
 
   def removeNode(nodeId: String, data: ShardedClusterData): Option[ShardedClusterData] = {
-    log.debug(s"Node $nodeId is removed")
+    logger.debug(s"Node $nodeId is removed")
     Some(data - nodeId)
   }
 
   def processTask(task: ShardTask, data: ShardedClusterData): Unit = {
     trackTaskMeter.mark()
     if (log.isDebugEnabled) {
-      log.debug(s"Got task to process: $task")
+      logger.debug(s"Got task to process: $task")
     }
     if (task.isExpired) {
-      log.warning(s"Task is expired, dropping: $task")
+      logger.warn(s"Task is expired, dropping: $task")
     } else {
       if (data.taskIsFor(task) == data.selfId) {
         if (data.taskWasFor(task) != data.selfId) {
           if (log.isDebugEnabled) {
-            log.debug(s"Stashing task received for deactivating node: ${data.taskWasFor(task)}: $task")
+            logger.debug(s"Stashing task received for deactivating node: ${data.taskWasFor(task)}: $task")
           }
           safeStash(task)
         } else {
@@ -356,7 +357,7 @@ class ShardProcessor(clusterTransport: ActorRef,
             case Some(activeGroupWorkers) ⇒
               activeGroupWorkers.find(_._1.key == task.key) map { case (_, activeWorker, _) ⇒
                 if (log.isDebugEnabled) {
-                  log.debug(s"Stashing task for the 'locked' URL: $task worker: $activeWorker")
+                  logger.debug(s"Stashing task for the 'locked' URL: $task worker: $activeWorker")
                 }
                 safeStash(task)
                 true
@@ -364,7 +365,7 @@ class ShardProcessor(clusterTransport: ActorRef,
                 val maxCount = workersSettings(task.group)._2
                 if (activeGroupWorkers.size >= maxCount) {
                   if (log.isDebugEnabled) {
-                    log.debug(s"Worker limit for group '${task.group}' is reached ($maxCount), stashing task: $task")
+                    logger.debug(s"Worker limit for group '${task.group}' is reached ($maxCount), stashing task: $task")
                   }
                   safeStash(task)
                 } else {
@@ -373,19 +374,19 @@ class ShardProcessor(clusterTransport: ActorRef,
                   try {
                     val worker = context.system.actorOf(workerProps, AkkaNaming.next(prefix))
                     if (log.isDebugEnabled) {
-                      log.debug(s"Forwarding task from ${sender()} to worker $worker: $task")
+                      logger.debug(s"Forwarding task from ${sender()} to worker $worker: $task")
                     }
                     worker ! task
                     activeGroupWorkers.append((task, worker, sender()))
                   } catch {
                     case NonFatal(e) ⇒
-                      log.error(e, s"Can't create worker from props $workerProps")
+                      logger.error(s"Can't create worker from props $workerProps", e)
                       sender() ! e
                   }
                 }
               }
             case None ⇒
-              log.error(s"No such worker group: ${task.group}. Task is dismissed: $task")
+              logger.error(s"No such worker group: ${task.group}. Task is dismissed: $task")
               sender() ! NoSuchGroupWorkerException(task.group)
           }
         }
@@ -399,14 +400,14 @@ class ShardProcessor(clusterTransport: ActorRef,
   def holdTask(task: ShardTask, data: ShardedClusterData): Unit = {
     trackTaskMeter.mark()
     if (log.isDebugEnabled) {
-      log.debug(s"Got task to process while activating: $task")
+      logger.debug(s"Got task to process while activating: $task")
     }
     if (task.isExpired) {
-      log.warning(s"Task is expired, dropping: $task")
+      logger.warn(s"Task is expired, dropping: $task")
     } else {
       if (data.taskIsFor(task) == data.selfId) {
         if (log.isDebugEnabled) {
-          log.debug(s"Stashing task while activating: $task")
+          logger.debug(s"Stashing task while activating: $task")
         }
         safeStash(task)
       } else {
@@ -420,7 +421,7 @@ class ShardProcessor(clusterTransport: ActorRef,
     stash()
   } catch {
     case NonFatal(e) ⇒
-      log.error(e, s"Can't stash task: $task. It's lost now")
+      logger.error(s"Can't stash task: $task. It's lost now", e)
   }
 
   def forwardTask(task: ShardTask, data: ShardedClusterData): Unit = {
@@ -428,12 +429,12 @@ class ShardProcessor(clusterTransport: ActorRef,
     val address = data.taskIsFor(task)
     data.nodes.get(address) map { rvm ⇒
       if (log.isDebugEnabled) {
-        log.debug(s"Task is forwarded to $address: $task")
+        logger.debug(s"Task is forwarded to $address: $task")
       }
       clusterTransport forward TransportMessage(rvm.transportNode, task)
       true
     } getOrElse {
-      log.error(s"Task actor is not found: $address, dropping: $task")
+      logger.error(s"Task actor is not found: $address, dropping: $task")
     }
   }
 
@@ -450,25 +451,25 @@ class ShardProcessor(clusterTransport: ActorRef,
             }
           }
           if (log.isDebugEnabled) {
-            log.debug(s"Worker $worker is ready for next task. Completed task: $task, result: $result")
+            logger.debug(s"Worker $worker is ready for next task. Completed task: $task, result: $result")
           }
           activeGroupWorkers.remove(idx)
           worker ! PoisonPill
           safeUnstashAll()
         } else {
-          log.error(s"workerIsReadyForNextTask: unknown worker actor: $sender")
+          logger.error(s"workerIsReadyForNextTask: unknown worker actor: $sender")
         }
       case None ⇒
-        log.error(s"No such worker group: ${task.group}. Task result from $sender is ignored: $result. Task: $task")
+        logger.error(s"No such worker group: ${task.group}. Task result from $sender is ignored: $result. Task: $task")
     }
   }
 
   def safeUnstashAll() = try {
-    log.debug("Unstashing tasks")
+    logger.debug("Unstashing tasks")
     unstashAll()
   } catch {
     case NonFatal(e) ⇒
-      log.error(e, s"Can't unstash tasks. Some are lost now")
+      logger.error(s"Can't unstash tasks. Some are lost now", e)
   }
 
   protected[this] implicit class ImplicitExtender(data: Option[ShardedClusterData]) {
@@ -491,7 +492,5 @@ object ShardProcessor {
             workersSettings: Map[String, (Props, Int, String)],
             tracker: MetricsTracker,
             syncTimeout: FiniteDuration = 1000.millisecond // todo: move to config!
-           ) = Props(classOf[ShardProcessor],
-    clusterTransport, workersSettings, tracker, syncTimeout
-  )
+           ) = Props(new ShardProcessor(clusterTransport, workersSettings, tracker, syncTimeout))
 }

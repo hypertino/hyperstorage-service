@@ -21,6 +21,7 @@ import com.hypertino.hyperstorage.sharding.{ShardedClusterData, UpdateShardStatu
 import com.hypertino.hyperstorage.utils.FutureUtils
 import com.hypertino.hyperstorage.workers.secondary.{BackgroundContentTask, BackgroundContentTaskNoSuchResourceException, BackgroundContentTaskResult}
 import com.hypertino.metrics.MetricsTracker
+import com.typesafe.scalalogging.StrictLogging
 
 import scala.concurrent.{Await, Future}
 import scala.concurrent.duration._
@@ -84,7 +85,7 @@ abstract class RecoveryWorker[T <: WorkerState](
                                                  tracker: MetricsTracker,
                                                  retryPeriod: FiniteDuration,
                                                  backgroundTaskTimeout: FiniteDuration
-                                               ) extends Actor with ActorLogging {
+                                               ) extends Actor with StrictLogging {
 
   import context._
 
@@ -122,13 +123,13 @@ abstract class RecoveryWorker[T <: WorkerState](
           runNextRecoveryCheck(CheckQuantum(processId, dtQuantum, partitionsForQuantum, state.asInstanceOf[T]))
         } recover {
           case NonFatal(e) ⇒
-            log.error(e, s"Quantum check for $dtQuantum is failed. Will retry in $retryPeriod")
+            logger.error(s"Quantum check for $dtQuantum is failed. Will retry in $retryPeriod", e)
             system.scheduler.scheduleOnce(retryPeriod, self, CheckQuantum(processId, dtQuantum, partitionsForQuantum, state))
         }
       }
 
     case ShutdownRecoveryWorker ⇒
-      log.info(s"$self is shutting down...")
+      logger.info(s"$self is shutting down...")
       context.become(shuttingDown)
   }
 
@@ -138,7 +139,7 @@ abstract class RecoveryWorker[T <: WorkerState](
   }
 
   def clusterActivated(stateData: ShardedClusterData, partitions: Seq[Int]): Unit = {
-    log.info(s"Cluster is active $getClass is running. Current data: $stateData.")
+    logger.info(s"Cluster is active $getClass is running. Current data: $stateData.")
     context.become(running(stateData, partitions))
     self ! StartCheck(currentProcessId)
   }
@@ -148,7 +149,7 @@ abstract class RecoveryWorker[T <: WorkerState](
   def runNextRecoveryCheck(previous: CheckQuantum[T]): Unit
 
   def checkQuantum(dtQuantum: Long, partitions: Seq[Int]): Future[Unit] = {
-    log.debug(s"Running partition check for ${qts(dtQuantum)}")
+    logger.debug(s"Running partition check for ${qts(dtQuantum)}")
     FutureUtils.serial(partitions) { partition ⇒
       // todo: selectPartitionTransactions selects body which isn't eficient
       db.selectPartitionTransactions(dtQuantum, partition).flatMap { partitionTransactions ⇒
@@ -160,15 +161,15 @@ abstract class RecoveryWorker[T <: WorkerState](
             documentUri,
             expectsResult = true
           )
-          log.debug(s"Incomplete resource at $documentUri. Sending recovery task")
+          logger.debug(s"Incomplete resource at $documentUri. Sending recovery task")
           shardProcessor.ask(task)(backgroundTaskTimeout) flatMap {
             case BackgroundContentTaskResult(completePath, completedTransactions) ⇒
-              log.debug(s"Recovery of '$completePath' completed successfully: $completedTransactions")
+              logger.debug(s"Recovery of '$completePath' completed successfully: $completedTransactions")
               if (documentUri == completePath) {
                 val set = completedTransactions.toSet
                 val abandonedTransactions = transactions.filterNot(m ⇒ set.contains(m.uuid))
                 if (abandonedTransactions.nonEmpty) {
-                  log.warning(s"Abandoned transactions for '$completePath' were found: '${abandonedTransactions.map(_.uuid).mkString(",")}'. Deleting...")
+                  logger.warn(s"Abandoned transactions for '$completePath' were found: '${abandonedTransactions.map(_.uuid).mkString(",")}'. Deleting...")
                   FutureUtils.serial(abandonedTransactions.toSeq) { abandonedTransaction ⇒
                     db.completeTransaction(abandonedTransaction)
                   }
@@ -177,12 +178,12 @@ abstract class RecoveryWorker[T <: WorkerState](
                 }
               }
               else {
-                log.error(s"Recovery result received for '$completePath' while expecting for the '$documentUri'")
+                logger.error(s"Recovery result received for '$completePath' while expecting for the '$documentUri'")
                 Future.successful()
               }
             // todo: do we need this here?
             case BackgroundContentTaskNoSuchResourceException(notFountPath) ⇒
-              log.warning(s"Tried to recover not existing resource: '$notFountPath'. Exception is ignored")
+              logger.warn(s"Tried to recover not existing resource: '$notFountPath'. Exception is ignored")
               Future.successful()
             case (NonFatal(e), _) ⇒
               Future.failed(e)
@@ -226,13 +227,13 @@ class HotRecoveryWorker(
   def runNewRecoveryCheck(partitions: Seq[Int]): Unit = {
     val millis = System.currentTimeMillis()
     val lowerBound = TransactionLogic.getDtQuantum(millis - hotPeriod._1)
-    log.info(s"Running hot recovery check starting from ${qts(lowerBound)}. Partitions to process: ${partitions.size}")
+    logger.info(s"Running hot recovery check starting from ${qts(lowerBound)}. Partitions to process: ${partitions.size}")
     self ! CheckQuantum(currentProcessId, lowerBound, partitions, HotWorkerState(partitions, lowerBound))
 
 /*
     val random = new Random(System.currentTimeMillis)
 
-    log.warning("Inserting test data...")
+    logger.warn("Inserting test data...")
 
     0 to 10000 foreach { i ⇒
       val batch = 1000
@@ -248,11 +249,11 @@ class HotRecoveryWorker(
         val content = Content(documentUri = "bench-test~", itemId, 1, List.empty, Some(body), false, new Date, None)
         db.insertContent(content)
       }
-      log.warning(s"batch $i...")
+      logger.warn(s"batch $i...")
       Await.result(Future.sequence(futures), 60.seconds)
     }
 
-    log.warning("Completed")
+    logger.warn("Completed")
     */
   }
 
@@ -264,7 +265,7 @@ class HotRecoveryWorker(
     if (nextQuantum < upperBound) {
       scheduleNext(CheckQuantum(currentProcessId, nextQuantum, previous.state.workerPartitions, previous.state))
     } else {
-      log.info(s"Hot recovery complete on ${qts(previous.dtQuantum)}. Will start new in $retryPeriod")
+      logger.info(s"Hot recovery complete on ${qts(previous.dtQuantum)}. Will start new in $retryPeriod")
       system.scheduler.scheduleOnce(retryPeriod, self, StartCheck(currentProcessId))
     }
   }
@@ -314,11 +315,11 @@ class StaleRecoveryWorker(
       }
       val state = StaleWorkerState(partitions, partitionsPerQuantum, startFrom)
 
-      log.info(s"Running stale recovery check starting from ${qts(startFrom)}. Partitions to process: ${partitions.size}")
+      logger.info(s"Running stale recovery check starting from ${qts(startFrom)}. Partitions to process: ${partitions.size}")
       self ! CheckQuantum(currentProcessId, startFrom, partitionsToProcess, state)
     } recover {
       case NonFatal(e) ⇒
-        log.error(e, s"Can't fetch checkpoints. Will retry in $retryPeriod")
+        logger.error(s"Can't fetch checkpoints. Will retry in $retryPeriod", e)
         system.scheduler.scheduleOnce(retryPeriod, self, StartCheck(currentProcessId))
     }
   }
@@ -349,12 +350,12 @@ class StaleRecoveryWorker(
         }
       }
       else {
-        log.info(s"Stale recovery complete on ${qts(previous.dtQuantum)}. Will start new in $retryPeriod")
+        logger.info(s"Stale recovery complete on ${qts(previous.dtQuantum)}. Will start new in $retryPeriod")
         system.scheduler.scheduleOnce(retryPeriod, self, StartCheck(currentProcessId))
       }
     } recover {
       case NonFatal(e) ⇒
-        log.error(e, s"Can't update checkpoints. Will restart in $retryPeriod")
+        logger.error(s"Can't update checkpoints. Will restart in $retryPeriod", e)
         system.scheduler.scheduleOnce(retryPeriod, self, StartCheck(currentProcessId))
     }
   }
@@ -372,15 +373,7 @@ object HotRecoveryWorker {
              tracker: MetricsTracker,
              retryPeriod: FiniteDuration,
              recoveryCompleterTimeout: FiniteDuration
-           ) = Props(
-    classOf[HotRecoveryWorker],
-    hotPeriod,
-    db,
-    shardProcessor,
-    tracker,
-    retryPeriod,
-    recoveryCompleterTimeout
-  )
+           ) = Props(new HotRecoveryWorker(hotPeriod, db, shardProcessor, tracker, retryPeriod, recoveryCompleterTimeout))
 }
 
 object StaleRecoveryWorker {
@@ -391,13 +384,5 @@ object StaleRecoveryWorker {
              tracker: MetricsTracker,
              retryPeriod: FiniteDuration,
              backgroundTaskTimeout: FiniteDuration
-           ) = Props(
-    classOf[StaleRecoveryWorker],
-    stalePeriod,
-    db,
-    shardProcessor,
-    tracker,
-    retryPeriod,
-    backgroundTaskTimeout
-  )
+           ) = Props(new StaleRecoveryWorker(stalePeriod, db, shardProcessor, tracker, retryPeriod, backgroundTaskTimeout))
 }

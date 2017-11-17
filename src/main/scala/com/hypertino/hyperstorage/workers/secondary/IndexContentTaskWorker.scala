@@ -9,7 +9,6 @@
 package com.hypertino.hyperstorage.workers.secondary
 
 import akka.actor.ActorRef
-import akka.event.LoggingAdapter
 import com.hypertino.binders.value.Null
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperstorage._
@@ -37,7 +36,6 @@ trait IndexContentTaskWorker extends ItemIndexer with SecondaryWorkerBase {
   def hyperbus: Hyperbus
   def db: Db
   def tracker: MetricsTracker
-  def log: LoggingAdapter
   def indexManager: ActorRef
   implicit def scheduler: Scheduler
 

@@ -15,8 +15,8 @@ import com.hypertino.metrics.modules.MetricsModule
 import com.hypertino.service.config.ConfigModule
 import com.hypertino.service.control.ConsoleModule
 import com.hypertino.service.control.api.{Service, ServiceController}
+import com.typesafe.scalalogging.StrictLogging
 import monix.execution.Scheduler
-import org.slf4j.LoggerFactory
 import scaldi.{Injectable, Module}
 
 import scala.concurrent.Await
@@ -28,8 +28,7 @@ class MainServiceModule extends Module {
   bind [Service]          identifiedBy 'mainService        to inject[HyperStorageService]
 }
 
-object EntryPoint extends Injectable {
-  private val log = LoggerFactory.getLogger(getClass)
+object EntryPoint extends Injectable with StrictLogging {
 
   def main(args: Array[String]): Unit = {
     implicit val injector =
@@ -48,6 +47,6 @@ object EntryPoint extends Injectable {
   }
 
   private def logException: PartialFunction[Throwable, Unit] = {
-    case NonFatal(e) ⇒ log.error("Unhandled exception", e)
+    case NonFatal(e) ⇒ logger.error("Unhandled exception", e)
   }
 }

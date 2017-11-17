@@ -11,19 +11,18 @@ import com.hypertino.binders.cassandra.GuavaSessionQueryCache
 import com.hypertino.hyperstorage.CassandraConnector
 import com.hypertino.hyperstorage.db.Db
 import com.hypertino.inflector.naming.CamelCaseToSnakeCaseConverter
+import com.typesafe.scalalogging.StrictLogging
 import monix.execution.Scheduler
 import org.cassandraunit.CassandraCQLUnit
 import org.cassandraunit.dataset.cql.ClassPathCQLDataSet
 import org.mockito.Mockito._
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.{BeforeAndAfterAll, Suite}
-import org.slf4j.LoggerFactory
 
 import scala.concurrent.ExecutionContext
 
-trait CassandraFixture extends BeforeAndAfterAll with ScalaFutures {
+trait CassandraFixture extends BeforeAndAfterAll with ScalaFutures with StrictLogging {
   this: Suite =>
-  private[this] val log = LoggerFactory.getLogger(getClass)
   //var session: Session = _
   var db: Db = _
   var dbOriginal: Db = _
@@ -49,7 +48,7 @@ trait CassandraFixture extends BeforeAndAfterAll with ScalaFutures {
   }
 
   def cleanUpCassandra(): Unit = {
-    log.info("------- CLEANING UP C* -------- ")
+    logger.info("------- CLEANING UP C* -------- ")
     if (Cassandra.session != null) {
       import scala.collection.JavaConversions._
       val cleanDs = new ClassPathCQLDataSet("cleanup.cql", "hyper_storage_test")

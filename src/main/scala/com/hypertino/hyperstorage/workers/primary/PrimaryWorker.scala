@@ -10,7 +10,7 @@ package com.hypertino.hyperstorage.workers.primary
 
 import java.util.Date
 
-import akka.actor.{Actor, ActorLogging, ActorRef, Props}
+import akka.actor.{Actor, ActorRef, Props}
 import akka.pattern.pipe
 import com.codahale.metrics.Timer
 import com.datastax.driver.core.utils.UUIDs
@@ -31,6 +31,7 @@ import com.hypertino.metrics.MetricsTracker
 import com.hypertino.parser.HEval
 import com.hypertino.parser.ast.Identifier
 import com.hypertino.parser.eval.Context
+import com.typesafe.scalalogging.StrictLogging
 
 import scala.concurrent.Future
 import scala.concurrent.duration.FiniteDuration
@@ -49,7 +50,7 @@ case class PrimaryWorkerTaskFailed(task: ShardTask, inner: Throwable)
 case class PrimaryWorkerTaskCompleted(task: ShardTask, transaction: Transaction, resourceCreated: Boolean)
 
 // todo: Protect from direct view items updates!!!
-class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgroundTaskTimeout: FiniteDuration) extends Actor with ActorLogging {
+class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgroundTaskTimeout: FiniteDuration) extends Actor with StrictLogging {
 
   import ContentLogic._
   import context._
@@ -149,7 +150,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
         executeResourceUpdateTask(owner, documentUri, itemId, task, request)
     } recover {
       case NonFatal(e) ⇒
-        log.error(e, s"Can't deserialize and split path for: $task")
+        logger.error(s"Can't deserialize and split path for: $task", e)
         owner ! ShardTaskComplete(task, hyperbusException(e, task)(MessagingContext.empty))
     }
   }
@@ -573,9 +574,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
                              trackProcessTime: Timer.Context)
                             (implicit mcf: MessagingContext): Receive = {
     case PrimaryWorkerTaskCompleted(task, transaction, created) if task == originalTask ⇒
-      if (log.isDebugEnabled) {
-        log.debug(s"task $originalTask is completed")
-      }
+      logger.debug(s"task $originalTask is completed")
       owner ! BackgroundContentTask(System.currentTimeMillis() + backgroundTaskTimeout.toMillis, transaction.documentUri, expectsResult=false)
       val result: Response[Body] = if (created) {
         val target = idField.map(kv ⇒ Obj.from(kv._1 → Text(kv._2))).getOrElse(Null)
@@ -603,7 +602,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     }
 
     if (logException) {
-      log.error(e, s"task $task is failed")
+      logger.error(s"task $task is failed", e)
     }
 
     PrimaryWorkerTaskResult(response.serializeToString)
@@ -624,7 +623,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 
 object PrimaryWorker {
   def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgroundTaskTimeout: FiniteDuration) =
-    Props(classOf[PrimaryWorker], hyperbus, db, tracker, backgroundTaskTimeout)
+    Props(new PrimaryWorker(hyperbus, db, tracker, backgroundTaskTimeout))
 }
 
 case class ExpressionEvaluatorContext(request: DynamicRequest, original: Value) extends Context{

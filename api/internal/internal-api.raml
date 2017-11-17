@@ -24,6 +24,16 @@ types:
   NodesPostError:
     enum: [unknown-node,cluster-not-matches]
 
+  Task:
+    type: object
+    properties:
+      key: string
+      group: string
+      ttl:
+        type: number
+        format: long
+      expects_result: boolean
+
 /node:
   get:
     responses:

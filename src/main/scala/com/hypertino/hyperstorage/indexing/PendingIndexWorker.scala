@@ -8,12 +8,12 @@
 
 package com.hypertino.hyperstorage.indexing
 
-import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Props}
+import akka.actor.{Actor, ActorRef, ActorSystem, Props}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperstorage.db.{Db, IndexDef, PendingIndex}
-import com.hypertino.hyperstorage.workers.secondary.{IndexContentTaskFailed, IndexContentTaskResult, IndexContentTask}
+import com.hypertino.hyperstorage.workers.secondary.{IndexContentTask, IndexContentTaskFailed, IndexContentTaskResult}
 import com.hypertino.metrics.MetricsTracker
-import org.slf4j.LoggerFactory
+import com.typesafe.scalalogging.StrictLogging
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
@@ -30,7 +30,7 @@ case class IndexNextBatchTimeout(processId: Long)
 
 // todo: add indexing progress log
 class PendingIndexWorker(cluster: ActorRef, indexKey: IndexDefTransaction, hyperbus: Hyperbus, db: Db, tracker: MetricsTracker)
-  extends Actor with ActorLogging {
+  extends Actor with StrictLogging {
 
   override def preStart(): Unit = {
     super.preStart()
@@ -71,12 +71,12 @@ class PendingIndexWorker(cluster: ActorRef, indexKey: IndexDefTransaction, hyper
       indexNextBatch(processId + 1, indexDef, Some(latestItemId))
 
     case IndexContentTaskResult(None, p) if p == processId ⇒
-      log.info(s"Indexing of: $indexKey is complete")
+      logger.info(s"Indexing of: $indexKey is complete")
       context.parent ! IndexManager.IndexingComplete(indexKey)
       context.stop(self)
 
     case e@IndexContentTaskFailed(p, reason) if p == processId ⇒
-      log.error(e, s"Restarting index worker $self")
+      logger.error(s"Restarting index worker $self", e)
       import context._
       become(waitingForIndexDef)
       IndexWorkerImpl.selectPendingIndex(context.self, indexKey, db)
@@ -94,13 +94,11 @@ class PendingIndexWorker(cluster: ActorRef, indexKey: IndexDefTransaction, hyper
 
 object PendingIndexWorker {
   def props(cluster: ActorRef, indexKey: IndexDefTransaction, hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) = Props(
-    classOf[PendingIndexWorker], cluster: ActorRef, indexKey, hyperbus, db, tracker
+    new PendingIndexWorker(cluster: ActorRef, indexKey, hyperbus, db, tracker)
   )
 }
 
-private[indexing] object IndexWorkerImpl {
-  val log = LoggerFactory.getLogger(getClass)
-
+private[indexing] object IndexWorkerImpl extends StrictLogging {
   import scala.concurrent.duration._
 
   val RETRY_PERIOD = 60.seconds // todo: move to config
@@ -111,19 +109,19 @@ private[indexing] object IndexWorkerImpl {
       case Some(pendingIndex) ⇒
         db.selectIndexDef(indexKey.documentUri, indexKey.indexId) map {
           case Some(indexDef) if indexDef.defTransactionId == pendingIndex.defTransactionId ⇒
-            log.info(s"Starting indexing of: $indexDef")
+            logger.info(s"Starting indexing of: $indexDef")
             notifyActor ! BeginIndexing(indexDef, pendingIndex.lastItemId)
           case _ ⇒
             actorSystem.scheduler.scheduleOnce(RETRY_PERIOD, notifyActor, WaitForIndexDef(pendingIndex))
         }
 
       case None ⇒
-        log.info(s"Can't find pending index for $indexKey, stopping actor")
+        logger.info(s"Can't find pending index for $indexKey, stopping actor")
         notifyActor ! CompletePendingIndex
         Future.successful()
     } recover {
       case NonFatal(e) ⇒
-        log.error(s"Can't fetch pending index for $indexKey", e)
+        logger.error(s"Can't fetch pending index for $indexKey", e)
         actorSystem.scheduler.scheduleOnce(RETRY_PERIOD, notifyActor, StartPendingIndexWorker)
     }
   }
@@ -132,12 +130,12 @@ private[indexing] object IndexWorkerImpl {
                         (implicit ec: ExecutionContext, actorSystem: ActorSystem) = {
     db.deletePendingIndex(pendingIndex.partition, pendingIndex.documentUri, pendingIndex.indexId, pendingIndex.defTransactionId) map { _ ⇒
 
-      log.warn(s"Pending index deleted: $pendingIndex (no corresponding index definition was found)")
+      logger.warn(s"Pending index deleted: $pendingIndex (no corresponding index definition was found)")
       notifyActor ! CompletePendingIndex
 
     } recover {
       case NonFatal(e) ⇒
-        log.error(s"Can't delete pending index $pendingIndex", e)
+        logger.error(s"Can't delete pending index $pendingIndex", e)
         actorSystem.scheduler.scheduleOnce(RETRY_PERIOD, notifyActor, StartPendingIndexWorker)
     }
   }

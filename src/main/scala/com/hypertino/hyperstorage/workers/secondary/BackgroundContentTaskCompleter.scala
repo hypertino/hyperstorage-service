@@ -11,7 +11,6 @@ package com.hypertino.hyperstorage.workers.secondary
 import java.util.UUID
 
 import akka.actor.ActorRef
-import akka.event.LoggingAdapter
 import akka.pattern.ask
 import com.datastax.driver.core.utils.UUIDs
 import com.hypertino.binders.value.{Null, Number, Value}
@@ -49,7 +48,6 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
   def hyperbus: Hyperbus
   def db: Db
   def tracker: MetricsTracker
-  def log: LoggingAdapter
   implicit def scheduler: Scheduler
 
   def deleteIndexDefAndData(indexDef: IndexDef): Future[Unit]
@@ -64,17 +62,16 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
         tracker.timeOfFuture(Metrics.SECONDARY_PROCESS_TIME) {
           db.selectContentStatic(task.documentUri) flatMap {
             case None ⇒
-              log.warning(s"Didn't found resource to background complete, dismissing task: $task")
+              logger.warn(s"Didn't found resource to background complete, dismissing task: $task")
               Future.failed(BackgroundContentTaskNoSuchResourceException(task.documentUri))
             case Some(content) ⇒
               try {
-                if (log.isDebugEnabled) {
-                  log.debug(s"Background task for $content")
-                }
+                logger.debug(s"Background task for $content")
+
                 completeTransactions(task, content, owner, task.ttl)
               } catch {
                 case NonFatal(e) ⇒
-                  log.error(e, s"Background task $task didn't complete")
+                  logger.error(s"Background task $task didn't complete", e)
                   Future.failed(e)
               }
           }
@@ -83,7 +80,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
     }
     catch {
       case NonFatal(e) ⇒
-        log.error(e, s"Background task $task didn't complete")
+        logger.error(s"Background task $task didn't complete", e)
         Future.failed(e)
     }
   }
@@ -120,13 +117,11 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
               .flatMap( _ ⇒ hyperbus.publish(event))
               .runAsync
               .flatMap{ publishResult ⇒
-              if (log.isDebugEnabled) {
-                log.debug(s"Event $event is published with result $publishResult")
-              }
+              logger.debug(s"Event $event is published with result $publishResult")
+
               db.completeTransaction(it.transaction) map { _ ⇒
-                if (log.isDebugEnabled) {
-                  log.debug(s"${it.transaction} is complete")
-                }
+                logger.debug(s"${it.transaction} is complete")
+
                 it.transaction
               }
             }
@@ -135,14 +130,14 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
           ShardTaskComplete(task, BackgroundContentTaskResult(task.documentUri, updatedTransactions.map(_.uuid)))
         } recover {
           case NonFatal(e) ⇒
-            log.error(e, s"Task failed: $task")
+            logger.error(s"Task failed: $task",e)
             ShardTaskComplete(task, BackgroundContentTaskFailedException(task.documentUri, e.toString))
         } andThen {
           case Success(ShardTaskComplete(_, BackgroundContentTaskResult(documentUri, updatedTransactions))) ⇒
-            log.debug(s"Removing completed transactions $updatedTransactions from $documentUri")
+            logger.debug(s"Removing completed transactions $updatedTransactions from $documentUri")
             db.removeCompleteTransactionsFromList(documentUri, updatedTransactions.toList) recover {
               case NonFatal(e) ⇒
-                log.error(e, s"Can't remove complete transactions $updatedTransactions from $documentUri")
+                logger.error(s"Can't remove complete transactions $updatedTransactions from $documentUri", e)
             }
         }
       }
@@ -180,7 +175,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
         indexDefsTask
           .flatMap { indexDefs ⇒
             Task.wander(indexDefs) { indexDef ⇒
-              log.debug(s"Removing index $indexDef")
+              logger.debug(s"Removing index $indexDef")
               Task.fromFuture(deleteIndexDefAndData(indexDef))
             }
           }
@@ -198,27 +193,23 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
         Task.traverse(itemIds.keys) { itemId ⇒
           // todo: cache content
           val contentTask = Task.eval(Task.fromFuture{
-            if (log.isDebugEnabled) {
-              log.debug(s"Looking for content ${contentStatic.documentUri}/$itemId to index/update view")
-            }
+            logger.debug(s"Looking for content ${contentStatic.documentUri}/$itemId to index/update view")
+
             db.selectContent(contentStatic.documentUri, itemId)
           }).flatten.memoize
           val lastTransaction = incompleteTransactions.filter(_.transaction.itemId == itemId).last
-          if (log.isDebugEnabled) {
-            log.debug(s"Update view/index for ${contentStatic.documentUri}/$itemId, lastTransaction=$lastTransaction, contentTask=$contentTask")
-          }
+          logger.debug(s"Update view/index for ${contentStatic.documentUri}/$itemId, lastTransaction=$lastTransaction, contentTask=$contentTask")
+
           updateView(contentStatic.documentUri + "/" + itemId, contentTask, lastTransaction, owner, ttl)
             .flatMap { _ ⇒
               indexDefsTask
                 .flatMap { indexDefs ⇒
                   Task.traverse(indexDefs) { indexDef ⇒
-                    if (log.isDebugEnabled) {
-                      log.debug(s"Indexing content ${contentStatic.documentUri}/$itemId for $indexDef")
-                    }
+                    logger.debug(s"Indexing content ${contentStatic.documentUri}/$itemId for $indexDef")
 
                     Task.fromFuture(db.selectIndexContentStatic(indexDef.tableName, indexDef.documentUri, indexDef.indexId))
                       .flatMap { indexContentStaticO ⇒
-                        log.debug(s"Index $indexDef static data: $indexContentStaticO")
+                        logger.debug(s"Index $indexDef static data: $indexContentStaticO")
                         val countBefore: Long = indexContentStaticO.flatMap(_.count).getOrElse(0l)
                         // todo: refactor, this is crazy
                         val seq: Seq[Seq[(String, Value)]] = itemIds(itemId).filter(_._1 == indexDef.indexId).map(_._2)
@@ -237,9 +228,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
                               })
 
                             case _ ⇒
-                              if (log.isDebugEnabled) {
-                                log.debug(s"No content to index for ${contentStatic.documentUri}/$itemId")
-                              }
+                              logger.debug(s"No content to index for ${contentStatic.documentUri}/$itemId")
                               Task.now(false)
                           }
                           .flatMap {
@@ -305,9 +294,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
                     IndexLogic.evaluateFilterExpression(filter, content.bodyValue)
                   } catch {
                     case NonFatal(e) ⇒
-                      if (log.isDebugEnabled) {
-                        log.debug(s"Can't evaluate expression: `$filter` for $path", e)
-                      }
+                      logger.debug(s"Can't evaluate expression: `$filter` for $path", e)
                       false
                   }
                 } getOrElse {

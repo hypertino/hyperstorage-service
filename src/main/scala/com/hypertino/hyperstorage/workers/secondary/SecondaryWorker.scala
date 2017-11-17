@@ -8,13 +8,14 @@
 
 package com.hypertino.hyperstorage.workers.secondary
 
-import akka.actor.{Actor, ActorLogging, ActorRef, Props}
+import akka.actor.{Actor, ActorRef, Props}
 import akka.pattern.pipe
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperstorage.db._
 import com.hypertino.hyperstorage.sharding.{ShardTask, ShardTaskComplete}
 import com.hypertino.metrics.MetricsTracker
+import com.typesafe.scalalogging.StrictLogging
 import monix.execution.Scheduler
 
 import scala.concurrent.ExecutionContext
@@ -34,7 +35,7 @@ trait SecondaryTaskError
 
 @SerialVersionUID(1L) case class SecondaryTaskFailed(key: String, reason: String) extends RuntimeException(s"Secondary task for '$key' is failed with reason $reason") with SecondaryTaskError
 
-class SecondaryWorker(val hyperbus: Hyperbus, val db: Db, val tracker: MetricsTracker, val indexManager: ActorRef, implicit val scheduler: Scheduler) extends Actor with ActorLogging
+class SecondaryWorker(val hyperbus: Hyperbus, val db: Db, val tracker: MetricsTracker, val indexManager: ActorRef, implicit val scheduler: Scheduler) extends Actor with StrictLogging
   with BackgroundContentTaskCompleter
   with IndexDefTaskWorker
   with IndexContentTaskWorker {
@@ -58,18 +59,18 @@ class SecondaryWorker(val hyperbus: Hyperbus, val db: Db, val tracker: MetricsTr
 
   private def withSecondaryTaskFailed(task: SecondaryTaskTrait): PartialFunction[Throwable, ShardTaskComplete] = {
     case e: SecondaryTaskError ⇒
-      log.error(e, s"Can't execute $task")
+      logger.error(s"Can't execute $task", e)
       ShardTaskComplete(task, e)
 
     case NonFatal(e) ⇒
-      log.error(e, s"Can't execute $task")
+      logger.error(s"Can't execute $task", e)
       ShardTaskComplete(task, SecondaryTaskFailed(task.key, e.toString))
   }
 }
 
 object SecondaryWorker {
-  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, indexManager: ActorRef, scheduler: Scheduler) = Props(classOf[SecondaryWorker],
-    hyperbus, db, tracker, indexManager, scheduler
+  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, indexManager: ActorRef, scheduler: Scheduler) = Props(
+    new SecondaryWorker(hyperbus, db, tracker, indexManager, scheduler)
   )
 }
 

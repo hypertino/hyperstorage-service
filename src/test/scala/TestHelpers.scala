@@ -29,18 +29,17 @@ import com.hypertino.metrics.MetricsTracker
 import com.hypertino.metrics.modules.{ConsoleReporterModule, MetricsModule}
 import com.hypertino.service.config.ConfigModule
 import com.typesafe.config.ConfigFactory
+import com.typesafe.scalalogging.StrictLogging
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.{BeforeAndAfterEach, Matchers}
-import org.slf4j.LoggerFactory
 import scaldi.Injectable
 
 import scala.collection.concurrent.TrieMap
 import scala.concurrent.Await
 import scala.concurrent.duration._
 
-trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures with Injectable {
+trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures with Injectable with StrictLogging{
   this: org.scalatest.BeforeAndAfterEach with org.scalatest.Suite =>
-  private[this] val log = LoggerFactory.getLogger(getClass)
 
   implicit val injector = new SystemServicesModule :: new HyperStorageServiceModule :: new MetricsModule ::
     new ConsoleReporterModule(Duration.Inf).injector :: ConfigModule()
@@ -157,7 +156,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
   }
 
   override def afterEach() {
-    log.info("------- SHUTTING DOWN HYPERBUSES -------- ")
+    logger.info("------- SHUTTING DOWN HYPERBUSES -------- ")
     _hyperbuses.foreach {
       case (index, hb) ⇒ {
         Await.result(hb.shutdown(10.second).runAsync, 11.second)
@@ -169,7 +168,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     _hyperbuses.clear()
     _actorSystems.clear()
     Thread.sleep(500)
-    log.info("------- HYPERBUSES WERE SHUT DOWN -------- ")
+    logger.info("------- HYPERBUSES WERE SHUT DOWN -------- ")
     reporter.report()
   }
 
@@ -211,21 +210,21 @@ case class TestShardTask(key: String, value: String,
   override def expectsResult: Boolean = true
 }
 
-class TestWorker extends Actor with ActorLogging {
+class TestWorker extends Actor with StrictLogging {
   def receive = {
     case task: TestShardTask => {
       if (task.isExpired) {
-        log.error(s"Task is expired: $task")
+        logger.error(s"Task is expired: $task")
       } else {
         val c = Cluster(context.system)
         val path = c.selfAddress + "/" + self.path.toString
-        log.info(s"Processing task: $task")
+        logger.info(s"Processing task: $task")
         task.processingStarted(path)
         if (task.sleep > 0) {
           Thread.sleep(task.sleep)
         }
         task.processed(path)
-        log.info(s"Task processed: $task")
+        logger.info(s"Task processed: $task")
       }
       sender() ! ShardTaskComplete(task, None)
     }

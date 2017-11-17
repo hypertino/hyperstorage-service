@@ -10,12 +10,10 @@ package com.hypertino.hyperstorage.metrics
 
 import com.hypertino.metrics.loaders.MetricsReporterLoader
 import com.hypertino.metrics.{MetricsTracker, ProcessMetrics}
-import org.slf4j.LoggerFactory
+import com.typesafe.scalalogging.StrictLogging
 import scaldi.{Injectable, Injector, TypeTagIdentifier}
 
-object MetricsReporter extends Injectable {
-  val log = LoggerFactory.getLogger(getClass)
-
+object MetricsReporter extends Injectable with StrictLogging {
   def startReporter(tracker: MetricsTracker)(implicit injector: Injector): Unit = {
     import scala.reflect.runtime.universe._
     injector.getBinding(List(TypeTagIdentifier(typeOf[MetricsReporterLoader]))) match {
@@ -24,7 +22,7 @@ object MetricsReporter extends Injectable {
         ProcessMetrics.startReporting(tracker)
 
       case None ⇒
-        log.warn("Metric reporter is not configured.")
+        logger.warn("Metric reporter is not configured.")
     }
   }
 }

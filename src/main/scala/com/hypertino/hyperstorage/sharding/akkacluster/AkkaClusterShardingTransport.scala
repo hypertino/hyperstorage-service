@@ -8,19 +8,20 @@
 
 package com.hypertino.hyperstorage.sharding.akkacluster
 
-import akka.actor.{Actor, ActorLogging, ActorRef, ActorSelection, Props, RootActorPath}
+import akka.actor.{Actor, ActorRef, ActorSelection, Props, RootActorPath}
 import akka.cluster.ClusterEvent._
 import akka.cluster.{Cluster, ClusterEvent, Member}
 import com.hypertino.hyperstorage.internal.api.NodeStatus
 import com.hypertino.hyperstorage.sharding._
+import com.typesafe.scalalogging.StrictLogging
 
 private[akkacluster] case class AKNode(nodeId: String,
                                        actorRef: ActorSelection) extends TransportNode
 
-class AkkaClusterShardingTransport(roleName: String) extends Actor with ActorLogging{
+class AkkaClusterShardingTransport(roleName: String) extends Actor with StrictLogging {
   private val cluster = Cluster(context.system)
   if (!cluster.selfRoles.contains(roleName)) {
-    log.error(s"Cluster doesn't contains '$roleName' role. Please configure.")
+    logger.error(s"Cluster doesn't contains '$roleName' role. Please configure.")
   }
 
   override def receive = {
@@ -49,7 +50,5 @@ class AkkaClusterShardingTransport(roleName: String) extends Actor with ActorLog
 object AkkaClusterShardingTransport {
   def props(
              roleName: String
-           ) = Props(classOf[AkkaClusterShardingTransport],
-    roleName
-  )
+           ) = Props(new AkkaClusterShardingTransport(roleName))
 }

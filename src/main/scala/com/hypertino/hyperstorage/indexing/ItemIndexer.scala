@@ -8,15 +8,14 @@
 
 package com.hypertino.hyperstorage.indexing
 
-import akka.event.LoggingAdapter
 import com.hypertino.hyperstorage.db.{Content, Db, IndexContent, IndexDef}
+import com.typesafe.scalalogging.StrictLogging
 import monix.execution.Scheduler
 
 import scala.concurrent.Future
 import scala.util.control.NonFatal
 
-trait ItemIndexer {
-  def log: LoggingAdapter
+trait ItemIndexer extends StrictLogging {
   def db: Db
   implicit def scheduler: Scheduler
 
@@ -29,18 +28,14 @@ trait ItemIndexer {
         IndexLogic.evaluateFilterExpression(filter, contentValue)
       } catch {
         case NonFatal(e) ⇒
-          if (log.isDebugEnabled) {
-            log.debug(s"Can't evaluate expression: `$filter` for $item", e)
-          }
+          logger.debug(s"Can't evaluate expression: `$filter` for $item", e)
           false
       }
     } getOrElse {
       true
     })
 
-    if (log.isDebugEnabled) {
-      log.debug(s"Indexing item $item with $indexDef ... ${if (write) "Accepted" else "Rejected"}")
-    }
+    logger.debug(s"Indexing item $item with $indexDef ... ${if (write) "Accepted" else "Rejected"}")
 
     if (write) {
       val indexContent = IndexContent(

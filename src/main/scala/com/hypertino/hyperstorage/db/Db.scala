@@ -17,7 +17,6 @@ import com.hypertino.hyperstorage.{CassandraConnector, ContentLogic}
 import com.hypertino.hyperstorage.api.HyperStorageIndexSortItem
 import com.hypertino.inflector.naming.CamelCaseToSnakeCaseConverter
 import com.typesafe.scalalogging.StrictLogging
-import org.slf4j.LoggerFactory
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
