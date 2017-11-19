@@ -74,7 +74,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     import tk._
 
     val indexManager = TestActorRef(IndexManager.props(hyperbus, db, tracker, 1))
-    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, self, scheduler)
+    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, indexManager, scheduler)
 
     val clusterTransport = TestActorRef(AkkaClusterShardingTransport.props("hyperstorage"))
     val processor = new TestFSMRef[String, ShardedClusterData, ShardProcessor](system,

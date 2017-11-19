@@ -8,7 +8,7 @@
 
 import java.util.UUID
 
-import akka.actor.{ActorSystem, Props}
+import akka.actor.ActorSystem
 import akka.testkit.TestActorRef
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model.{NotFound, _}
@@ -19,8 +19,6 @@ import com.hypertino.hyperstorage.sharding._
 import com.hypertino.hyperstorage.sharding.akkacluster.AkkaClusterShardingTransport
 import com.hypertino.hyperstorage.utils.SortBy
 import com.hypertino.hyperstorage.workers.HyperstorageWorkerSettings
-import com.hypertino.hyperstorage.workers.primary.PrimaryWorker
-import com.hypertino.hyperstorage.workers.secondary.SecondaryWorker
 import monix.execution.Ack.Continue
 import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}

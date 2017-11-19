@@ -360,7 +360,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) extends S
     """.bind(transaction).execute()
 
   def completeTransaction(transaction: Transaction): Future[Unit] = cql"""
-      update transaction set completed_at=dateOf(now())
+      update transaction set completed_at=toTimestamp(now())
       where dt_quantum=${transaction.dtQuantum}
         and partition=${transaction.partition}
         and document_uri=${transaction.documentUri}
