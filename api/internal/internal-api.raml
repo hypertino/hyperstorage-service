@@ -24,15 +24,26 @@ types:
   NodesPostError:
     enum: [unknown-node,cluster-not-matches]
 
-  Task:
+  RemoteTask:
     type: object
     properties:
+      source?: string
+      task_id?: string
       key: string
       group: string
       ttl:
         type: number
         format: long
       expects_result: boolean
+      task_headers: object
+      task_body: string
+
+  RemoteTaskResult:
+    type: object
+    properties:
+      task_id?: string
+      result_headers: object
+      result_body: string
 
 /node:
   get:
@@ -51,3 +62,18 @@ types:
           application/json: NodeUpdated
       409:
 
+/tasks:
+  post:
+    body:
+      application/json:
+        type: RemoteTask
+    responses:
+      202:
+
+/task-results:
+  post:
+    body:
+      application/json:
+        type: RemoteTaskResult
+    responses:
+      202:

@@ -53,7 +53,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
 
   def createShardProcessor(groupName: String, workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
     val clusterTransport = TestActorRef(AkkaClusterShardingTransport.props("hyperstorage"))
-    val workerSettings = Map(groupName → (Props[TestWorker], workerCount, "test-worker"))
+    val workerSettings = Map(groupName → WorkerGroupSettings(Props[TestWorker], workerCount, "test-worker"))
     val fsm = new TestFSMRef[String, ShardedClusterData, ShardProcessor](actorSystem,
       ShardProcessor.props(clusterTransport, workerSettings, tracker).withDispatcher("deque-dispatcher"),
       GuardianExtractor.guardian(actorSystem),
@@ -78,8 +78,8 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
     val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, indexManager, scheduler)
     val workerSettings = Map(
-      "hyperstorage-primary-worker" → (workerProps, 1, "pgw-"),
-      "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+      "hyperstorage-primary-worker" → WorkerGroupSettings(workerProps, 1, "pgw-"),
+      "hyperstorage-secondary-worker" → WorkerGroupSettings(secondaryWorkerProps, 1, "sgw-")
     )
 
     val clusterTransport = TestActorRef(AkkaClusterShardingTransport.props("hyperstorage"))
@@ -226,6 +226,7 @@ class TestWorker extends Actor with StrictLogging {
         task.processed(path)
         logger.info(s"Task processed: $task")
       }
+      logger.info(s"Replying to ${sender()} that task $task is complete")
       sender() ! ShardTaskComplete(task, None)
     }
   }

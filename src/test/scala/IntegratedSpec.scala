@@ -50,8 +50,8 @@ class IntegratedSpec extends FlatSpec
     val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
     val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
     val workerSettings = Map(
-      "hyperstorage-primary-worker" → (workerProps, 1, "pgw-"),
-      "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+      "hyperstorage-primary-worker" → WorkerGroupSettings(workerProps, 1, "pgw-"),
+      "hyperstorage-secondary-worker" → WorkerGroupSettings(secondaryWorkerProps, 1, "sgw-")
     )
 
     val processor = shardProcessor(workerSettings)
@@ -89,8 +89,8 @@ class IntegratedSpec extends FlatSpec
     val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
     val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
     val workerSettings = Map(
-      "hyperstorage-primary-worker" → (workerProps, 1, "pgw-"),
-      "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+      "hyperstorage-primary-worker" → WorkerGroupSettings(workerProps, 1, "pgw-"),
+      "hyperstorage-secondary-worker" → WorkerGroupSettings(secondaryWorkerProps, 1, "sgw-")
     )
 
     val processor = shardProcessor(workerSettings)
@@ -125,8 +125,8 @@ class IntegratedSpec extends FlatSpec
     val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
     val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
     val workerSettings = Map(
-      "hyperstorage-primary-worker" → (workerProps, 1, "pgw-"),
-      "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+      "hyperstorage-primary-worker" → WorkerGroupSettings(workerProps, 1, "pgw-"),
+      "hyperstorage-secondary-worker" → WorkerGroupSettings(secondaryWorkerProps, 1, "sgw-")
     )
 
     val processor = shardProcessor(workerSettings)
@@ -175,8 +175,8 @@ class IntegratedSpec extends FlatSpec
     val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
     val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
     val workerSettings = Map(
-      "hyperstorage-primary-worker" → (workerProps, 1, "pgw-"),
-      "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+      "hyperstorage-primary-worker" → WorkerGroupSettings(workerProps, 1, "pgw-"),
+      "hyperstorage-secondary-worker" → WorkerGroupSettings(secondaryWorkerProps, 1, "sgw-")
     )
 
     val processor = shardProcessor(workerSettings)
@@ -230,8 +230,8 @@ class IntegratedSpec extends FlatSpec
     val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
     val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
     val workerSettings = Map(
-      "hyperstorage-primary-worker" → (workerProps, 1, "pgw-"),
-      "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+      "hyperstorage-primary-worker" → WorkerGroupSettings(workerProps, 1, "pgw-"),
+      "hyperstorage-secondary-worker" → WorkerGroupSettings(secondaryWorkerProps, 1, "sgw-")
     )
 
     val processor = shardProcessor(workerSettings)
@@ -311,8 +311,8 @@ class IntegratedSpec extends FlatSpec
     val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
     val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
     val workerSettings = Map(
-      "hyperstorage-primary-worker" → (workerProps, 1, "pgw-"),
-      "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+      "hyperstorage-primary-worker" → WorkerGroupSettings(workerProps, 1, "pgw-"),
+      "hyperstorage-secondary-worker" → WorkerGroupSettings(secondaryWorkerProps, 1, "sgw-")
     )
 
     val processor = shardProcessor(workerSettings)
@@ -408,8 +408,8 @@ class IntegratedSpec extends FlatSpec
     val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
     val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
     val workerSettings = Map(
-      "hyperstorage-primary-worker" → (workerProps, 1, "pgw-"),
-      "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+      "hyperstorage-primary-worker" → WorkerGroupSettings(workerProps, 1, "pgw-"),
+      "hyperstorage-secondary-worker" → WorkerGroupSettings(secondaryWorkerProps, 1, "sgw-")
     )
 
     val processor = shardProcessor(workerSettings)
@@ -462,8 +462,8 @@ class IntegratedSpec extends FlatSpec
     val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
     val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
     val workerSettings = Map(
-      "hyperstorage-primary-worker" → (workerProps, 1, "pgw-"),
-      "hyperstorage-secondary-worker" → (secondaryWorkerProps, 1, "sgw-")
+      "hyperstorage-primary-worker" → WorkerGroupSettings(workerProps, 1, "pgw-"),
+      "hyperstorage-secondary-worker" → WorkerGroupSettings(secondaryWorkerProps, 1, "sgw-")
     )
 
     val processor = shardProcessor(workerSettings)
@@ -506,7 +506,7 @@ class IntegratedSpec extends FlatSpec
     }
   }
 
-  def shardProcessor(workerSettings: Map[String, (Props, Int, String)])(implicit as: ActorSystem) = {
+  def shardProcessor(workerSettings: Map[String, WorkerGroupSettings])(implicit as: ActorSystem) = {
     val clusterTransport = TestActorRef(AkkaClusterShardingTransport.props("hyperstorage"))
     TestActorRef(ShardProcessor.props(clusterTransport, workerSettings, tracker))
   }

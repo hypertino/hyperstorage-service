@@ -10,7 +10,6 @@ package com.hypertino.hyperstorage.sharding
 
 import akka.actor._
 import akka.cluster.ClusterEvent._
-import akka.routing.{ConsistentHash, MurmurHash}
 import com.hypertino.hyperbus.model.{MessagingContext, Ok}
 import com.hypertino.hyperstorage.internal.api
 import com.hypertino.hyperstorage.internal.api._
@@ -39,41 +38,6 @@ case class ShardNode(transportNode: TransportNode,
                      status: String,
                      confirmedStatus: String)
 
-case class ShardedClusterData(nodes: Map[String, ShardNode], selfId: String, selfStatus: String) {
-  lazy val clusterHash: Integer =  MurmurHash.stringHash(nodeStatuses.keys.toSeq.sorted.mkString("|"))
-
-  private final lazy val consistentHash = ConsistentHash(activeNodes, VirtualNodesSize)
-  private final lazy val consistentHashPrevious = ConsistentHash(previouslyActiveNodes, VirtualNodesSize)
-  private final lazy val nodeStatuses: Map[String, NodeStatus.StringEnum] = {
-    nodes.map {
-      case (nodeId, rvm) ⇒ nodeId → rvm.status
-    } + (selfId → selfStatus)
-  }
-
-  def +(elem: (String, ShardNode)) = ShardedClusterData(nodes + elem, selfId, selfStatus)
-
-  def -(key: String) = ShardedClusterData(nodes - key, selfId, selfStatus)
-
-  def taskIsFor(task: ShardTask): String = consistentHash.nodeFor(task.key)
-
-  def taskWasFor(task: ShardTask): String = consistentHashPrevious.nodeFor(task.key)
-
-  private def VirtualNodesSize = 128 // todo: find a better value, configurable? http://www.tom-e-white.com/2007/11/consistent-hashing.html
-
-  private def activeNodes: Iterable[String] = nodeStatuses.flatMap {
-    case (nodeId, NodeStatus.ACTIVE) ⇒ Some(nodeId)
-    case (nodeId, NodeStatus.ACTIVATING) ⇒ Some(nodeId)
-    case _ ⇒ None
-  }
-
-  private def previouslyActiveNodes: Iterable[String] = nodeStatuses.flatMap {
-    case (nodeId, NodeStatus.ACTIVE) ⇒ Some(nodeId)
-    case (nodeId, NodeStatus.ACTIVATING) ⇒ Some(nodeId)
-    case (nodeId, NodeStatus.DEACTIVATING) ⇒ Some(nodeId)
-    case _ ⇒ None
-  }
-}
-
 // todo: is this used?
 case class SubscribeToShardStatus(subscriber: ActorRef)
 
@@ -86,21 +50,28 @@ case object ShutdownProcessor
 
 case class ShardTaskComplete(task: ShardTask, result: Any)
 
+//case class ExpectingRemoteResult(client: ActorRef, ttl: Long, taskName: String) {
+//  def isExpired = ttl < System.currentTimeMillis()
+//}
+
+case class WorkerGroupSettings(props: Props, maxCount: Int, prefix: String)
+
 class ShardProcessor(clusterTransport: ActorRef,
-                     workersSettings: Map[String, (Props, Int, String)],
+                     workersSettings: Map[String, WorkerGroupSettings],
                      tracker: MetricsTracker,
                      syncTimeout: FiniteDuration = 1000.millisecond)
   extends FSMEx[String, ShardedClusterData] with Stash with StrictLogging {
 
-  val activeWorkers = workersSettings.map { case (groupName, _) ⇒
-    groupName → mutable.ArrayBuffer[(ShardTask, ActorRef, ActorRef)]()
-  }
+  private val activeWorkers = workersSettings.keys.map {
+    _ → mutable.ArrayBuffer[(ShardTask, ActorRef, ActorRef)]()
+  }.toMap
   private val shardStatusSubscribers = mutable.MutableList[ActorRef]()
+//  private val remoteTasks = mutable.Map[Long, ExpectingRemoteResult]()
 
   // trackers
-  val trackStashMeter = tracker.meter(Metrics.SHARD_PROCESSOR_STASH_METER)
-  val trackTaskMeter = tracker.meter(Metrics.SHARD_PROCESSOR_TASK_METER)
-  val trackForwardMeter = tracker.meter(Metrics.SHARD_PROCESSOR_FORWARD_METER)
+  private val trackStashMeter = tracker.meter(Metrics.SHARD_PROCESSOR_STASH_METER)
+  private val trackTaskMeter = tracker.meter(Metrics.SHARD_PROCESSOR_TASK_METER)
+  private val trackForwardMeter = tracker.meter(Metrics.SHARD_PROCESSOR_FORWARD_METER)
 
   clusterTransport ! SubscribeToEvents
 
@@ -362,17 +333,15 @@ class ShardProcessor(clusterTransport: ActorRef,
                 safeStash(task)
                 true
               } getOrElse {
-                val maxCount = workersSettings(task.group)._2
-                if (activeGroupWorkers.size >= maxCount) {
+                val ws = workersSettings(task.group)
+                if (activeGroupWorkers.size >= ws.maxCount) {
                   if (log.isDebugEnabled) {
-                    logger.debug(s"Worker limit for group '${task.group}' is reached ($maxCount), stashing task: $task")
+                    logger.debug(s"Worker limit for group '${task.group}' is reached (${ws.maxCount}), stashing task: $task")
                   }
                   safeStash(task)
                 } else {
-                  val workerProps = workersSettings(task.group)._1
-                  val prefix = workersSettings(task.group)._3
                   try {
-                    val worker = context.system.actorOf(workerProps, AkkaNaming.next(prefix))
+                    val worker = context.system.actorOf(ws.props, AkkaNaming.next(ws.prefix))
                     if (log.isDebugEnabled) {
                       logger.debug(s"Forwarding task from ${sender()} to worker $worker: $task")
                     }
@@ -380,7 +349,7 @@ class ShardProcessor(clusterTransport: ActorRef,
                     activeGroupWorkers.append((task, worker, sender()))
                   } catch {
                     case NonFatal(e) ⇒
-                      logger.error(s"Can't create worker from props $workerProps", e)
+                      logger.error(s"Can't create worker from props ${ws.props}", e)
                       sender() ! e
                   }
                 }
@@ -447,7 +416,10 @@ class ShardProcessor(clusterTransport: ActorRef,
           if (task.expectsResult) {
             result match {
               case None ⇒ // no result
-              case other ⇒ client ! other
+              case other ⇒ {
+                log.debug(s"Sending result $other to $client")
+                client ! other
+              }
             }
           }
           if (log.isDebugEnabled) {
@@ -488,9 +460,9 @@ class ShardProcessor(clusterTransport: ActorRef,
 
 object ShardProcessor {
   def props(
-            clusterTransport: ActorRef,
-            workersSettings: Map[String, (Props, Int, String)],
-            tracker: MetricsTracker,
-            syncTimeout: FiniteDuration = 1000.millisecond // todo: move to config!
+             clusterTransport: ActorRef,
+             workersSettings: Map[String, WorkerGroupSettings],
+             tracker: MetricsTracker,
+             syncTimeout: FiniteDuration = 1000.millisecond // todo: move to config!
            ) = Props(new ShardProcessor(clusterTransport, workersSettings, tracker, syncTimeout))
 }
