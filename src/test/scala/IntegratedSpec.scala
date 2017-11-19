@@ -18,6 +18,7 @@ import com.hypertino.hyperstorage.api._
 import com.hypertino.hyperstorage.sharding._
 import com.hypertino.hyperstorage.sharding.akkacluster.AkkaClusterShardingTransport
 import com.hypertino.hyperstorage.utils.SortBy
+import com.hypertino.hyperstorage.workers.HyperstorageWorkerSettings
 import com.hypertino.hyperstorage.workers.primary.PrimaryWorker
 import com.hypertino.hyperstorage.workers.secondary.SecondaryWorker
 import monix.execution.Ack.Continue
@@ -47,13 +48,7 @@ class IntegratedSpec extends FlatSpec
 
     cleanUpCassandra()
 
-    val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
-    val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
-    val workerSettings = Map(
-      "hyperstorage-primary-worker" → WorkerGroupSettings(workerProps, 1, "pgw-"),
-      "hyperstorage-secondary-worker" → WorkerGroupSettings(secondaryWorkerProps, 1, "sgw-")
-    )
-
+    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, self, scheduler)
     val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
@@ -86,13 +81,7 @@ class IntegratedSpec extends FlatSpec
 
     cleanUpCassandra()
 
-    val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
-    val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
-    val workerSettings = Map(
-      "hyperstorage-primary-worker" → WorkerGroupSettings(workerProps, 1, "pgw-"),
-      "hyperstorage-secondary-worker" → WorkerGroupSettings(secondaryWorkerProps, 1, "sgw-")
-    )
-
+    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, self, scheduler)
     val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
@@ -122,13 +111,7 @@ class IntegratedSpec extends FlatSpec
 
     cleanUpCassandra()
 
-    val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
-    val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
-    val workerSettings = Map(
-      "hyperstorage-primary-worker" → WorkerGroupSettings(workerProps, 1, "pgw-"),
-      "hyperstorage-secondary-worker" → WorkerGroupSettings(secondaryWorkerProps, 1, "sgw-")
-    )
-
+    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, self, scheduler)
     val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
@@ -172,13 +155,7 @@ class IntegratedSpec extends FlatSpec
 
     cleanUpCassandra()
 
-    val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
-    val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
-    val workerSettings = Map(
-      "hyperstorage-primary-worker" → WorkerGroupSettings(workerProps, 1, "pgw-"),
-      "hyperstorage-secondary-worker" → WorkerGroupSettings(secondaryWorkerProps, 1, "sgw-")
-    )
-
+    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, self, scheduler)
     val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
@@ -227,13 +204,7 @@ class IntegratedSpec extends FlatSpec
 
     cleanUpCassandra()
 
-    val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
-    val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
-    val workerSettings = Map(
-      "hyperstorage-primary-worker" → WorkerGroupSettings(workerProps, 1, "pgw-"),
-      "hyperstorage-secondary-worker" → WorkerGroupSettings(secondaryWorkerProps, 1, "sgw-")
-    )
-
+    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, self, scheduler)
     val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
@@ -308,13 +279,7 @@ class IntegratedSpec extends FlatSpec
 
     cleanUpCassandra()
 
-    val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
-    val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
-    val workerSettings = Map(
-      "hyperstorage-primary-worker" → WorkerGroupSettings(workerProps, 1, "pgw-"),
-      "hyperstorage-secondary-worker" → WorkerGroupSettings(secondaryWorkerProps, 1, "sgw-")
-    )
-
+    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, self, scheduler)
     val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
@@ -405,13 +370,7 @@ class IntegratedSpec extends FlatSpec
 
     cleanUpCassandra()
 
-    val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
-    val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
-    val workerSettings = Map(
-      "hyperstorage-primary-worker" → WorkerGroupSettings(workerProps, 1, "pgw-"),
-      "hyperstorage-secondary-worker" → WorkerGroupSettings(secondaryWorkerProps, 1, "sgw-")
-    )
-
+    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, self, scheduler)
     val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
@@ -459,13 +418,7 @@ class IntegratedSpec extends FlatSpec
 
     cleanUpCassandra()
 
-    val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
-    val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, self, scheduler)
-    val workerSettings = Map(
-      "hyperstorage-primary-worker" → WorkerGroupSettings(workerProps, 1, "pgw-"),
-      "hyperstorage-secondary-worker" → WorkerGroupSettings(secondaryWorkerProps, 1, "sgw-")
-    )
-
+    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, self, scheduler)
     val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes

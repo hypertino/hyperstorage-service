@@ -63,7 +63,7 @@ class HyperStorageSpec extends FlatSpec
     worker ! PrimaryContentTask(task.path, System.currentTimeMillis() + 10000, taskStr, expectsResult=true,isClientOperation=true)
     val backgroundTask = expectMsgType[BackgroundContentTask]
     backgroundTask.documentUri should equal(task.path)
-    val workerResult = expectMsgType[ShardTaskComplete]
+    val workerResult = expectMsgType[WorkerTaskResult]
     val r = response(workerResult.result.asInstanceOf[PrimaryWorkerTaskResult].content)
     r.headers.statusCode should equal(Status.CREATED)
     r.headers.correlationId should equal(task.correlationId)
@@ -81,7 +81,7 @@ class HyperStorageSpec extends FlatSpec
 
     val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
     backgroundWorker ! backgroundTask
-    val backgroundWorkerResult = expectMsgType[ShardTaskComplete]
+    val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
     val rc = backgroundWorkerResult.result.asInstanceOf[BackgroundContentTaskResult]
     rc.documentUri should equal("test-resource-1")
     rc.transactions should contain(uuid)
@@ -110,7 +110,7 @@ class HyperStorageSpec extends FlatSpec
     worker ! PrimaryContentTask(task.path, System.currentTimeMillis() + 10000, taskStr, expectsResult=true,isClientOperation=true)
     val backgroundTask = expectMsgType[BackgroundContentTask]
     backgroundTask.documentUri should equal(task.path)
-    val workerResult = expectMsgType[ShardTaskComplete]
+    val workerResult = expectMsgType[WorkerTaskResult]
     val r = response(workerResult.result.asInstanceOf[PrimaryWorkerTaskResult].content)
     r.headers.statusCode should equal(Status.CREATED)
     r.headers.correlationId should equal(task.correlationId)
@@ -128,7 +128,7 @@ class HyperStorageSpec extends FlatSpec
 
     val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
     backgroundWorker ! backgroundTask
-    val backgroundWorkerResult = expectMsgType[ShardTaskComplete]
+    val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
     val rc = backgroundWorkerResult.result.asInstanceOf[BackgroundContentTaskResult]
     rc.documentUri should equal("not-existing")
     rc.transactions should contain(uuid)
@@ -153,7 +153,7 @@ class HyperStorageSpec extends FlatSpec
 
     worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskPutStr, expectsResult=true,isClientOperation=true)
     expectMsgType[BackgroundContentTask]
-    expectMsgType[ShardTaskComplete]
+    expectMsgType[WorkerTaskResult]
 
     implicit val so = SerializationOptions.forceOptionalFields
     val task = ContentPatch(path,
@@ -164,7 +164,7 @@ class HyperStorageSpec extends FlatSpec
     worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskPatchStr, expectsResult=true,isClientOperation=true)
     expectMsgType[BackgroundContentTask]
     expectMsgPF() {
-      case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.OK &&
+      case WorkerTaskResult(_, _, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.OK &&
         response(result.content).headers.correlationId == task.correlationId ⇒ {
         true
       }
@@ -179,14 +179,14 @@ class HyperStorageSpec extends FlatSpec
     val deleteTaskStr = deleteTask.serializeToString
     worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, deleteTaskStr, expectsResult=true,isClientOperation=true)
     expectMsgType[BackgroundContentTask]
-    expectMsgType[ShardTaskComplete]
+    expectMsgType[WorkerTaskResult]
 
     // now patch should create new resource
     worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskPatchStr, expectsResult=true,isClientOperation=true)
 
     val backgroundTask = expectMsgType[BackgroundContentTask]
     backgroundTask.documentUri should equal(task.path)
-    val workerResult = expectMsgType[ShardTaskComplete]
+    val workerResult = expectMsgType[WorkerTaskResult]
     val r = response(workerResult.result.asInstanceOf[PrimaryWorkerTaskResult].content)
     r.headers.statusCode should equal(Status.CREATED)
     r.headers.correlationId should equal(task.correlationId)
@@ -204,7 +204,7 @@ class HyperStorageSpec extends FlatSpec
 
     val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
     backgroundWorker ! backgroundTask
-    val backgroundWorkerResult = expectMsgType[ShardTaskComplete]
+    val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
     val rc = backgroundWorkerResult.result.asInstanceOf[BackgroundContentTaskResult]
     rc.documentUri should equal(path)
     rc.transactions should contain(uuid)
@@ -229,7 +229,7 @@ class HyperStorageSpec extends FlatSpec
     val taskStr = task.serializeToString
     worker ! PrimaryContentTask(task.path, System.currentTimeMillis() + 10000, taskStr, expectsResult=true,isClientOperation=true)
     expectMsgPF() {
-      case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.NOT_FOUND &&
+      case WorkerTaskResult(_, _, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.NOT_FOUND &&
         response(result.content).headers.correlationId == task.correlationId ⇒ {
         true
       }
@@ -256,7 +256,7 @@ class HyperStorageSpec extends FlatSpec
 
     worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskPutStr, expectsResult=true,isClientOperation=true)
     expectMsgType[BackgroundContentTask]
-    expectMsgType[ShardTaskComplete]
+    expectMsgType[WorkerTaskResult]
 
     whenReady(db.selectContent(path, "")) { result =>
       result shouldNot be(None)
@@ -269,7 +269,7 @@ class HyperStorageSpec extends FlatSpec
     worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr, expectsResult=true,isClientOperation=true)
     expectMsgType[BackgroundContentTask]
     expectMsgPF() {
-      case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.OK &&
+      case WorkerTaskResult(_, _, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.OK &&
         response(result.content).headers.correlationId == task.headers.correlationId ⇒ {
         true
       }
@@ -296,7 +296,7 @@ class HyperStorageSpec extends FlatSpec
 
     worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskPutStr, expectsResult=true,isClientOperation=true)
     expectMsgType[BackgroundContentTask]
-    expectMsgType[ShardTaskComplete]
+    expectMsgType[WorkerTaskResult]
 
     whenReady(db.selectContent(path, "")) { result =>
       result shouldNot be(None)
@@ -309,7 +309,7 @@ class HyperStorageSpec extends FlatSpec
     worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr, expectsResult=true,isClientOperation=true)
     expectMsgType[BackgroundContentTask]
     expectMsgPF() {
-      case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.OK &&
+      case WorkerTaskResult(_, _, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.OK &&
         response(result.content).headers.correlationId == task.headers.correlationId ⇒ {
         true
       }
@@ -321,7 +321,7 @@ class HyperStorageSpec extends FlatSpec
 
     worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskPutStr, expectsResult=true,isClientOperation=true)
     expectMsgType[BackgroundContentTask]
-    expectMsgType[ShardTaskComplete]
+    expectMsgType[WorkerTaskResult]
 
     whenReady(db.selectContent(path, "")) { result =>
       result shouldNot be(None)
@@ -345,7 +345,7 @@ class HyperStorageSpec extends FlatSpec
     ).serializeToString
     worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr1, expectsResult=true,isClientOperation=true)
     expectMsgType[BackgroundContentTask]
-    val result1 = expectMsgType[ShardTaskComplete]
+    val result1 = expectMsgType[WorkerTaskResult]
     transactionList += response(result1.result.asInstanceOf[PrimaryWorkerTaskResult].content).body.content.dynamic.transaction_id.toString
 
     val taskStr2 = ContentPatch(path,
@@ -353,13 +353,13 @@ class HyperStorageSpec extends FlatSpec
     ).serializeToString
     worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr2, expectsResult=true,isClientOperation=true)
     expectMsgType[BackgroundContentTask]
-    val result2 = expectMsgType[ShardTaskComplete]
+    val result2 = expectMsgType[WorkerTaskResult]
     transactionList += response(result2.result.asInstanceOf[PrimaryWorkerTaskResult].content).body.content.dynamic.transaction_id.toString
 
     val taskStr3 = ContentDelete(path).serializeToString
     worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr3, expectsResult=true,isClientOperation=true)
     val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
-    val workerResult = expectMsgType[ShardTaskComplete]
+    val workerResult = expectMsgType[WorkerTaskResult]
     val r = response(workerResult.result.asInstanceOf[PrimaryWorkerTaskResult].content)
     r.headers.statusCode should equal(Status.OK)
     transactionList += r.body.content.dynamic.transaction_id.toString
@@ -380,7 +380,7 @@ class HyperStorageSpec extends FlatSpec
 
     val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
     backgroundWorker ! backgroundWorkerTask
-    val backgroundWorkerResult = expectMsgType[ShardTaskComplete]
+    val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
     val rc = backgroundWorkerResult.result.asInstanceOf[BackgroundContentTaskResult]
     rc.documentUri should equal(path)
     rc.transactions should equal(transactions)
@@ -404,14 +404,14 @@ class HyperStorageSpec extends FlatSpec
     ).serializeToString
     worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr1, expectsResult=true,isClientOperation=true)
     expectMsgType[BackgroundContentTask]
-    expectMsgType[ShardTaskComplete]
+    expectMsgType[WorkerTaskResult]
 
     val taskStr2 = ContentPatch(path,
       DynamicBody(Obj.from("text" → "abc", "text2" → "klmn"))
     ).serializeToString
     worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr2, expectsResult=true,isClientOperation=true)
     val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
-    expectMsgType[ShardTaskComplete]
+    expectMsgType[WorkerTaskResult]
 
     val transactionUuids = whenReady(db.selectContent(path, "")) { result =>
       result.get.transactionList
@@ -434,7 +434,7 @@ class HyperStorageSpec extends FlatSpec
     }
 
     backgroundWorker ! backgroundWorkerTask
-    expectMsgType[ShardTaskComplete].result shouldBe a[BackgroundContentTaskFailedException]
+    expectMsgType[WorkerTaskResult].result shouldBe a[BackgroundContentTaskFailedException]
     selectTransactions(transactionUuids, path, db) foreach {
       _.completedAt shouldBe None
     }
@@ -450,7 +450,7 @@ class HyperStorageSpec extends FlatSpec
     }
 
     backgroundWorker ! backgroundWorkerTask
-    expectMsgType[ShardTaskComplete].result shouldBe a[BackgroundContentTaskFailedException]
+    expectMsgType[WorkerTaskResult].result shouldBe a[BackgroundContentTaskFailedException]
     val mons = selectTransactions(transactionUuids, path, db)
 
     mons.head.completedAt shouldBe None
@@ -458,7 +458,7 @@ class HyperStorageSpec extends FlatSpec
 
     FaultClientTransport.checkers.clear()
     backgroundWorker ! backgroundWorkerTask
-    expectMsgType[ShardTaskComplete].result shouldBe a[BackgroundContentTaskResult]
+    expectMsgType[WorkerTaskResult].result shouldBe a[BackgroundContentTaskResult]
     selectTransactions(transactionUuids, path, db) foreach {
       _.completedAt shouldNot be(None)
     }
@@ -502,7 +502,7 @@ class HyperStorageSpec extends FlatSpec
 
     val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
     backgroundWorker ! backgroundWorkerTask
-    val backgroundWorkerResult = expectMsgType[ShardTaskComplete]
+    val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
     backgroundWorkerResult.result shouldBe a[BackgroundContentTaskResult]
 
     selectTransactions(Seq(tr1), path, db) foreach { transaction ⇒
@@ -523,7 +523,7 @@ class FakeProcessor(primaryWorker: ActorRef) extends Actor {
       //println("got from" + sender() + s", self: $self: " + r)
       primaryWorker ! r
 
-    case ShardTaskComplete(_, r) if r.isInstanceOf[PrimaryWorkerTaskResult] ⇒
+    case WorkerTaskResult(_, _, r) if r.isInstanceOf[PrimaryWorkerTaskResult] ⇒
       //println("got from" + sender() + s", self: $self, forwarding to $adapter: " + r)
       adapter forward r
 

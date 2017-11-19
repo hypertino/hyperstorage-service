@@ -24,7 +24,7 @@ import com.hypertino.hyperstorage.api._
 import com.hypertino.hyperstorage.db._
 import com.hypertino.hyperstorage.indexing.IndexLogic
 import com.hypertino.hyperstorage.metrics.Metrics
-import com.hypertino.hyperstorage.sharding.{ShardTask, ShardTaskComplete}
+import com.hypertino.hyperstorage.sharding.{ShardTask, WorkerTaskResult}
 import com.hypertino.hyperstorage.utils.ErrorCode
 import com.hypertino.hyperstorage.workers.secondary.BackgroundContentTask
 import com.hypertino.metrics.MetricsTracker
@@ -151,7 +151,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     } recover {
       case NonFatal(e) ⇒
         logger.error(s"Can't deserialize and split path for: $task", e)
-        owner ! ShardTaskComplete(task, hyperbusException(e, task)(MessagingContext.empty))
+        owner ! WorkerTaskResult(task.key, task.group, hyperbusException(e, task)(MessagingContext.empty))
     }
   }
 
@@ -584,12 +584,12 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       else {
         Ok(api.HyperStorageTransaction(transaction.uuid.toString, request.path, transaction.revision))
       }
-      owner ! ShardTaskComplete(task, PrimaryWorkerTaskResult(result.serializeToString))
+      owner ! WorkerTaskResult(task.key, task.group, PrimaryWorkerTaskResult(result.serializeToString))
       trackProcessTime.stop()
       unbecome()
 
     case PrimaryWorkerTaskFailed(task, e) if task == originalTask ⇒
-      owner ! ShardTaskComplete(task, hyperbusException(e, task))
+      owner ! WorkerTaskResult(task.key, task.group, hyperbusException(e, task))
       trackProcessTime.stop()
       unbecome()
   }

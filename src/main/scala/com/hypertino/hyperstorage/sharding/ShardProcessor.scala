@@ -10,7 +10,7 @@ package com.hypertino.hyperstorage.sharding
 
 import akka.actor._
 import akka.cluster.ClusterEvent._
-import com.hypertino.hyperbus.model.{MessagingContext, Ok}
+import com.hypertino.hyperbus.model.{MessagingContext, Ok, RequestBase, RequestHeaders, RequestMeta, RequestMetaCompanion, ResponseBase}
 import com.hypertino.hyperstorage.internal.api
 import com.hypertino.hyperstorage.internal.api._
 import com.hypertino.hyperstorage.metrics.Metrics
@@ -20,6 +20,7 @@ import com.typesafe.scalalogging.StrictLogging
 
 import scala.collection.mutable
 import scala.concurrent.duration._
+import scala.util.Try
 import scala.util.control.NonFatal
 
 @SerialVersionUID(1L) trait ShardTask {
@@ -30,6 +31,10 @@ import scala.util.control.NonFatal
   def isExpired: Boolean
 
   def expectsResult: Boolean
+}
+
+case class LocalTask(key: String, group: String, ttl: Long, expectsResult: Boolean, task: RequestBase) extends ShardTask {
+  override def isExpired = ttl < System.currentTimeMillis()
 }
 
 @SerialVersionUID(1L) case class NoSuchGroupWorkerException(groupName: String) extends RuntimeException(s"No such worker group: $groupName")
@@ -48,13 +53,25 @@ private[sharding] case object ShardSyncTimer
 
 case object ShutdownProcessor
 
-case class ShardTaskComplete(task: ShardTask, result: Any)
+case class WorkerTaskResult(key: String, group: String, result: Any) // result: Try[Option[ResponseBase]]
 
 //case class ExpectingRemoteResult(client: ActorRef, ttl: Long, taskName: String) {
 //  def isExpired = ttl < System.currentTimeMillis()
 //}
 
-case class WorkerGroupSettings(props: Props, maxCount: Int, prefix: String)
+case class WorkerGroupSettings(props: Props, maxCount: Int, prefix: String, metaCompanions: Seq[RequestMetaCompanion[_ <: RequestBase]]) {
+  private val m : Map[(String,String), RequestMetaCompanion[_ <: RequestBase]] = metaCompanions.map { mc ⇒
+    (mc.location, mc.method) → mc
+  }.toMap
+
+  def lookupRequestMeta(headers: RequestHeaders): RequestMeta[_ <: RequestBase] = {
+    val l = (headers.hrl.location,headers.method)
+    m.get(l) match {
+      case Some(mc) ⇒ mc
+      case None ⇒ throw new IllegalArgumentException(s"Didn't found RequestMeta for $l")
+    }
+  }
+}
 
 class ShardProcessor(clusterTransport: ActorRef,
                      workersSettings: Map[String, WorkerGroupSettings],
@@ -62,7 +79,7 @@ class ShardProcessor(clusterTransport: ActorRef,
                      syncTimeout: FiniteDuration = 1000.millisecond)
   extends FSMEx[String, ShardedClusterData] with Stash with StrictLogging {
 
-  private val activeWorkers = workersSettings.keys.map {
+  private val activeWorkers = workersSettings.keys.map { // todo: make this Map of Map!
     _ → mutable.ArrayBuffer[(ShardTask, ActorRef, ActorRef)]()
   }.toMap
   private val shardStatusSubscribers = mutable.MutableList[ActorRef]()
@@ -145,8 +162,8 @@ class ShardProcessor(clusterTransport: ActorRef,
       case Event(TransportNodeDown(nodeId), data) ⇒
       removeNode(nodeId, data) andUpdate
 
-    case Event(ShardTaskComplete(task, result), data) ⇒
-      workerIsReadyForNextTask(task, result)
+    case Event(wt : WorkerTaskResult, data) ⇒
+      workerIsReadyForNextTask(wt)
       stay()
 
     case Event(task: ShardTask, data) ⇒
@@ -407,14 +424,14 @@ class ShardProcessor(clusterTransport: ActorRef,
     }
   }
 
-  def workerIsReadyForNextTask(task: ShardTask, result: Any): Unit = {
-    activeWorkers.get(task.group) match {
+  def workerIsReadyForNextTask(workerTaskResult: WorkerTaskResult): Unit = {
+    activeWorkers.get(workerTaskResult.group) match {
       case Some(activeGroupWorkers) ⇒
         val idx = activeGroupWorkers.indexWhere(_._2 == sender())
         if (idx >= 0) {
           val (task, worker, client) = activeGroupWorkers(idx)
           if (task.expectsResult) {
-            result match {
+            workerTaskResult.result match {
               case None ⇒ // no result
               case other ⇒ {
                 log.debug(s"Sending result $other to $client")
@@ -423,7 +440,7 @@ class ShardProcessor(clusterTransport: ActorRef,
             }
           }
           if (log.isDebugEnabled) {
-            logger.debug(s"Worker $worker is ready for next task. Completed task: $task, result: $result")
+            logger.debug(s"Worker $worker is ready for next task. Completed task: $task, result: ${workerTaskResult.result}")
           }
           activeGroupWorkers.remove(idx)
           worker ! PoisonPill
@@ -431,8 +448,9 @@ class ShardProcessor(clusterTransport: ActorRef,
         } else {
           logger.error(s"workerIsReadyForNextTask: unknown worker actor: $sender")
         }
+
       case None ⇒
-        logger.error(s"No such worker group: ${task.group}. Task result from $sender is ignored: $result. Task: $task")
+        logger.error(s"No such worker group: ${workerTaskResult.group}. Task result from $sender with key ${workerTaskResult.key} is ignored: ${workerTaskResult.result}")
     }
   }
 

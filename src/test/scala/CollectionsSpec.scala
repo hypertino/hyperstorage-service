@@ -59,7 +59,7 @@ class CollectionsSpec extends FlatSpec
     worker ! PrimaryContentTask(collection, System.currentTimeMillis() + 10000, taskStr, expectsResult=true,isClientOperation=true)
     val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
     backgroundWorkerTask.documentUri should equal(collection)
-    val workerResult = expectMsgType[ShardTaskComplete]
+    val workerResult = expectMsgType[WorkerTaskResult]
     val r = response(workerResult.result.asInstanceOf[PrimaryWorkerTaskResult].content)
     r.headers.statusCode should equal(Status.CREATED)
     r.headers.correlationId should equal(task.correlationId)
@@ -81,7 +81,7 @@ class CollectionsSpec extends FlatSpec
     worker ! PrimaryContentTask(collection, System.currentTimeMillis() + 10000, task2Str, expectsResult=true,isClientOperation=true)
     val backgroundWorkerTask2 = expectMsgType[BackgroundContentTask]
     backgroundWorkerTask2.documentUri should equal(collection)
-    val workerResult2 = expectMsgType[ShardTaskComplete]
+    val workerResult2 = expectMsgType[WorkerTaskResult]
     val r2 = response(workerResult2.result.asInstanceOf[PrimaryWorkerTaskResult].content)
     r2.headers.statusCode should equal(Status.CREATED)
     r2.headers.correlationId should equal(task2.correlationId)
@@ -103,7 +103,7 @@ class CollectionsSpec extends FlatSpec
 
     val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
     backgroundWorker ! backgroundWorkerTask
-    val backgroundWorkerResult = expectMsgType[ShardTaskComplete]
+    val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
     val rc = backgroundWorkerResult.result.asInstanceOf[BackgroundContentTaskResult]
     rc.documentUri should equal(collection)
     rc.transactions should equal(content2.get.transactionList.reverse)
@@ -134,7 +134,7 @@ class CollectionsSpec extends FlatSpec
 
     worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPutStr, expectsResult=true,isClientOperation=true)
     expectMsgType[BackgroundContentTask]
-    expectMsgType[ShardTaskComplete]
+    expectMsgType[WorkerTaskResult]
 
     val task = ContentPatch(path,
       DynamicBody(Obj.from("text1" → "efg", "text2" → Null, "text3" → "zzz"))
@@ -144,7 +144,7 @@ class CollectionsSpec extends FlatSpec
 
     expectMsgType[BackgroundContentTask]
     expectMsgPF() {
-      case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.OK &&
+      case WorkerTaskResult(_, _, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.OK &&
         response(result.content).headers.correlationId == task.correlationId ⇒ {
         true
       }
@@ -163,14 +163,14 @@ class CollectionsSpec extends FlatSpec
     val deleteTaskStr = deleteTask.serializeToString
     worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, deleteTaskStr, expectsResult=true,isClientOperation=true)
     expectMsgType[BackgroundContentTask]
-    expectMsgType[ShardTaskComplete]
+    expectMsgType[WorkerTaskResult]
 
     // now patch should return 404
     worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPatchStr, expectsResult=true,isClientOperation=true)
 
     expectMsgType[BackgroundContentTask]
     expectMsgPF() {
-      case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.CREATED &&
+      case WorkerTaskResult(_, _, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.CREATED &&
         response(result.content).headers.correlationId == task.correlationId ⇒ {
         true
       }
@@ -203,7 +203,7 @@ class CollectionsSpec extends FlatSpec
 
     worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPutStr, expectsResult=true,isClientOperation=true)
     expectMsgType[BackgroundContentTask]
-    expectMsgType[ShardTaskComplete]
+    expectMsgType[WorkerTaskResult]
 
     val task = ContentDelete(path)
     val taskStr = task.serializeToString
@@ -211,7 +211,7 @@ class CollectionsSpec extends FlatSpec
 
     expectMsgType[BackgroundContentTask]
     expectMsgPF() {
-      case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.OK &&
+      case WorkerTaskResult(_, _, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.OK &&
         response(result.content).headers.correlationId == task.headers.correlationId ⇒ {
         true
       }
@@ -237,7 +237,7 @@ class CollectionsSpec extends FlatSpec
 
     worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPutStr, expectsResult=true,isClientOperation=true)
     expectMsgType[BackgroundContentTask]
-    expectMsgType[ShardTaskComplete]
+    expectMsgType[WorkerTaskResult]
 
     val task = ContentDelete(documentUri)
     val taskStr = task.serializeToString
@@ -245,7 +245,7 @@ class CollectionsSpec extends FlatSpec
 
     expectMsgType[BackgroundContentTask]
     expectMsgPF() {
-      case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.OK &&
+      case WorkerTaskResult(_, _, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.OK &&
         response(result.content).headers.correlationId == task.headers.correlationId ⇒ {
         true
       }
@@ -263,7 +263,7 @@ class CollectionsSpec extends FlatSpec
 
     worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPut2Str, expectsResult=true,isClientOperation=true)
     expectMsgType[BackgroundContentTask]
-    expectMsgType[ShardTaskComplete]
+    expectMsgType[WorkerTaskResult]
 
     db.selectContent(documentUri, itemId2).futureValue.get.isDeleted shouldBe None
     db.selectContent(documentUri, itemId).futureValue shouldBe None
@@ -288,7 +288,7 @@ class CollectionsSpec extends FlatSpec
     expectMsgType[BackgroundContentTask]
 
     expectMsgPF() {
-      case ShardTaskComplete(_, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.CREATED &&
+      case WorkerTaskResult(_, _, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.CREATED &&
         response(result.content).headers.correlationId == task.correlationId ⇒ {
         true
       }
@@ -324,7 +324,7 @@ class CollectionsSpec extends FlatSpec
     worker ! PrimaryContentTask(collection, System.currentTimeMillis() + 10000, taskStr, expectsResult=true,isClientOperation=true)
     val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
     backgroundWorkerTask.documentUri should equal(collection)
-    val workerResult = expectMsgType[ShardTaskComplete]
+    val workerResult = expectMsgType[WorkerTaskResult]
     val r = response(workerResult.result.asInstanceOf[PrimaryWorkerTaskResult].content)
     r.headers.statusCode should equal(Status.CREATED)
     r.headers.correlationId should equal(task.correlationId)
@@ -346,7 +346,7 @@ class CollectionsSpec extends FlatSpec
     worker ! PrimaryContentTask(collection, System.currentTimeMillis() + 10000, task2Str, expectsResult=true,isClientOperation=true)
     val backgroundWorkerTask2 = expectMsgType[BackgroundContentTask]
     backgroundWorkerTask2.documentUri should equal(collection)
-    val workerResult2 = expectMsgType[ShardTaskComplete]
+    val workerResult2 = expectMsgType[WorkerTaskResult]
     val r2 = response(workerResult2.result.asInstanceOf[PrimaryWorkerTaskResult].content)
     r2.headers.statusCode should equal(Status.CREATED)
     r2.headers.correlationId should equal(task2.correlationId)
@@ -368,7 +368,7 @@ class CollectionsSpec extends FlatSpec
 
     val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
     backgroundWorker ! backgroundWorkerTask
-    val backgroundWorkerResult = expectMsgType[ShardTaskComplete]
+    val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
     val rc = backgroundWorkerResult.result.asInstanceOf[BackgroundContentTaskResult]
     rc.documentUri should equal(collection)
     rc.transactions should equal(content2.get.transactionList.reverse)

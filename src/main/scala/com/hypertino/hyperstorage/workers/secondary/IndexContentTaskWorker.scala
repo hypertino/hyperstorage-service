@@ -14,7 +14,7 @@ import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.db._
 import com.hypertino.hyperstorage.indexing.{IndexDefTransaction, IndexLogic, ItemIndexer}
-import com.hypertino.hyperstorage.sharding.ShardTaskComplete
+import com.hypertino.hyperstorage.sharding.WorkerTaskResult
 import com.hypertino.hyperstorage.utils.FutureUtils
 import com.hypertino.metrics.MetricsTracker
 import monix.execution.Scheduler
@@ -39,7 +39,7 @@ trait IndexContentTaskWorker extends ItemIndexer with SecondaryWorkerBase {
   def indexManager: ActorRef
   implicit def scheduler: Scheduler
 
-  def indexNextBucket(task: IndexContentTask): Future[ShardTaskComplete] = {
+  def indexNextBucket(task: IndexContentTask): Future[WorkerTaskResult] = {
     try {
       validateCollectionUri(task.key)
       val idFieldName = ContentLogic.getIdFieldName(task.indexDefTransaction.documentUri)
@@ -90,7 +90,7 @@ trait IndexContentTaskWorker extends ItemIndexer with SecondaryWorkerBase {
         case _ ⇒
           Future.failed(IndexContentTaskFailed(task.processId, s"Can't find index for ${task.indexDefTransaction}")) // todo: test this
       } map { r: IndexContentTaskResult ⇒
-        ShardTaskComplete(task, r)
+        WorkerTaskResult(task.key, task.group, r)
       }
     }
     catch {

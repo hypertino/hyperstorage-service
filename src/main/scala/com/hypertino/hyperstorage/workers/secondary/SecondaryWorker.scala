@@ -13,7 +13,7 @@ import akka.pattern.pipe
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperstorage.db._
-import com.hypertino.hyperstorage.sharding.{ShardTask, ShardTaskComplete}
+import com.hypertino.hyperstorage.sharding.{ShardTask, WorkerTaskResult}
 import com.hypertino.metrics.MetricsTracker
 import com.typesafe.scalalogging.StrictLogging
 import monix.execution.Scheduler
@@ -57,14 +57,14 @@ class SecondaryWorker(val hyperbus: Hyperbus, val db: Db, val tracker: MetricsTr
   }
 
 
-  private def withSecondaryTaskFailed(task: SecondaryTaskTrait): PartialFunction[Throwable, ShardTaskComplete] = {
+  private def withSecondaryTaskFailed(task: SecondaryTaskTrait): PartialFunction[Throwable, WorkerTaskResult] = {
     case e: SecondaryTaskError ⇒
       logger.error(s"Can't execute $task", e)
-      ShardTaskComplete(task, e)
+      WorkerTaskResult(task.key, task.group, e)
 
     case NonFatal(e) ⇒
       logger.error(s"Can't execute $task", e)
-      ShardTaskComplete(task, SecondaryTaskFailed(task.key, e.toString))
+      WorkerTaskResult(task.key, task.group, SecondaryTaskFailed(task.key, e.toString))
   }
 }
 

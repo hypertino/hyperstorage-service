@@ -23,8 +23,7 @@ import com.hypertino.hyperstorage.internal.api.NodeStatus
 import com.hypertino.hyperstorage.modules.{HyperStorageServiceModule, SystemServicesModule}
 import com.hypertino.hyperstorage.sharding._
 import com.hypertino.hyperstorage.sharding.akkacluster.AkkaClusterShardingTransport
-import com.hypertino.hyperstorage.workers.primary.PrimaryWorker
-import com.hypertino.hyperstorage.workers.secondary.SecondaryWorker
+import com.hypertino.hyperstorage.workers.HyperstorageWorkerSettings
 import com.hypertino.metrics.MetricsTracker
 import com.hypertino.metrics.modules.{ConsoleReporterModule, MetricsModule}
 import com.hypertino.service.config.ConfigModule
@@ -53,7 +52,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
 
   def createShardProcessor(groupName: String, workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
     val clusterTransport = TestActorRef(AkkaClusterShardingTransport.props("hyperstorage"))
-    val workerSettings = Map(groupName → WorkerGroupSettings(Props[TestWorker], workerCount, "test-worker"))
+    val workerSettings = Map(groupName → WorkerGroupSettings(Props[TestWorker], workerCount, "test-worker", Seq.empty))
     val fsm = new TestFSMRef[String, ShardedClusterData, ShardProcessor](actorSystem,
       ShardProcessor.props(clusterTransport, workerSettings, tracker).withDispatcher("deque-dispatcher"),
       GuardianExtractor.guardian(actorSystem),
@@ -75,12 +74,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     import tk._
 
     val indexManager = TestActorRef(IndexManager.props(hyperbus, db, tracker, 1))
-    val workerProps = PrimaryWorker.props(hyperbus, db, tracker, 10.seconds)
-    val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, tracker, indexManager, scheduler)
-    val workerSettings = Map(
-      "hyperstorage-primary-worker" → WorkerGroupSettings(workerProps, 1, "pgw-"),
-      "hyperstorage-secondary-worker" → WorkerGroupSettings(secondaryWorkerProps, 1, "sgw-")
-    )
+    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, self, scheduler)
 
     val clusterTransport = TestActorRef(AkkaClusterShardingTransport.props("hyperstorage"))
     val processor = new TestFSMRef[String, ShardedClusterData, ShardProcessor](system,
@@ -227,7 +221,7 @@ class TestWorker extends Actor with StrictLogging {
         logger.info(s"Task processed: $task")
       }
       logger.info(s"Replying to ${sender()} that task $task is complete")
-      sender() ! ShardTaskComplete(task, None)
+      sender() ! WorkerTaskResult(task.key, task.group, None)
     }
   }
 }

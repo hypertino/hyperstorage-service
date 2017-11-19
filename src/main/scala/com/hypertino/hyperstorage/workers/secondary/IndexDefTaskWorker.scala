@@ -22,7 +22,7 @@ import com.hypertino.hyperstorage.TransactionLogic
 import com.hypertino.hyperstorage.api.{IndexPost, _}
 import com.hypertino.hyperstorage.db._
 import com.hypertino.hyperstorage.indexing.{IndexDefTransaction, IndexLogic, IndexManager}
-import com.hypertino.hyperstorage.sharding.ShardTaskComplete
+import com.hypertino.hyperstorage.sharding.WorkerTaskResult
 import com.hypertino.hyperstorage.utils.ErrorCode
 import com.hypertino.metrics.MetricsTracker
 
@@ -48,7 +48,7 @@ trait IndexDefTaskWorker extends SecondaryWorkerBase {
 
   implicit def executionContext: ExecutionContext
 
-  def executeIndexDefTask(task: IndexDefTask): Future[ShardTaskComplete] = {
+  def executeIndexDefTask(task: IndexDefTask): Future[WorkerTaskResult] = {
     {
       try {
         validateCollectionUri(task.key)
@@ -71,7 +71,7 @@ trait IndexDefTaskWorker extends SecondaryWorkerBase {
     } recover withHyperbusException(task)
   }
 
-  private def startCreatingNewIndex(task: SecondaryTaskTrait, post: IndexPost): Future[ShardTaskComplete] = {
+  private def startCreatingNewIndex(task: SecondaryTaskTrait, post: IndexPost): Future[WorkerTaskResult] = {
     implicit val mcx = post
     val indexId = post.body.indexId.getOrElse(
       IdGenerator.create()
@@ -95,11 +95,11 @@ trait IndexDefTaskWorker extends SecondaryWorkerBase {
         Created(HyperStorageIndexCreated(indexId, path = post.path))
       }
     } map { result ⇒
-      ShardTaskComplete(task, result)
+      WorkerTaskResult(task.key, task.group, result)
     }
   }
 
-  private def startRemovingIndex(task: SecondaryTaskTrait, delete: IndexDelete): Future[ShardTaskComplete] = {
+  private def startRemovingIndex(task: SecondaryTaskTrait, delete: IndexDelete): Future[WorkerTaskResult] = {
     implicit val mcx = delete
 
     db.selectIndexDef(delete.path, delete.indexId) flatMap {
@@ -120,7 +120,7 @@ trait IndexDefTaskWorker extends SecondaryWorkerBase {
 
       case _ ⇒ Future.successful(NotFound(ErrorBody(ErrorCode.INDEX_NOT_FOUND, Some(s"Index ${delete.indexId} for ${delete.path} is not found"))))
     } map { result ⇒
-      ShardTaskComplete(task, result)
+      WorkerTaskResult(task.key, task.group, result)
     }
   }
 }

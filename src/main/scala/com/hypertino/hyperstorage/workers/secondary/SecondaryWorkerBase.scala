@@ -16,7 +16,7 @@ import com.hypertino.hyperstorage.api.HyperStorageIndexSortItem
 import com.hypertino.hyperstorage.db.{Db, IndexDef, PendingIndex}
 import com.hypertino.hyperstorage.indexing.{IndexDefTransaction, IndexLogic, IndexManager}
 import com.hypertino.hyperstorage.{ContentLogic, ResourcePath, TransactionLogic}
-import com.hypertino.hyperstorage.sharding.ShardTaskComplete
+import com.hypertino.hyperstorage.sharding.WorkerTaskResult
 import akka.pattern.ask
 import com.hypertino.hyperstorage.utils.ErrorCode
 import com.typesafe.scalalogging.StrictLogging
@@ -37,14 +37,14 @@ trait SecondaryWorkerBase extends StrictLogging {
     }
   }
 
-  protected def withHyperbusException(task: SecondaryTaskTrait): PartialFunction[Throwable, ShardTaskComplete] = {
+  protected def withHyperbusException(task: SecondaryTaskTrait): PartialFunction[Throwable, WorkerTaskResult] = {
     case NonFatal(e) ⇒
       logger.error(s"Can't execute $task", e)
       val he = e match {
         case h: HyperbusError[ErrorBody] @unchecked ⇒ h
         case _ ⇒ InternalServerError(ErrorBody(ErrorCode.INTERNAL_SERVER_ERROR, Some(e.toString)))(MessagingContext.empty)
       }
-      ShardTaskComplete(task, IndexDefTaskTaskResult(he.serializeToString))
+      WorkerTaskResult(task.key, task.group, IndexDefTaskTaskResult(he.serializeToString))
   }
 
   protected def insertIndexDef(documentUri: String, indexId: String, sortBy: Seq[HyperStorageIndexSortItem], filter: Option[String], materialize: Boolean): Future[IndexDef] = {

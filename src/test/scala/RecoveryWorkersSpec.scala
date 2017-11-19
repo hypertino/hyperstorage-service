@@ -57,7 +57,7 @@ class RecoveryWorkersSpec extends FlatSpec
     ).serializeToString
     worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr1, expectsResult=true,isClientOperation=true)
     val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
-    expectMsgType[ShardTaskComplete]
+    expectMsgType[WorkerTaskResult]
 
     val transactionUuids = whenReady(db.selectContent(path, "")) { result =>
       result.get.transactionList
@@ -100,7 +100,7 @@ class RecoveryWorkersSpec extends FlatSpec
     val millis = System.currentTimeMillis()
     worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr1, expectsResult=true,isClientOperation=true)
     val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
-    expectMsgType[ShardTaskComplete]
+    expectMsgType[WorkerTaskResult]
 
     val content = db.selectContent(path, "").futureValue.get
     val newTransactionUuid = UUIDs.startOf(millis - 5 * 60 * 1000l)

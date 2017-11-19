@@ -21,7 +21,7 @@ import com.hypertino.hyperstorage.api._
 import com.hypertino.hyperstorage.db.{Transaction, _}
 import com.hypertino.hyperstorage.indexing.{IndexLogic, ItemIndexer}
 import com.hypertino.hyperstorage.metrics.Metrics
-import com.hypertino.hyperstorage.sharding.ShardTaskComplete
+import com.hypertino.hyperstorage.sharding.WorkerTaskResult
 import com.hypertino.hyperstorage.utils.FutureUtils
 import com.hypertino.hyperstorage.workers.primary.{PrimaryContentTask, PrimaryWorkerTaskResult}
 import com.hypertino.hyperstorage.{ResourcePath, _}
@@ -52,7 +52,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
 
   def deleteIndexDefAndData(indexDef: IndexDef): Future[Unit]
 
-  def executeBackgroundTask(owner: ActorRef, task: BackgroundContentTask): Future[ShardTaskComplete] = {
+  def executeBackgroundTask(owner: ActorRef, task: BackgroundContentTask): Future[WorkerTaskResult] = {
     try {
       val ResourcePath(documentUri, itemId) = ContentLogic.splitPath(task.documentUri)
       if (!itemId.isEmpty) {
@@ -89,9 +89,9 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
   private def completeTransactions(task: BackgroundContentTask,
                                    content: ContentStatic,
                                    owner: ActorRef,
-                                   ttl: Long): Future[ShardTaskComplete] = {
+                                   ttl: Long): Future[WorkerTaskResult] = {
     if (content.transactionList.isEmpty) {
-      Future.successful(ShardTaskComplete(task, BackgroundContentTaskResult(task.documentUri, Seq.empty)))
+      Future.successful(WorkerTaskResult(task.key, task.group, BackgroundContentTaskResult(task.documentUri, Seq.empty)))
     }
     else {
       selectIncompleteTransactions(content) flatMap { incompleteTransactions ⇒
@@ -127,13 +127,13 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
             }
           }
         } map { updatedTransactions ⇒
-          ShardTaskComplete(task, BackgroundContentTaskResult(task.documentUri, updatedTransactions.map(_.uuid)))
+          WorkerTaskResult(task.key, task.group, BackgroundContentTaskResult(task.documentUri, updatedTransactions.map(_.uuid)))
         } recover {
           case NonFatal(e) ⇒
             logger.error(s"Task failed: $task",e)
-            ShardTaskComplete(task, BackgroundContentTaskFailedException(task.documentUri, e.toString))
+            WorkerTaskResult(task.key, task.group, BackgroundContentTaskFailedException(task.documentUri, e.toString))
         } andThen {
-          case Success(ShardTaskComplete(_, BackgroundContentTaskResult(documentUri, updatedTransactions))) ⇒
+          case Success(WorkerTaskResult(_, _, BackgroundContentTaskResult(documentUri, updatedTransactions))) ⇒
             logger.debug(s"Removing completed transactions $updatedTransactions from $documentUri")
             db.removeCompleteTransactionsFromList(documentUri, updatedTransactions.toList) recover {
               case NonFatal(e) ⇒

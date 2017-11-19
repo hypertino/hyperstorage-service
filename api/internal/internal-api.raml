@@ -28,7 +28,9 @@ types:
     type: object
     properties:
       source?: string
-      task_id?: string
+      task_id?:
+        type: number
+        format: long
       key: string
       group: string
       ttl:
@@ -41,7 +43,9 @@ types:
   RemoteTaskResult:
     type: object
     properties:
-      task_id?: string
+      task_id?:
+        type: number
+        format: long
       result_headers: object
       result_body: string
 
