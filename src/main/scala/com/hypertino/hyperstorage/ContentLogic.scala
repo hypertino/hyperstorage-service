@@ -74,10 +74,11 @@ object ContentLogic {
       }
     }
     if (/*slashCount > 0 && */lastToken.exists {
-      case TextToken(s) if s.forall(c ⇒ c == '~' || (c >= 'a' && c <= 'z')) ⇒ true
+      case TextToken(s) if s.forall(c ⇒ c == '~' || (c >= 'a' && c <= 'z') || c == '-') ⇒ true
       case _ ⇒ false
     }) {
-      val s = lastToken.get.asInstanceOf[TextToken].value
+      val s = lastToken.get.asInstanceOf[TextToken].value.replace('-', '_')
+
       if (s.endsWith("~")) {
         English.singular(s.substring(0, s.length - 1)) + "_id"
       }

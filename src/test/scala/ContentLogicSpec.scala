@@ -44,6 +44,8 @@ class ContentLogicSpec extends FlatSpec with Matchers {
     ContentLogic.getIdFieldName("users~") shouldBe "user_id"
     ContentLogic.getIdFieldName("some/users") shouldBe "user_id"
     ContentLogic.getIdFieldName("some/users~") shouldBe "user_id"
+    ContentLogic.getIdFieldName("some/banned-users") shouldBe "banned_user_id"
+    ContentLogic.getIdFieldName("some/banned-users~") shouldBe "banned_user_id"
   }
 
   it should "match pathAndTemplateToId" in {
