@@ -26,9 +26,13 @@ case class ShardedClusterData(nodes: Map[String, ShardNode], selfId: String, sel
 
   def -(key: String) = ShardedClusterData(nodes - key, selfId, selfStatus)
 
-  def taskIsFor(task: ShardTask): String = consistentHash.nodeFor(task.key)
+  def keyIsFor(key: String): String = consistentHash.nodeFor(key)
 
-  def taskWasFor(task: ShardTask): String = consistentHashPrevious.nodeFor(task.key)
+  def taskIsFor(task: ShardTask): String = keyIsFor(task.key)
+
+  def keyWasFor(key: String): String = consistentHashPrevious.nodeFor(key)
+
+  def taskWasFor(task: ShardTask): String = keyWasFor(task.key)
 
   private def VirtualNodesSize = 128 // todo: find a better value, configurable? http://www.tom-e-white.com/2007/11/consistent-hashing.html
 

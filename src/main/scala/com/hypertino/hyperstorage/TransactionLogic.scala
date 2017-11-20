@@ -49,13 +49,7 @@ object TransactionLogic {
 
   def getPartitions(data: ShardedClusterData): Seq[Int] = {
     0 until TransactionLogic.MAX_TRANSACTIONS flatMap { partition ⇒
-      val task = new ShardTask {
-        def key = partition.toString
-        def group = ""
-        def isExpired = false
-        def expectsResult = false
-      }
-      if (data.taskIsFor(task) == data.selfId)
+      if (data.keyIsFor(partition.toString) == data.selfId)
         Some(partition)
       else
         None

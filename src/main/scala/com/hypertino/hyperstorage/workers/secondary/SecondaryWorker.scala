@@ -24,10 +24,6 @@ import scala.util.control.NonFatal
 // todo: do we really need a ShardTaskComplete ?
 
 trait SecondaryTaskTrait extends ShardTask {
-  def ttl: Long
-
-  def isExpired = ttl < System.currentTimeMillis()
-
   def group = "hyperstorage-secondary-worker"
 }
 

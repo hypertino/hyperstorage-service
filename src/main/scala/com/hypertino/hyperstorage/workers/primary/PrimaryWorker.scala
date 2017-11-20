@@ -40,7 +40,6 @@ import scala.util.control.NonFatal
 
 @SerialVersionUID(1L) case class PrimaryContentTask(key: String, ttl: Long, content: String, expectsResult: Boolean, isClientOperation: Boolean) extends ShardTask {
   def group = "hyperstorage-primary-worker"
-  def isExpired = ttl < System.currentTimeMillis()
 }
 
 @SerialVersionUID(1L) case class PrimaryWorkerTaskResult(content: String)

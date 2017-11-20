@@ -183,8 +183,6 @@ case class TestShardTask(key: String, value: String,
                          id: UUID = UUID.randomUUID()) extends ShardTask {
   def group = "test-group"
 
-  def isExpired = ttl < System.currentTimeMillis()
-
   def processingStarted(actorPath: String): Unit = {
     ProcessedRegistry.tasksStarted += id → (actorPath, this)
   }

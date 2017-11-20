@@ -10,7 +10,7 @@ package com.hypertino.hyperstorage.sharding
 
 import akka.actor._
 import akka.cluster.ClusterEvent._
-import com.hypertino.hyperbus.model.{MessagingContext, Ok, RequestBase, RequestHeaders, RequestMeta, RequestMetaCompanion, ResponseBase}
+import com.hypertino.hyperbus.model.{MessagingContext, Ok, RequestBase, RequestHeaders, RequestMeta, RequestMetaCompanion}
 import com.hypertino.hyperstorage.internal.api
 import com.hypertino.hyperstorage.internal.api._
 import com.hypertino.hyperstorage.metrics.Metrics
@@ -20,7 +20,6 @@ import com.typesafe.scalalogging.StrictLogging
 
 import scala.collection.mutable
 import scala.concurrent.duration._
-import scala.util.Try
 import scala.util.control.NonFatal
 
 @SerialVersionUID(1L) trait ShardTask {
@@ -28,14 +27,18 @@ import scala.util.control.NonFatal
 
   def group: String
 
-  def isExpired: Boolean
+  def ttl: Long
 
   def expectsResult: Boolean
+
+  def isExpired = ttl < System.currentTimeMillis()
 }
 
-case class LocalTask(key: String, group: String, ttl: Long, expectsResult: Boolean, task: RequestBase) extends ShardTask {
-  override def isExpired = ttl < System.currentTimeMillis()
-}
+case class LocalTask(key: String, group: String, ttl: Long, expectsResult: Boolean, task: RequestBase) extends ShardTask
+
+case class RemoteRTask(sourceNodeId: String, taskId: Long, key: String, group: String, ttl: Long, expectsResult: Boolean, task: ShardTask) extends ShardTask with Serializable
+
+case class RemoteRTaskResult(taskId: Long, key: String, result: Any)
 
 @SerialVersionUID(1L) case class NoSuchGroupWorkerException(groupName: String) extends RuntimeException(s"No such worker group: $groupName")
 
@@ -53,11 +56,11 @@ private[sharding] case object ShardSyncTimer
 
 case object ShutdownProcessor
 
-case class WorkerTaskResult(key: String, group: String, result: Any) // result: Try[Option[ResponseBase]]
+case class WorkerTaskResult(key: String, group: String, result: Any) // r: Try[Option[ResponseBase]]
 
-//case class ExpectingRemoteResult(client: ActorRef, ttl: Long, taskName: String) {
-//  def isExpired = ttl < System.currentTimeMillis()
-//}
+case class ExpectingRemoteResult(client: ActorRef, ttl: Long, key: String) {
+  def isExpired = ttl < System.currentTimeMillis()
+}
 
 case class WorkerGroupSettings(props: Props, maxCount: Int, prefix: String, metaCompanions: Seq[RequestMetaCompanion[_ <: RequestBase]]) {
   private val m : Map[(String,String), RequestMetaCompanion[_ <: RequestBase]] = metaCompanions.map { mc ⇒
@@ -73,6 +76,13 @@ case class WorkerGroupSettings(props: Props, maxCount: Int, prefix: String, meta
   }
 }
 
+private [sharding] case class ActiveWorker(taskId: Long,
+                                           workerActor: ActorRef,
+                                           client: Option[ActorRef],
+                                           remoteNodeId: Option[String],
+                                           remoteTaskId: Option[Long]
+                                          )
+
 class ShardProcessor(clusterTransport: ActorRef,
                      workersSettings: Map[String, WorkerGroupSettings],
                      tracker: MetricsTracker,
@@ -80,15 +90,16 @@ class ShardProcessor(clusterTransport: ActorRef,
   extends FSMEx[String, ShardedClusterData] with Stash with StrictLogging {
 
   private val activeWorkers = workersSettings.keys.map { // todo: make this Map of Map!
-    _ → mutable.ArrayBuffer[(ShardTask, ActorRef, ActorRef)]()
+    _ → mutable.Map[String, ActiveWorker]()
   }.toMap
   private val shardStatusSubscribers = mutable.MutableList[ActorRef]()
-//  private val remoteTasks = mutable.Map[Long, ExpectingRemoteResult]()
+  private val remoteTasks = mutable.Map[Long, ExpectingRemoteResult]()
 
   // trackers
   private val trackStashMeter = tracker.meter(Metrics.SHARD_PROCESSOR_STASH_METER)
   private val trackTaskMeter = tracker.meter(Metrics.SHARD_PROCESSOR_TASK_METER)
   private val trackForwardMeter = tracker.meter(Metrics.SHARD_PROCESSOR_FORWARD_METER)
+  private var lastTaskId: Long = 0
 
   clusterTransport ! SubscribeToEvents
 
@@ -162,8 +173,12 @@ class ShardProcessor(clusterTransport: ActorRef,
       case Event(TransportNodeDown(nodeId), data) ⇒
       removeNode(nodeId, data) andUpdate
 
-    case Event(wt : WorkerTaskResult, data) ⇒
-      workerIsReadyForNextTask(wt)
+    case Event(wt: WorkerTaskResult, data) ⇒
+      workerIsReadyForNextTask(wt, data)
+      stay()
+
+    case Event(rr: RemoteRTaskResult, data) ⇒
+      handleRemoteTaskResult(rr)
       stay()
 
     case Event(task: ShardTask, data) ⇒
@@ -199,7 +214,7 @@ class ShardProcessor(clusterTransport: ActorRef,
     }
   }
 
-  def introduceSelfTo(node: TransportNode, data: ShardedClusterData): Option[ShardedClusterData] = {
+  private def introduceSelfTo(node: TransportNode, data: ShardedClusterData): Option[ShardedClusterData] = {
     if (node.nodeId != data.selfId) {
       // todo: zmq
       val newData: ShardedClusterData = data + (node.nodeId → ShardNode(node, NodeStatus.PASSIVE, NodeStatus.PASSIVE))
@@ -217,11 +232,11 @@ class ShardProcessor(clusterTransport: ActorRef,
     }
   }
 
-  def setSyncTimer(): Unit = {
+  private def setSyncTimer(): Unit = {
     setTimer("syncing", ShardSyncTimer, syncTimeout)
   }
 
-  def processReply(syncReply: Ok[NodeUpdated], data: ShardedClusterData): Option[ShardedClusterData] = {
+  private def processReply(syncReply: Ok[NodeUpdated], data: ShardedClusterData): Option[ShardedClusterData] = {
     logger.debug(s"$syncReply received from $sender")
     if (data.clusterHash != syncReply.body.clusterHash) {
       logger.info(s"ClusterHash for ${data.selfId} (${data.clusterHash}) is not matched for $syncReply. SyncReply is ignored")
@@ -237,7 +252,7 @@ class ShardProcessor(clusterTransport: ActorRef,
     }
   }
 
-  def isActivationAllowed(data: ShardedClusterData): Boolean = {
+  private def isActivationAllowed(data: ShardedClusterData): Boolean = {
     if (confirmStatus(data, NodeStatus.ACTIVATING, isFirst = false)) {
       logger.info(s"Synced with all members: ${data.nodes}. Activating")
       confirmStatus(data, NodeStatus.ACTIVE, isFirst = true)
@@ -248,7 +263,7 @@ class ShardProcessor(clusterTransport: ActorRef,
     }
   }
 
-  def confirmStatus(data: ShardedClusterData, status: String, isFirst: Boolean): Boolean = {
+  private def confirmStatus(data: ShardedClusterData, status: String, isFirst: Boolean): Boolean = {
     var syncedWithAllMembers = true
     data.nodes.foreach { case (address, node) ⇒
       if (node.confirmedStatus != status) {
@@ -264,7 +279,7 @@ class ShardProcessor(clusterTransport: ActorRef,
     syncedWithAllMembers
   }
 
-  def incomingSync(sync: NodesPost, data: ShardedClusterData): Option[ShardedClusterData] = {
+  private def incomingSync(sync: NodesPost, data: ShardedClusterData): Option[ShardedClusterData] = {
     logger.debug(s"$sync received from $sender")
     if (data.clusterHash != sync.body.clusterHash) { // todo: zmq, remove ClusterHash
       logger.info(s"ClusterHash for ${data.selfId} (${data.clusterHash}) is not matched for $sync")
@@ -273,9 +288,9 @@ class ShardProcessor(clusterTransport: ActorRef,
       data.nodes.get(sync.body.nodeId) map { member ⇒
         val newData: ShardedClusterData = data + (sync.body.nodeId → member.copy(status = sync.body.status))
         val allowSync = if (sync.body.status == NodeStatus.ACTIVATING) {
-          activeWorkers.values.flatten.forall { case (task, workerActor, _) ⇒
-            if (newData.taskIsFor(task) == sync.body.nodeId) {
-              logger.info(s"Ignoring sync request $sync while processing task $task by worker $workerActor")
+          activeWorkers.values.flatten.forall { case (key, aw) ⇒
+            if (newData.keyIsFor(key) == sync.body.nodeId) {
+              logger.info(s"Ignoring sync request $sync while processing task #${aw.taskId}/$key by worker ${aw.workerActor}")
               false
             } else {
               true
@@ -299,7 +314,7 @@ class ShardProcessor(clusterTransport: ActorRef,
     }
   }
 
-  def addNode(node: TransportNode, data: ShardedClusterData): Option[ShardedClusterData] = {
+  private def addNode(node: TransportNode, data: ShardedClusterData): Option[ShardedClusterData] = {
     if (node.nodeId != data.selfId) {
       val newData = data + (node.nodeId → ShardNode(
         node, NodeStatus.PASSIVE, NodeStatus.PASSIVE
@@ -313,12 +328,12 @@ class ShardProcessor(clusterTransport: ActorRef,
     }
   }
 
-  def removeNode(nodeId: String, data: ShardedClusterData): Option[ShardedClusterData] = {
+  private def removeNode(nodeId: String, data: ShardedClusterData): Option[ShardedClusterData] = {
     logger.debug(s"Node $nodeId is removed")
     Some(data - nodeId)
   }
 
-  def processTask(task: ShardTask, data: ShardedClusterData): Unit = {
+  private def processTask(task: ShardTask, data: ShardedClusterData): Unit = {
     trackTaskMeter.mark()
     logger.debug(s"Got task to process: $task")
     if (task.isExpired) {
@@ -331,8 +346,8 @@ class ShardProcessor(clusterTransport: ActorRef,
         } else {
           activeWorkers.get(task.group) match {
             case Some(activeGroupWorkers) ⇒
-              activeGroupWorkers.find(_._1.key == task.key) map { case (_, activeWorker, _) ⇒
-                logger.debug(s"Stashing task for the 'locked' URL: $task worker: $activeWorker")
+              activeGroupWorkers.get(task.key) map { aw ⇒
+                logger.debug(s"Stashing task for the 'locked' URL: ${task.key} while working on ${aw.taskId} @ ${aw.workerActor}")
                 safeStash(task)
                 true
               } getOrElse {
@@ -343,9 +358,18 @@ class ShardProcessor(clusterTransport: ActorRef,
                 } else {
                   try {
                     val worker = context.system.actorOf(ws.props, AkkaNaming.next(ws.prefix))
-                    logger.debug(s"Startting worker on task $task sent from ${sender()}")
-                    worker ! task
-                    activeGroupWorkers.append((task, worker, sender()))
+                    logger.debug(s"Starting worker for task $task sent from ${sender()}")
+                    val localTaskId = nextTaskId()
+                    val (localTask, remoteTask) = task match {
+                      case r: RemoteRTask ⇒
+                        (r.task, Some(r))
+
+                      case o ⇒ (o, None)
+                    }
+                    worker ! localTask
+                    val client = if (task.expectsResult) Some(sender()) else None
+                    activeGroupWorkers += task.key → ActiveWorker(localTaskId, worker, client,
+                      remoteTask.map(_.sourceNodeId), remoteTask.map(_.taskId))
                   } catch {
                     case NonFatal(e) ⇒
                       logger.error(s"Can't create worker from props ${ws.props}", e)
@@ -365,7 +389,7 @@ class ShardProcessor(clusterTransport: ActorRef,
     }
   }
 
-  def holdTask(task: ShardTask, data: ShardedClusterData): Unit = {
+  private def holdTask(task: ShardTask, data: ShardedClusterData): Unit = {
     trackTaskMeter.mark()
     logger.debug(s"Got task to process while activating: $task")
     if (task.isExpired) {
@@ -380,7 +404,7 @@ class ShardProcessor(clusterTransport: ActorRef,
     }
   }
 
-  def safeStash(task: ShardTask): Unit = try {
+  private def safeStash(task: ShardTask): Unit = try {
     trackStashMeter.mark()
     stash()
   } catch {
@@ -388,52 +412,97 @@ class ShardProcessor(clusterTransport: ActorRef,
       logger.error(s"Can't stash task: $task. It's lost now", e)
   }
 
-  def forwardTask(task: ShardTask, data: ShardedClusterData): Unit = {
+  private def forwardTask(task: ShardTask, data: ShardedClusterData): Unit = {
     trackForwardMeter.mark()
     val address = data.taskIsFor(task)
     data.nodes.get(address) map { rvm ⇒
       logger.debug(s"Task is forwarded to $address: $task")
-      clusterTransport forward TransportMessage(rvm.transportNode, task)
+      clearExpiredRemoteTasks()
+      val taskId = nextTaskId()
+      val remoteTask = RemoteRTask(data.selfId, taskId, task.key, task.group, task.ttl, task.expectsResult, task)
+      remoteTasks += taskId → ExpectingRemoteResult(sender(), task.ttl, task.key)
+      clusterTransport ! TransportMessage(rvm.transportNode, remoteTask)
       true
     } getOrElse {
       logger.error(s"Task actor is not found: $address, dropping: $task")
     }
   }
 
-  def workerIsReadyForNextTask(workerTaskResult: WorkerTaskResult): Unit = {
-    activeWorkers.get(workerTaskResult.group) match {
-      case Some(activeGroupWorkers) ⇒
-        val idx = activeGroupWorkers.indexWhere(_._2 == sender())
-        if (idx >= 0) {
-          val (task, worker, client) = activeGroupWorkers(idx)
-          if (task.expectsResult) {
-            workerTaskResult.result match {
-              case None ⇒ // no result
-              case other ⇒ {
-                logger.debug(s"Sending result $other to $client")
-                client ! other
-              }
-            }
-          }
-          logger.debug(s"Worker $worker is ready for next task. Completed task: $task, result: ${workerTaskResult.result}")
-          activeGroupWorkers.remove(idx)
-          worker ! PoisonPill
-          safeUnstashAll()
-        } else {
-          logger.error(s"workerIsReadyForNextTask: unknown worker actor: $sender")
-        }
+  private def handleRemoteTaskResult(r: RemoteRTaskResult): Unit = {
+    remoteTasks.get(r.taskId) match {
+      case Some(rt) ⇒
+        logger.debug(s"Forwarding result ${r.result} from task: #${r.taskId}/${r.key} to ${rt.client}")
+        rt.client ! r.result
+        remoteTasks.remove(r.taskId)
 
       case None ⇒
-        logger.error(s"No such worker group: ${workerTaskResult.group}. Task result from $sender with key ${workerTaskResult.key} is ignored: ${workerTaskResult.result}")
+        logger.warn(s"Dropping result ${r.result} from task: #${r.taskId}/${r.key}, timed out?")
     }
   }
 
-  def safeUnstashAll() = try {
+  private def workerIsReadyForNextTask(workerTaskResult: WorkerTaskResult, data: ShardedClusterData): Unit = {
+    activeWorkers.get(workerTaskResult.group) match {
+      case Some(activeGroupWorkers) ⇒
+        activeGroupWorkers.get(workerTaskResult.key) match {
+          case Some(aw) ⇒
+            if (workerTaskResult.result != None) {
+              aw.remoteNodeId match {
+                case None ⇒
+                  aw.client.foreach { client ⇒
+                    logger.debug(s"Sending result ${workerTaskResult.result} to $client")
+                    client ! workerTaskResult.result
+                  }
+
+                case Some(remoteNodeId) ⇒
+                  data.nodes.get(remoteNodeId) match {
+                    case Some(rvm) ⇒
+                      logger.debug(s"Forwarding result ${workerTaskResult.result} to source node $remoteNodeId")
+                      val rr = RemoteRTaskResult(aw.remoteTaskId.get, workerTaskResult.key, workerTaskResult.result)
+                      clusterTransport ! TransportMessage(rvm.transportNode, rr)
+
+                    case None ⇒
+                      logger.error(s"Dropping result $workerTaskResult, didn't found source node $remoteNodeId")
+                  }
+              }
+            }
+
+            logger.debug(s"Worker ${aw.workerActor} is ready for next task. Completed task: #${aw.taskId}/${workerTaskResult.key}, r: ${workerTaskResult.result}")
+            activeGroupWorkers.remove(workerTaskResult.key)
+            aw.workerActor ! PoisonPill
+            safeUnstashAll()
+
+          case None ⇒
+            logger.error(s"workerIsReadyForNextTask: unknown key $workerTaskResult actor: $sender")
+        }
+
+      case None ⇒
+        logger.error(s"No such worker group: ${workerTaskResult.group}. Task r from $sender with key ${workerTaskResult.key} is ignored: ${workerTaskResult.result}")
+    }
+  }
+
+  private def safeUnstashAll(): Unit = try {
     logger.debug("Unstashing tasks")
     unstashAll()
   } catch {
     case NonFatal(e) ⇒
       logger.error(s"Can't unstash tasks. Some are lost now", e)
+  }
+
+  // todo: call this only when we need it, now it's called for each remote task
+  private def clearExpiredRemoteTasks(): Unit = try {
+    val expired = remoteTasks.filter(_._2.isExpired)
+    expired.foreach { case (k,v) ⇒
+      logger.debug(s"Removing expired remote task: #$k/${v.key}")
+      remoteTasks -= k
+    }
+  } catch {
+    case NonFatal(e) ⇒
+      logger.error(s"Unexpected", e)
+  }
+
+  private def nextTaskId(): Long = {
+    lastTaskId+=1
+    lastTaskId
   }
 
   protected[this] implicit class ImplicitExtender(data: Option[ShardedClusterData]) {
