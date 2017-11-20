@@ -83,7 +83,7 @@ class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
     task2.processorPath should include(address2)
   }
 
-  it should "be forwarded to corresponding actors" in {
+  it should "be forwarded to corresponding actors and results are forwarded back" in {
     val (fsm1, actorSystem1, testKit1, address1) = {
       implicit val actorSystem1 = testActorSystem(1)
       (createShardProcessor("test-group", waitWhileActivates = false), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
@@ -98,14 +98,29 @@ class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
     testKit2.awaitCond(fsm2.stateName == NodeStatus.ACTIVE && fsm2.stateData.nodes.nonEmpty, 5 second)
 
     val task1 = TestShardTask("abc1", "t3")
-    fsm2 ! task1
+
+    {
+      import testKit1._
+      fsm2 ! task1
+    }
+
     testKit1.awaitCond(task1.isProcessed)
     task1.processorPath should include(address1)
+    val r1 = testKit1.expectMsgType[TestShardTaskResult]
+    r1.id shouldBe task1.id
 
     val task2 = TestShardTask("klx1", "t4")
-    fsm1 ! task2
+    //fsm1 ! task2
+
+    {
+      import testKit2._
+      fsm1 ! task2
+    }
+
     testKit2.awaitCond(task2.isProcessed)
     task2.processorPath should include(address2)
+    val r2 = testKit2.expectMsgType[TestShardTaskResult]
+    r2.id shouldBe task2.id
   }
 
   it should "for deactivating actor shouldn't be processed before deactivation complete" in {

@@ -202,6 +202,8 @@ case class TestShardTask(key: String, value: String,
   override def expectsResult: Boolean = true
 }
 
+case class TestShardTaskResult(key: String, value: String, id: UUID)
+
 class TestWorker extends Actor with StrictLogging {
   def receive = {
     case task: TestShardTask => {
@@ -219,7 +221,7 @@ class TestWorker extends Actor with StrictLogging {
         logger.info(s"Task processed: $task")
       }
       logger.info(s"Replying to ${sender()} that task $task is complete")
-      sender() ! WorkerTaskResult(task.key, task.group, None)
+      sender() ! WorkerTaskResult(task.key, task.group, TestShardTaskResult(task.key, task.value, task.id))
     }
   }
 }
