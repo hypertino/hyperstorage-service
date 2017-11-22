@@ -8,10 +8,11 @@
 
 package com.hypertino.mock.hyperstorage
 
-import com.hypertino.binders.value.{Text, Value}
+import com.hypertino.binders.value.{Obj, Text, Value}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model.{Created, DynamicBody, EmptyBody, ErrorBody, Headers, MessagingContext, NotFound, Ok, PreconditionFailed, RequestBase, ResponseBase}
 import com.hypertino.hyperbus.subscribe.Subscribable
+import com.hypertino.hyperbus.util.IdGenerator
 import com.hypertino.hyperstorage.api._
 import monix.eval.Task
 import monix.execution.Scheduler
@@ -36,21 +37,23 @@ class HyperStorageMock(protected val hyperbus: Hyperbus, protected implicit val 
 
   def onContentPut(implicit request: ContentPut): Task[ResponseBase] = {
     hbpc(request).map { rev ⇒
-      if (hyperStorageContent.put(request.path, (request.body.content, rev+1)).isDefined) {
-        Ok(EmptyBody)
+      val newRev = rev + 1
+      if (hyperStorageContent.put(request.path, (request.body.content, newRev)).isDefined) {
+        Ok(HyperStorageTransaction(IdGenerator.create(),request.path, newRev))
       }
       else {
-        Created(EmptyBody)
+        Created(HyperStorageTransactionCreated(IdGenerator.create(), request.path, newRev, target = Obj.empty))
       }
     }
   }
 
   def onContentPatch(implicit request: ContentPatch): Task[ResponseBase] = {
     hbpc(request).map { rev ⇒
+      val newRev = rev + 1
       hyperStorageContent.get(request.path) match {
         case Some(v) ⇒
-          hyperStorageContent.put(request.path, (v._1 % request.body.content, rev + 1))
-          Ok(EmptyBody)
+          hyperStorageContent.put(request.path, (v._1 % request.body.content, newRev))
+          Ok(HyperStorageTransaction(IdGenerator.create(),request.path, newRev))
 
         case None ⇒
           NotFound()
@@ -60,8 +63,9 @@ class HyperStorageMock(protected val hyperbus: Hyperbus, protected implicit val 
 
   def onContentDelete(implicit request: ContentDelete): Task[ResponseBase] = {
     hbpc(request).map { rev ⇒
+      val newRev = rev + 1
       if (hyperStorageContent.remove(request.path).isDefined) {
-        Ok(EmptyBody)
+        Ok(HyperStorageTransaction(IdGenerator.create(),request.path, newRev))
       }
       else {
         NotFound()
