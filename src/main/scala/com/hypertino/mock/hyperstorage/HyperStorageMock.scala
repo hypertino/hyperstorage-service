@@ -19,7 +19,7 @@ import monix.execution.atomic.AtomicInt
 
 import scala.collection.concurrent.TrieMap
 
-class HyperStorageMock(hyperbus: Hyperbus, implicit val scheduler: Scheduler) extends Subscribable {
+class HyperStorageMock(protected val hyperbus: Hyperbus, protected implicit val scheduler: Scheduler) extends Subscribable {
   final val hyperStorageContent = TrieMap[String, (Value, Long)]()
   final val failPreconditions = TrieMap[String, (Int, AtomicInt)]()
 
