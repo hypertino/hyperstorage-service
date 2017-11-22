@@ -17,11 +17,11 @@ import monix.eval.Task
 import monix.execution.Scheduler
 import monix.execution.atomic.AtomicInt
 
-import scala.collection.mutable
+import scala.collection.concurrent.TrieMap
 
 class HyperStorageMock(hyperbus: Hyperbus, implicit val scheduler: Scheduler) extends Subscribable {
-  final val hyperStorageContent = mutable.TreeMap[String, (Value, Long)]()
-  final val failPreconditions = mutable.TreeMap[String, (Int, AtomicInt)]()
+  final val hyperStorageContent = TrieMap[String, (Value, Long)]()
+  final val failPreconditions = TrieMap[String, (Int, AtomicInt)]()
 
   final val handlers = hyperbus.subscribe(this)
 
