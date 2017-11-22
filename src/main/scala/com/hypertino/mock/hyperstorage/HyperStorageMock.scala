@@ -8,13 +8,13 @@
 
 package com.hypertino.mock.hyperstorage
 
-import com.google.common.util.concurrent.AbstractScheduledService.Scheduler
 import com.hypertino.binders.value.{Text, Value}
 import com.hypertino.hyperbus.Hyperbus
-import com.hypertino.hyperbus.model.{Created, DynamicBody, EmptyBody, ErrorBody, Headers, NotFound, Ok, PreconditionFailed, RequestBase, ResponseBase}
+import com.hypertino.hyperbus.model.{Created, DynamicBody, EmptyBody, ErrorBody, Headers, MessagingContext, NotFound, Ok, PreconditionFailed, RequestBase, ResponseBase}
 import com.hypertino.hyperbus.subscribe.Subscribable
 import com.hypertino.hyperstorage.api._
 import monix.eval.Task
+import monix.execution.Scheduler
 import monix.execution.atomic.AtomicInt
 
 import scala.collection.mutable
@@ -78,7 +78,7 @@ class HyperStorageMock(hyperbus: Hyperbus, implicit val scheduler: Scheduler) ex
     }
   }
 
-  private def hbpc(request: RequestBase): Task[Long] = {
+  private def hbpc(implicit request: RequestBase): Task[Long] = {
     val path = request.headers.hrl.query.dynamic.path.toString
     val existingRev = hyperStorageContent.get(path).map { case (_, v) ⇒
       v
@@ -116,7 +116,7 @@ class HyperStorageMock(hyperbus: Hyperbus, implicit val scheduler: Scheduler) ex
     }
   }
 
-  private def checkFailPreconditions(path: String): Task[Unit] = {
+  private def checkFailPreconditions(path: String)(implicit mcx: MessagingContext): Task[Unit] = {
     failPreconditions.get(path).map { fp ⇒
       if (fp._2.incrementAndGet() <= fp._1) {
         Task.raiseError(PreconditionFailed(ErrorBody("fake")))
