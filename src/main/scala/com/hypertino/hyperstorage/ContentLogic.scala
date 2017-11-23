@@ -136,7 +136,7 @@ object ContentLogic {
   def checkPrecondition(request: RequestBase, content: Option[ContentBase]): Boolean  = {
     val ifMatch = request.headers.get(HyperStorageHeader.IF_MATCH).forall { m ⇒
       val eTags = parseETags(m)
-      content.exists {
+      content.filterNot(_.isDeleted.contains(true)).exists {
         c ⇒
           eTags.contains("*") || eTags.contains("\"" + c.revision.toHexString + "\"")
       }
@@ -144,7 +144,7 @@ object ContentLogic {
 
     val ifNoneMatch = request.headers.get(HyperStorageHeader.IF_NONE_MATCH).forall { m ⇒
       val eTags = parseETags(m)
-      content.forall {
+      content.filterNot(_.isDeleted.contains(true)).forall {
         c ⇒
           !eTags.contains("*") && !eTags.contains("\"" + c.revision.toHexString + "\"")
       }

@@ -6,20 +6,13 @@
  *
  */
 
-import akka.testkit.TestActorRef
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model._
-import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.api._
-import com.hypertino.hyperstorage.sharding._
-import com.hypertino.hyperstorage.workers.primary.PrimaryWorker
-import com.hypertino.hyperstorage.workers.secondary.SecondaryWorker
 import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.time.{Millis, Span}
 import org.scalatest.{FlatSpec, Matchers}
-
-import scala.concurrent.duration._
 
 class IfMatchTest extends FlatSpec
   with Matchers
@@ -78,6 +71,13 @@ class IfMatchTest extends FlatSpec
       .futureValue
 
     delete shouldBe a[Ok[_]]
+
+    val created2 = hyperbus.ask(ContentPut("abc", DynamicBody(Obj.from("a" → 10, "x" → "hello")),
+      headers=Headers(HyperStorageHeader.IF_NONE_MATCH → "*")))
+      .runAsync
+      .futureValue
+
+    created2 shouldBe a[Created[_]]
   }
 
   it should "fail if resource with etag not match" in {
@@ -121,6 +121,30 @@ class IfMatchTest extends FlatSpec
       .futureValue
 
     createFail2 shouldBe a[PreconditionFailed[_]]
+  }
+
+  "if-none-match" should "work if resource was deleted" in {
+    cleanUpCassandra()
+    val hyperbus = integratedHyperbus(db)
+
+    val created = hyperbus.ask(ContentPut("abc", DynamicBody(Obj.from("a" → 10, "x" → "hello"))))
+      .runAsync
+      .futureValue
+
+    created shouldBe a[Created[_]]
+
+    val delete = hyperbus.ask(ContentDelete("abc", headers=Headers(HyperStorageHeader.IF_MATCH → "*")))
+      .runAsync
+      .futureValue
+
+    delete shouldBe a[Ok[_]]
+
+    val created2 = hyperbus.ask(ContentPut("abc", DynamicBody(Obj.from("a" → 10, "x" → "hello")),
+      headers=Headers(HyperStorageHeader.IF_NONE_MATCH → "*")))
+      .runAsync
+      .futureValue
+
+    created2 shouldBe a[Created[_]]
   }
 }
 
