@@ -31,7 +31,7 @@ object BenchmarkTest {
       println("fetched: " + lst.toSeq.size)
     }
     catch {
-      case NonFatal(e) ⇒
+      case e: Throwable ⇒
         println(e.toString)
     }
 
@@ -76,12 +76,12 @@ object BenchmarkTest {
         println("fetched: " + lst.toSeq.size)
       }
       catch {
-        case NonFatal(e) ⇒
+        case e: Throwable ⇒
           println(e.toString)
       }
     }
     catch {
-      case NonFatal(e) ⇒
+      case e: Throwable ⇒
         println(e.toString)
     }
     wf(hyperbus.shutdown(waitDuration))

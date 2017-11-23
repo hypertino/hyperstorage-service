@@ -122,7 +122,7 @@ abstract class RecoveryWorker[T <: WorkerState](
         checkQuantum(dtQuantum, partitionsForQuantum) map { _ ⇒
           runNextRecoveryCheck(CheckQuantum(processId, dtQuantum, partitionsForQuantum, state.asInstanceOf[T]))
         } recover {
-          case NonFatal(e) ⇒
+          case e: Throwable ⇒
             logger.error(s"Quantum check for $dtQuantum is failed. Will retry in $retryPeriod", e)
             system.scheduler.scheduleOnce(retryPeriod, self, CheckQuantum(processId, dtQuantum, partitionsForQuantum, state))
         }
@@ -185,7 +185,7 @@ abstract class RecoveryWorker[T <: WorkerState](
             case BackgroundContentTaskNoSuchResourceException(notFountPath) ⇒
               logger.warn(s"Tried to recover not existing resource: '$notFountPath'. Exception is ignored")
               Future.successful()
-            case (NonFatal(e), _) ⇒
+            case (e: Throwable, _) ⇒
               Future.failed(e)
             case other ⇒
               Future.failed(throw new RuntimeException(s"Unexpected result from recovery task: $other"))
@@ -318,7 +318,7 @@ class StaleRecoveryWorker(
       logger.info(s"Running stale recovery check starting from ${qts(startFrom)}. Partitions to process: ${partitions.size}")
       self ! CheckQuantum(currentProcessId, startFrom, partitionsToProcess, state)
     } recover {
-      case NonFatal(e) ⇒
+      case e: Throwable ⇒
         logger.error(s"Can't fetch checkpoints. Will retry in $retryPeriod", e)
         system.scheduler.scheduleOnce(retryPeriod, self, StartCheck(currentProcessId))
     }
@@ -354,7 +354,7 @@ class StaleRecoveryWorker(
         system.scheduler.scheduleOnce(retryPeriod, self, StartCheck(currentProcessId))
       }
     } recover {
-      case NonFatal(e) ⇒
+      case e: Throwable ⇒
         logger.error(s"Can't update checkpoints. Will restart in $retryPeriod", e)
         system.scheduler.scheduleOnce(retryPeriod, self, StartCheck(currentProcessId))
     }

@@ -206,7 +206,7 @@ private[indexing] object IndexManagerImpl extends StrictLogging {
         indexesIterator.map(ii ⇒ IndexDefTransaction(ii.documentUri, ii.indexId, ii.defTransactionId)).toSeq
       )
     } recover {
-      case NonFatal(e) ⇒
+      case e: Throwable ⇒
         logger.error(s"Can't fetch pending indexes", e)
         notifyActor ! PartitionPendingFailed(rev)
     }

@@ -70,7 +70,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
 
                 completeTransactions(task, content, owner, task.ttl)
               } catch {
-                case NonFatal(e) ⇒
+                case e: Throwable ⇒
                   logger.error(s"Background task $task didn't complete", e)
                   Future.failed(e)
               }
@@ -79,7 +79,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
       }
     }
     catch {
-      case NonFatal(e) ⇒
+      case e: Throwable ⇒
         logger.error(s"Background task $task didn't complete", e)
         Future.failed(e)
     }
@@ -129,14 +129,14 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
         } map { updatedTransactions ⇒
           WorkerTaskResult(task.key, task.group, BackgroundContentTaskResult(task.documentUri, updatedTransactions.map(_.uuid)))
         } recover {
-          case NonFatal(e) ⇒
+          case e: Throwable ⇒
             logger.error(s"Task failed: $task",e)
             WorkerTaskResult(task.key, task.group, BackgroundContentTaskFailedException(task.documentUri, e.toString))
         } andThen {
           case Success(WorkerTaskResult(_, _, BackgroundContentTaskResult(documentUri, updatedTransactions))) ⇒
             logger.debug(s"Removing completed transactions $updatedTransactions from $documentUri")
             db.removeCompleteTransactionsFromList(documentUri, updatedTransactions.toList) recover {
-              case NonFatal(e) ⇒
+              case e: Throwable ⇒
                 logger.error(s"Can't remove complete transactions $updatedTransactions from $documentUri", e)
             }
         }
@@ -293,7 +293,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
                   try {
                     IndexLogic.evaluateFilterExpression(filter, content.bodyValue)
                   } catch {
-                    case NonFatal(e) ⇒
+                    case e: Throwable ⇒
                       logger.debug(s"Can't evaluate expression: `$filter` for $path", e)
                       false
                   }
@@ -352,7 +352,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
 
   private def handlePrimaryWorkerTaskResult: PartialFunction[PrimaryWorkerTaskResult, Unit] = {
     case result: PrimaryWorkerTaskResult ⇒ MessageReader.fromString(result.content, StandardResponse.apply) match {
-      case NonFatal(e) ⇒ throw e
+      case e: Throwable ⇒ throw e
     }
   }
 }

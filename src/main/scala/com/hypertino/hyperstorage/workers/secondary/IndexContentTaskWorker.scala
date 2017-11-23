@@ -94,7 +94,7 @@ trait IndexContentTaskWorker extends ItemIndexer with SecondaryWorkerBase {
       }
     }
     catch {
-      case NonFatal(e) ⇒
+      case e: Throwable ⇒
         Future.failed(e)
     }
   }

@@ -228,7 +228,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) extends S
       cluster.close()
     }
     catch {
-      case NonFatal(e) ⇒
+      case e: Throwable ⇒
         logger.error(s"Can't close C* session", e)
     }
   }

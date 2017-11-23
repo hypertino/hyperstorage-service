@@ -82,7 +82,7 @@ class HyperStorageService(implicit val scheduler: Scheduler,
     logger.info(s"Initializing database connection...")
     db.preStart()
   } catch {
-    case NonFatal(e) ⇒
+    case e: Throwable ⇒
       logger.error(s"Can't create C* session", e)
   }
 
@@ -153,7 +153,7 @@ class HyperStorageService(implicit val scheduler: Scheduler,
   }
 
   private def logException(str: String): PartialFunction[Throwable, Unit] = {
-    case NonFatal(e) ⇒
+    case e: Throwable ⇒
       logger.error(str, e)
   }
 }

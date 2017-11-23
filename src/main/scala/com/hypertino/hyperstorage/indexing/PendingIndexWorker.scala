@@ -120,7 +120,7 @@ private[indexing] object IndexWorkerImpl extends StrictLogging {
         notifyActor ! CompletePendingIndex
         Future.successful()
     } recover {
-      case NonFatal(e) ⇒
+      case e: Throwable ⇒
         logger.error(s"Can't fetch pending index for $indexKey", e)
         actorSystem.scheduler.scheduleOnce(RETRY_PERIOD, notifyActor, StartPendingIndexWorker)
     }
@@ -134,7 +134,7 @@ private[indexing] object IndexWorkerImpl extends StrictLogging {
       notifyActor ! CompletePendingIndex
 
     } recover {
-      case NonFatal(e) ⇒
+      case e: Throwable ⇒
         logger.error(s"Can't delete pending index $pendingIndex", e)
         actorSystem.scheduler.scheduleOnce(RETRY_PERIOD, notifyActor, StartPendingIndexWorker)
     }

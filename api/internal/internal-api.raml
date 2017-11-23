@@ -27,8 +27,8 @@ types:
   RemoteTask:
     type: object
     properties:
-      source?: string
-      task_id?:
+      source_node_id: string
+      task_id:
         type: number
         format: long
       key: string
@@ -43,7 +43,7 @@ types:
   RemoteTaskResult:
     type: object
     properties:
-      task_id?:
+      task_id:
         type: number
         format: long
       result_headers: object

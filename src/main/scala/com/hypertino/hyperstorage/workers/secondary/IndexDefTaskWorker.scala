@@ -65,7 +65,7 @@ trait IndexDefTaskWorker extends SecondaryWorkerBase {
           case delete: IndexDelete ⇒ startRemovingIndex(task, delete)
         }
       } catch {
-        case NonFatal(e) ⇒
+        case e: Throwable ⇒
           Future.failed(e)
       }
     } recover withHyperbusException(task)

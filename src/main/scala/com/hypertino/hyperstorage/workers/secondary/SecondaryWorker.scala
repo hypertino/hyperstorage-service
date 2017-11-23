@@ -58,7 +58,7 @@ class SecondaryWorker(val hyperbus: Hyperbus, val db: Db, val tracker: MetricsTr
       logger.error(s"Can't execute $task", e)
       WorkerTaskResult(task.key, task.group, e)
 
-    case NonFatal(e) ⇒
+    case e: Throwable ⇒
       logger.error(s"Can't execute $task", e)
       WorkerTaskResult(task.key, task.group, SecondaryTaskFailed(task.key, e.toString))
   }

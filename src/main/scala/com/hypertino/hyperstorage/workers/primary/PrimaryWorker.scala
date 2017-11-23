@@ -148,7 +148,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
         // fetch and complete existing content
         executeResourceUpdateTask(owner, documentUri, itemId, task, request)
     } recover {
-      case NonFatal(e) ⇒
+      case e: Throwable ⇒
         logger.error(s"Can't deserialize and split path for: $task", e)
         owner ! WorkerTaskResult(task.key, task.group, hyperbusException(e, task)(MessagingContext.empty))
     }
@@ -187,7 +187,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
         PrimaryWorkerTaskCompleted(task, newTransaction, (existingContent.isEmpty || existingContent.exists(_.isDeleted.contains(true))) && request.headers.method != Method.DELETE)
       }
     } recover {
-      case NonFatal(e) ⇒
+      case e: Throwable ⇒
         PrimaryWorkerTaskFailed(task, e)
     } pipeTo context.self
   }

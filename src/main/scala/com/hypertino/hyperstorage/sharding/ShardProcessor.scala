@@ -8,9 +8,12 @@
 
 package com.hypertino.hyperstorage.sharding
 
+import java.io.StringReader
+
 import akka.actor._
 import akka.cluster.ClusterEvent._
-import com.hypertino.hyperbus.model.{MessagingContext, Ok, RequestBase, RequestHeaders, RequestMeta, RequestMetaCompanion}
+import com.hypertino.binders.value.Obj
+import com.hypertino.hyperbus.model.{Headers, MessagingContext, Ok, RequestBase, RequestHeaders, RequestMeta, RequestMetaCompanion, ResponseBase}
 import com.hypertino.hyperstorage.internal.api
 import com.hypertino.hyperstorage.internal.api._
 import com.hypertino.hyperstorage.metrics.Metrics
@@ -31,14 +34,14 @@ import scala.util.control.NonFatal
 
   def expectsResult: Boolean
 
-  def isExpired = ttl < System.currentTimeMillis()
+  def isExpired: Boolean = ttl < System.currentTimeMillis()
 }
 
-case class LocalTask(key: String, group: String, ttl: Long, expectsResult: Boolean, task: RequestBase) extends ShardTask
+case class LocalTask(key: String, group: String, ttl: Long, expectsResult: Boolean, request: RequestBase) extends ShardTask
 
-case class RemoteRTask(sourceNodeId: String, taskId: Long, key: String, group: String, ttl: Long, expectsResult: Boolean, task: ShardTask) extends ShardTask with Serializable
+//case class RemoteRTask(sourceNodeId: String, taskId: Long, key: String, group: String, ttl: Long, expectsResult: Boolean, task: ShardTask) extends ShardTask with Serializable
 
-case class RemoteRTaskResult(taskId: Long, key: String, result: Any)
+//case class RemoteRTaskResult(taskId: Long, key: String, result: Any)
 
 @SerialVersionUID(1L) case class NoSuchGroupWorkerException(groupName: String) extends RuntimeException(s"No such worker group: $groupName")
 
@@ -56,10 +59,10 @@ private[sharding] case object ShardSyncTimer
 
 case object ShutdownProcessor
 
-case class WorkerTaskResult(key: String, group: String, result: Any) // r: Try[Option[ResponseBase]]
+case class WorkerTaskResult(key: String, group: String, result: Option[ResponseBase]) // r: Try[Option[ResponseBase]]
 
-case class ExpectingRemoteResult(client: ActorRef, ttl: Long, key: String) {
-  def isExpired = ttl < System.currentTimeMillis()
+case class ExpectingRemoteResult(client: ActorRef, ttl: Long, key: String, requestMeta: RequestMeta[_ <: RequestBase]) {
+  def isExpired: Boolean = ttl < System.currentTimeMillis()
 }
 
 case class WorkerGroupSettings(props: Props, maxCount: Int, prefix: String, metaCompanions: Seq[RequestMetaCompanion[_ <: RequestBase]]) {
@@ -76,11 +79,12 @@ case class WorkerGroupSettings(props: Props, maxCount: Int, prefix: String, meta
   }
 }
 
+private [sharding] case class ActiveWorkerRemoteData(nodeId: String, taskId: Long/*, meta: RequestMeta[_ <: RequestBase]*/)
+
 private [sharding] case class ActiveWorker(taskId: Long,
                                            workerActor: ActorRef,
                                            client: Option[ActorRef],
-                                           remoteNodeId: Option[String],
-                                           remoteTaskId: Option[Long]
+                                           remoteData: Option[ActiveWorkerRemoteData]
                                           )
 
 class ShardProcessor(clusterTransport: ActorRef,
@@ -110,7 +114,7 @@ class ShardProcessor(clusterTransport: ActorRef,
       stay using data.copy(selfId=nodeId)
 
     case Event(TransportNodeUp(node), data) ⇒
-      introduceSelfTo(node, data) andUpdate
+      updateAndStay(introduceSelfTo(node, data))
 
     case Event(ShardSyncTimer, data) ⇒
       if (isActivationAllowed(data)) {
@@ -162,22 +166,22 @@ class ShardProcessor(clusterTransport: ActorRef,
       stay()
 
     case Event(sync: NodesPost, data) ⇒
-      incomingSync(sync, data) andUpdate
+      updateAndStay(incomingSync(sync, data))
 
     case Event(syncReply: Ok[NodeUpdated], data) ⇒
-      processReply(syncReply, data) andUpdate
+      updateAndStay(processReply(syncReply, data))
 
     case Event(TransportNodeUp(node), data) ⇒
-      addNode(node, data) andUpdate
+      updateAndStay(addNode(node, data))
 
       case Event(TransportNodeDown(nodeId), data) ⇒
-      removeNode(nodeId, data) andUpdate
+        updateAndStay(removeNode(nodeId, data))
 
     case Event(wt: WorkerTaskResult, data) ⇒
       workerIsReadyForNextTask(wt, data)
       stay()
 
-    case Event(rr: RemoteRTaskResult, data) ⇒
+    case Event(rr: RemoteTaskResult, data) ⇒
       handleRemoteTaskResult(rr)
       stay()
 
@@ -360,18 +364,18 @@ class ShardProcessor(clusterTransport: ActorRef,
                     val worker = context.system.actorOf(ws.props, AkkaNaming.next(ws.prefix))
                     logger.debug(s"Starting worker for task $task sent from ${sender()}")
                     val localTaskId = nextTaskId()
-                    val (localTask, remoteTask) = task match {
-                      case r: RemoteRTask ⇒
-                        (r.task, Some(r))
+                    val (workerRequest, remoteData) = task match {
+                      case r: RemoteTask ⇒
+                        val req = deserializeRequest(r)
+                        (req, Some(ActiveWorkerRemoteData(r.sourceNodeId,r.taskId)))
 
-                      case o ⇒ (o, None)
+                      case l: LocalTask ⇒ (l.request, None)
                     }
-                    worker ! localTask
+                    worker ! workerRequest
                     val client = if (task.expectsResult) Some(sender()) else None
-                    activeGroupWorkers += task.key → ActiveWorker(localTaskId, worker, client,
-                      remoteTask.map(_.sourceNodeId), remoteTask.map(_.taskId))
+                    activeGroupWorkers += task.key → ActiveWorker(localTaskId, worker, client, remoteData)
                   } catch {
-                    case NonFatal(e) ⇒
+                    case e: Throwable ⇒
                       logger.error(s"Can't create worker from props ${ws.props}", e)
                       sender() ! e
                   }
@@ -408,7 +412,7 @@ class ShardProcessor(clusterTransport: ActorRef,
     trackStashMeter.mark()
     stash()
   } catch {
-    case NonFatal(e) ⇒
+    case e: Throwable ⇒
       logger.error(s"Can't stash task: $task. It's lost now", e)
   }
 
@@ -418,9 +422,18 @@ class ShardProcessor(clusterTransport: ActorRef,
     data.nodes.get(address) map { rvm ⇒
       logger.debug(s"Task is forwarded to $address: $task")
       clearExpiredRemoteTasks()
-      val taskId = nextTaskId()
-      val remoteTask = RemoteRTask(data.selfId, taskId, task.key, task.group, task.ttl, task.expectsResult, task)
-      remoteTasks += taskId → ExpectingRemoteResult(sender(), task.ttl, task.key)
+      val remoteTask = task match {
+        case r: RemoteTask ⇒ r
+        case l: LocalTask ⇒
+          val taskId = nextTaskId()
+          val bodyString = l.request.serializeToString
+          val r = RemoteTask(data.selfId,taskId,l.key,l.group,l.ttl,l.expectsResult,Obj(l.request.headers.underlying.v),bodyString)
+          val requestMeta = workersSettings.get(l.group).map(_.lookupRequestMeta(l.request.headers)).getOrElse {
+            throw new IllegalArgumentException(s"No settings are defined for a group ${l.group}")
+          }
+          remoteTasks += taskId → ExpectingRemoteResult(sender(), task.ttl, task.key, requestMeta)
+          r
+      }
       clusterTransport ! TransportMessage(rvm.transportNode, remoteTask)
       true
     } getOrElse {
@@ -428,15 +441,15 @@ class ShardProcessor(clusterTransport: ActorRef,
     }
   }
 
-  private def handleRemoteTaskResult(r: RemoteRTaskResult): Unit = {
+  private def handleRemoteTaskResult(r: RemoteTaskResult): Unit = {
     remoteTasks.get(r.taskId) match {
       case Some(rt) ⇒
-        logger.debug(s"Forwarding result ${r.result} from task: #${r.taskId}/${r.key} to ${rt.client}")
-        rt.client ! r.result
+        logger.debug(s"Forwarding result $r from task: #${r.taskId} to ${rt.client}")
         remoteTasks.remove(r.taskId)
+        rt.client ! deserializeResponse(r, rt)
 
       case None ⇒
-        logger.warn(s"Dropping result ${r.result} from task: #${r.taskId}/${r.key}, timed out?")
+        logger.warn(s"Dropping result $r from task: #${r.taskId}, timed out?")
     }
   }
 
@@ -445,23 +458,23 @@ class ShardProcessor(clusterTransport: ActorRef,
       case Some(activeGroupWorkers) ⇒
         activeGroupWorkers.get(workerTaskResult.key) match {
           case Some(aw) ⇒
-            if (workerTaskResult.result != None) {
-              aw.remoteNodeId match {
+            workerTaskResult.result.foreach { result ⇒
+              aw.remoteData match {
                 case None ⇒
                   aw.client.foreach { client ⇒
-                    logger.debug(s"Sending result ${workerTaskResult.result} to $client")
-                    client ! workerTaskResult.result
+                    logger.debug(s"Sending result $result to $client")
+                    client ! result
                   }
 
-                case Some(remoteNodeId) ⇒
-                  data.nodes.get(remoteNodeId) match {
+                case Some(remoteData) ⇒
+                  data.nodes.get(remoteData.nodeId) match {
                     case Some(rvm) ⇒
-                      logger.debug(s"Forwarding result ${workerTaskResult.result} to source node $remoteNodeId")
-                      val rr = RemoteRTaskResult(aw.remoteTaskId.get, workerTaskResult.key, workerTaskResult.result)
-                      clusterTransport ! TransportMessage(rvm.transportNode, rr)
+                      logger.debug(s"Forwarding result $result to source node ${remoteData.nodeId}")
+                      val r = RemoteTaskResult(remoteData.taskId, Obj(result.headers.v), result.serializeToString)
+                      clusterTransport ! TransportMessage(rvm.transportNode, r)
 
                     case None ⇒
-                      logger.error(s"Dropping result $workerTaskResult, didn't found source node $remoteNodeId")
+                      logger.error(s"Dropping result $workerTaskResult, didn't found source node ${remoteData.nodeId}")
                   }
               }
             }
@@ -484,7 +497,7 @@ class ShardProcessor(clusterTransport: ActorRef,
     logger.debug("Unstashing tasks")
     unstashAll()
   } catch {
-    case NonFatal(e) ⇒
+    case e: Throwable ⇒
       logger.error(s"Can't unstash tasks. Some are lost now", e)
   }
 
@@ -496,7 +509,7 @@ class ShardProcessor(clusterTransport: ActorRef,
       remoteTasks -= k
     }
   } catch {
-    case NonFatal(e) ⇒
+    case e: Throwable ⇒
       logger.error(s"Unexpected", e)
   }
 
@@ -505,18 +518,32 @@ class ShardProcessor(clusterTransport: ActorRef,
     lastTaskId
   }
 
-  protected[this] implicit class ImplicitExtender(data: Option[ShardedClusterData]) {
-    def andUpdate: State = {
-      if (data.isDefined) {
-        safeUnstashAll()
-        stay using data.get
-      }
-      else {
-        stay
-      }
+  private def deserializeRequest(remoteTask: RemoteTask): RequestBase = {
+    workersSettings.get(remoteTask.group).map { s ⇒
+      val requestHeaders = RequestHeaders(Headers(remoteTask.taskHeaders.toMap.toSeq: _*))
+      val requestMeta = s.lookupRequestMeta(requestHeaders)
+      val stringReader = new StringReader(remoteTask.taskBody)
+      requestMeta(stringReader, requestHeaders.underlying)
+    } getOrElse {
+      throw new IllegalArgumentException(s"No settings are defined for a group ${remoteTask.group}")
     }
   }
 
+  private def deserializeResponse(r: RemoteTaskResult, e: ExpectingRemoteResult): ResponseBase = {
+    val stringReader = new StringReader(r.resultBody)
+    val headers = Headers(r.resultHeaders.toMap.toSeq: _*)
+    e.requestMeta.responseDeserializer(stringReader, headers)
+  }
+
+  private def updateAndStay(data: Option[ShardedClusterData]): State = {
+    if (data.isDefined) {
+      safeUnstashAll()
+      stay using data.get
+    }
+    else {
+      stay
+    }
+  }
 }
 
 object ShardProcessor {

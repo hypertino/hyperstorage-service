@@ -47,6 +47,6 @@ object EntryPoint extends Injectable with StrictLogging {
   }
 
   private def logException: PartialFunction[Throwable, Unit] = {
-    case NonFatal(e) ⇒ logger.error("Unhandled exception", e)
+    case e: Throwable ⇒ logger.error("Unhandled exception", e)
   }
 }

@@ -38,7 +38,7 @@ trait SecondaryWorkerBase extends StrictLogging {
   }
 
   protected def withHyperbusException(task: SecondaryTaskTrait): PartialFunction[Throwable, WorkerTaskResult] = {
-    case NonFatal(e) ⇒
+    case e: Throwable ⇒
       logger.error(s"Can't execute $task", e)
       val he = e match {
         case h: HyperbusError[ErrorBody] @unchecked ⇒ h

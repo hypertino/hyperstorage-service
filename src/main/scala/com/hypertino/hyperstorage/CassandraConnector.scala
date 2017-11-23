@@ -76,7 +76,7 @@ object CassandraConnector extends StrictLogging{
         session(cluster, listener, keyspace)
       }
       catch {
-        case NonFatal(e) ⇒
+        case e: Throwable ⇒
           cluster.close()
           throw e
       }
@@ -140,7 +140,7 @@ object CassandraConnector extends StrictLogging{
         session(cluster, listener, keyspace)
       }
       catch {
-        case NonFatal(e) ⇒
+        case e: Throwable ⇒
           cluster.close()
           throw e
       }

@@ -387,7 +387,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
               try {
                 new HEval(o).eval(qfe).toBoolean
               } catch {
-                case NonFatal(e) ⇒ false
+                case e: Throwable ⇒ false
               }
             }
           } getOrElse {

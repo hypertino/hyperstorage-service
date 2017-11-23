@@ -17,7 +17,8 @@ ramlHyperbusSources := Seq(
   ramlSource(
       path = "api/internal/internal-api.raml",
       packageName = "com.hypertino.hyperstorage.internal.api",
-      isResource = false
+      isResource = false,
+      baseClasses = Map("RemoteTask" → Seq("com.hypertino.hyperstorage.sharding.ShardTask"))
   )
 )
 

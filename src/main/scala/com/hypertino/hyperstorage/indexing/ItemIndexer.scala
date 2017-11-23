@@ -27,7 +27,7 @@ trait ItemIndexer extends StrictLogging {
       try {
         IndexLogic.evaluateFilterExpression(filter, contentValue)
       } catch {
-        case NonFatal(e) ⇒
+        case e: Throwable ⇒
           logger.debug(s"Can't evaluate expression: `$filter` for $item", e)
           false
       }
