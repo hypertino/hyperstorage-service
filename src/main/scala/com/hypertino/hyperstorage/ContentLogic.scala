@@ -82,10 +82,11 @@ object ContentLogic {
       }
     }
     if (/*slashCount > 0 && */lastToken.exists {
-      case TextToken(s) if s.forall(c ⇒ c == '~' || (c >= 'a' && c <= 'z')) ⇒ true
+      case TextToken(s) if s.forall(c ⇒ c == '~' || (c >= 'a' && c <= 'z') || c == '-') ⇒ true
       case _ ⇒ false
     }) {
-      val s = lastToken.get.asInstanceOf[TextToken].value
+      val s = lastToken.get.asInstanceOf[TextToken].value.replace('-', '_')
+
       if (s.endsWith("~")) {
         English.singular(s.substring(0, s.length - 1)) + "_id"
       }
@@ -135,7 +136,7 @@ object ContentLogic {
   def checkPrecondition(request: RequestBase, content: Option[ContentBase]): Boolean  = {
     val ifMatch = request.headers.get(HyperStorageHeader.IF_MATCH).forall { m ⇒
       val eTags = parseETags(m)
-      content.exists {
+      content.filterNot(_.isDeleted.contains(true)).exists {
         c ⇒
           eTags.contains("*") || eTags.contains("\"" + c.revision.toHexString + "\"")
       }
@@ -143,7 +144,7 @@ object ContentLogic {
 
     val ifNoneMatch = request.headers.get(HyperStorageHeader.IF_NONE_MATCH).forall { m ⇒
       val eTags = parseETags(m)
-      content.forall {
+      content.filterNot(_.isDeleted.contains(true)).forall {
         c ⇒
           !eTags.contains("*") && !eTags.contains("\"" + c.revision.toHexString + "\"")
       }
