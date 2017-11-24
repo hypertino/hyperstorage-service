@@ -12,13 +12,23 @@ ramlHyperbusSources := Seq(
   ramlSource(
     path = "api/hyperstorage-service-api/hyperstorage.raml",
     packageName = "com.hypertino.hyperstorage.api",
-    isResource = false
+    isResource = false,
+    baseClasses = Map(
+      "ContentPut" → Seq("com.hypertino.hyperstorage.workers.primary.PrimaryWorkerRequest"),
+      "ContentDelete" → Seq("com.hypertino.hyperstorage.workers.primary.PrimaryWorkerRequest"),
+      "ContentPost" → Seq("com.hypertino.hyperstorage.workers.primary.PrimaryWorkerRequest"),
+      "ContentPatch" → Seq("com.hypertino.hyperstorage.workers.primary.PrimaryWorkerRequest"),
+      "ViewPut" → Seq("com.hypertino.hyperstorage.workers.primary.PrimaryWorkerRequest"),
+      "ViewDelete" → Seq("com.hypertino.hyperstorage.workers.primary.PrimaryWorkerRequest")
+    )
   ),
   ramlSource(
       path = "api/internal/internal-api.raml",
       packageName = "com.hypertino.hyperstorage.internal.api",
       isResource = false,
-      baseClasses = Map("RemoteTask" → Seq("com.hypertino.hyperstorage.sharding.ShardTask"))
+      baseClasses = Map(
+        "RemoteTask" → Seq("com.hypertino.hyperstorage.sharding.ShardTask")
+      )
   )
 )
 

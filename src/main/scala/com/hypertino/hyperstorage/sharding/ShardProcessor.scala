@@ -12,7 +12,7 @@ import java.io.StringReader
 
 import akka.actor._
 import akka.cluster.ClusterEvent._
-import com.hypertino.binders.value.Obj
+import com.hypertino.binders.value.{Obj, Value}
 import com.hypertino.hyperbus.model.{Headers, MessagingContext, Ok, RequestBase, RequestHeaders, RequestMeta, RequestMetaCompanion, ResponseBase}
 import com.hypertino.hyperstorage.internal.api
 import com.hypertino.hyperstorage.internal.api._
@@ -37,7 +37,7 @@ import scala.util.control.NonFatal
   def isExpired: Boolean = ttl < System.currentTimeMillis()
 }
 
-case class LocalTask(key: String, group: String, ttl: Long, expectsResult: Boolean, request: RequestBase) extends ShardTask
+case class LocalTask(key: String, group: String, ttl: Long, expectsResult: Boolean, request: RequestBase, extra: Value) extends ShardTask
 
 //case class RemoteRTask(sourceNodeId: String, taskId: Long, key: String, group: String, ttl: Long, expectsResult: Boolean, task: ShardTask) extends ShardTask with Serializable
 
@@ -59,7 +59,7 @@ private[sharding] case object ShardSyncTimer
 
 case object ShutdownProcessor
 
-case class WorkerTaskResult(key: String, group: String, result: Option[ResponseBase]) // r: Try[Option[ResponseBase]]
+case class WorkerTaskResult(key: String, group: String, result: Option[ResponseBase], extra: Value) // r: Try[Option[ResponseBase]]
 
 case class ExpectingRemoteResult(client: ActorRef, ttl: Long, key: String, requestMeta: RequestMeta[_ <: RequestBase]) {
   def isExpired: Boolean = ttl < System.currentTimeMillis()
@@ -168,7 +168,7 @@ class ShardProcessor(clusterTransport: ActorRef,
     case Event(sync: NodesPost, data) ⇒
       updateAndStay(incomingSync(sync, data))
 
-    case Event(syncReply: Ok[NodeUpdated], data) ⇒
+    case Event(syncReply: Ok[NodeUpdated] @unchecked, data) ⇒
       updateAndStay(processReply(syncReply, data))
 
     case Event(TransportNodeUp(node), data) ⇒
@@ -364,14 +364,15 @@ class ShardProcessor(clusterTransport: ActorRef,
                     val worker = context.system.actorOf(ws.props, AkkaNaming.next(ws.prefix))
                     logger.debug(s"Starting worker for task $task sent from ${sender()}")
                     val localTaskId = nextTaskId()
-                    val (workerRequest, remoteData) = task match {
+                    val (localTask, remoteData) = task match {
                       case r: RemoteTask ⇒
                         val req = deserializeRequest(r)
-                        (req, Some(ActiveWorkerRemoteData(r.sourceNodeId,r.taskId)))
+                        val l = LocalTask(r.key, r.group, r.ttl, r.expectsResult, req, r.extra)
+                        (l, Some(ActiveWorkerRemoteData(r.sourceNodeId,r.taskId)))
 
-                      case l: LocalTask ⇒ (l.request, None)
+                      case l: LocalTask ⇒ (l, None)
                     }
-                    worker ! workerRequest
+                    worker ! localTask
                     val client = if (task.expectsResult) Some(sender()) else None
                     activeGroupWorkers += task.key → ActiveWorker(localTaskId, worker, client, remoteData)
                   } catch {
@@ -427,7 +428,7 @@ class ShardProcessor(clusterTransport: ActorRef,
         case l: LocalTask ⇒
           val taskId = nextTaskId()
           val bodyString = l.request.serializeToString
-          val r = RemoteTask(data.selfId,taskId,l.key,l.group,l.ttl,l.expectsResult,Obj(l.request.headers.underlying.v),bodyString)
+          val r = RemoteTask(data.selfId,taskId,l.key,l.group,l.ttl,l.expectsResult,Obj(l.request.headers.underlying.v),bodyString,l.extra)
           val requestMeta = workersSettings.get(l.group).map(_.lookupRequestMeta(l.request.headers)).getOrElse {
             throw new IllegalArgumentException(s"No settings are defined for a group ${l.group}")
           }
@@ -470,7 +471,7 @@ class ShardProcessor(clusterTransport: ActorRef,
                   data.nodes.get(remoteData.nodeId) match {
                     case Some(rvm) ⇒
                       logger.debug(s"Forwarding result $result to source node ${remoteData.nodeId}")
-                      val r = RemoteTaskResult(remoteData.taskId, Obj(result.headers.v), result.serializeToString)
+                      val r = RemoteTaskResult(remoteData.taskId, Obj(result.headers.v), result.serializeToString, workerTaskResult.extra)
                       clusterTransport ! TransportMessage(rvm.transportNode, r)
 
                     case None ⇒

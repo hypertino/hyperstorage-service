@@ -13,13 +13,15 @@ import java.util.Date
 import akka.actor._
 import akka.pattern.ask
 import com.codahale.metrics.Meter
+import com.hypertino.binders.value.Null
+import com.hypertino.hyperbus.model.{NotFound, Ok}
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.db.{Content, Db}
-import com.hypertino.hyperstorage.internal.api.NodeStatus
+import com.hypertino.hyperstorage.internal.api.{BackgroundContentTask, BackgroundContentTaskResult, BackgroundContentTasksPost, NodeStatus}
 import com.hypertino.hyperstorage.metrics.Metrics
-import com.hypertino.hyperstorage.sharding.{ShardedClusterData, UpdateShardStatus}
+import com.hypertino.hyperstorage.sharding.{LocalTask, ShardedClusterData, UpdateShardStatus, WorkerGroupSettings}
 import com.hypertino.hyperstorage.utils.FutureUtils
-import com.hypertino.hyperstorage.workers.secondary.{BackgroundContentTask, BackgroundContentTaskNoSuchResourceException, BackgroundContentTaskResult}
+import com.hypertino.hyperstorage.workers.HyperstorageWorkerSettings
 import com.hypertino.metrics.MetricsTracker
 import com.typesafe.scalalogging.StrictLogging
 
@@ -156,18 +158,21 @@ abstract class RecoveryWorker[T <: WorkerState](
         val incompleteTransactions = partitionTransactions.toList.filter(_.completedAt.isEmpty).groupBy(_.documentUri)
         FutureUtils.serial(incompleteTransactions.toSeq) { case (documentUri, transactions) ⇒
           trackIncompleteMeter.mark(transactions.length)
-          val task = BackgroundContentTask(
-            System.currentTimeMillis() + backgroundTaskTimeout.toMillis + 1000,
-            documentUri,
-            expectsResult = true
+          val task = LocalTask(
+            key = documentUri,
+            group = HyperstorageWorkerSettings.SECONDARY,
+            ttl = backgroundTaskTimeout.toMillis + 1000,
+            expectsResult = true,
+            BackgroundContentTasksPost(BackgroundContentTask(documentUri)),
+            extra = Null
           )
           logger.debug(s"Incomplete resource at $documentUri. Sending recovery task")
           shardProcessor.ask(task)(backgroundTaskTimeout) flatMap {
-            case BackgroundContentTaskResult(completePath, completedTransactions) ⇒
+            case Ok(BackgroundContentTaskResult(completePath, completedTransactions),_) ⇒
               logger.debug(s"Recovery of '$completePath' completed successfully: $completedTransactions")
               if (documentUri == completePath) {
                 val set = completedTransactions.toSet
-                val abandonedTransactions = transactions.filterNot(m ⇒ set.contains(m.uuid))
+                val abandonedTransactions = transactions.filterNot(m ⇒ set.contains(m.uuid.toString))
                 if (abandonedTransactions.nonEmpty) {
                   logger.warn(s"Abandoned transactions for '$completePath' were found: '${abandonedTransactions.map(_.uuid).mkString(",")}'. Deleting...")
                   FutureUtils.serial(abandonedTransactions.toSeq) { abandonedTransaction ⇒
@@ -182,8 +187,8 @@ abstract class RecoveryWorker[T <: WorkerState](
                 Future.successful()
               }
             // todo: do we need this here?
-            case BackgroundContentTaskNoSuchResourceException(notFountPath) ⇒
-              logger.warn(s"Tried to recover not existing resource: '$notFountPath'. Exception is ignored")
+            case NotFound(errorBody,_) ⇒
+              logger.warn(s"Tried to recover not existing resource: '$errorBody'. Exception is ignored")
               Future.successful()
             case (e: Throwable, _) ⇒
               Future.failed(e)

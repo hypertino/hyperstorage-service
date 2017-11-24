@@ -23,10 +23,11 @@ import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.api._
 import com.hypertino.hyperstorage.db._
 import com.hypertino.hyperstorage.indexing.IndexLogic
+import com.hypertino.hyperstorage.internal.api.{BackgroundContentTask, BackgroundContentTasksPost}
 import com.hypertino.hyperstorage.metrics.Metrics
-import com.hypertino.hyperstorage.sharding.{ShardTask, WorkerTaskResult}
+import com.hypertino.hyperstorage.sharding.{LocalTask, ShardTask, WorkerTaskResult}
 import com.hypertino.hyperstorage.utils.ErrorCode
-import com.hypertino.hyperstorage.workers.secondary.BackgroundContentTask
+import com.hypertino.hyperstorage.workers.HyperstorageWorkerSettings
 import com.hypertino.metrics.MetricsTracker
 import com.hypertino.parser.HEval
 import com.hypertino.parser.ast.Identifier
@@ -38,15 +39,13 @@ import scala.concurrent.duration.FiniteDuration
 import scala.util.Try
 import scala.util.control.NonFatal
 
-@SerialVersionUID(1L) case class PrimaryContentTask(key: String, ttl: Long, content: String, expectsResult: Boolean, isClientOperation: Boolean) extends ShardTask {
-  def group = "hyperstorage-primary-worker"
+trait PrimaryWorkerRequest extends Request[DynamicBody] {
+  def path: String
 }
 
-@SerialVersionUID(1L) case class PrimaryWorkerTaskResult(content: String)
+private [primary] case class PrimaryWorkerTaskFailed(task: ShardTask, inner: Throwable)
 
-case class PrimaryWorkerTaskFailed(task: ShardTask, inner: Throwable)
-
-case class PrimaryWorkerTaskCompleted(task: ShardTask, transaction: Transaction, resourceCreated: Boolean)
+private [primary] case class PrimaryWorkerTaskCompleted(task: ShardTask, transaction: Transaction, resourceCreated: Boolean)
 
 // todo: Protect from direct view items updates!!!
 class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgroundTaskTimeout: FiniteDuration) extends Actor with StrictLogging {
@@ -72,15 +71,15 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
   }
 
   def receive = {
-    case task: PrimaryContentTask ⇒
+    case task: LocalTask ⇒
       executeTask(sender(), task)
   }
 
-  def executeTask(owner: ActorRef, task: PrimaryContentTask): Unit = {
+  def executeTask(owner: ActorRef, task: LocalTask): Unit = {
     val trackProcessTime = tracker.timer(Metrics.PRIMARY_PROCESS_TIME).time()
 
     Try {
-      val request = MessageReader.fromString(task.content, DynamicRequest.apply)
+      implicit val request = task.request.asInstanceOf[PrimaryWorkerRequest]
       val ResourcePath(documentUri, itemId) = splitPath(request.path)
       if (documentUri != task.key) {
         throw new IllegalArgumentException(s"Task key ${task.key} doesn't correspond to $documentUri")
@@ -90,25 +89,17 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
           // posting new item, converting post to put
           if (itemId.isEmpty || !ContentLogic.isCollectionUri(documentUri)) {
             val id = IdGenerator.create()
-            val hrl = request.headers.hrl
-            val newHrl = HRL(hrl.location, Obj.from(
-              hrl.query.toMap.toSeq.filterNot(_._1=="path") ++ Seq("path" → Text(request.path + "/" + id))
-                : _*)
-            )
             val idFieldName = ContentLogic.getIdFieldName(documentUri)
             val idField = idFieldName → id
             val newItemId = if (ContentLogic.isCollectionUri(documentUri)) id else ""
             val newDocumentUri = if (ContentLogic.isCollectionUri(documentUri)) documentUri else documentUri + "/" + id
 
-            (newDocumentUri, newItemId, Some(idField), request.copy(
-              //uri = Uri(request.uri.pattern, request.uri.args + "path" → Specific(request.path + "/" + id)),
-              headers = MessageHeaders
-                .builder
-                .++=(request.headers)
-                .withMethod(Method.PUT)
-                .withHRL(newHrl)
-                .requestHeaders(), // POST becomes PUT with auto Id
-              body = appendId(filterNulls(request.body), id, idFieldName)
+            // POST becomes PUT with auto Id
+            (newDocumentUri, newItemId, Some(idField), ContentPut(
+              path = request.path + "/" + id,
+              body = appendId(filterNulls(request.body), id, idFieldName),
+              headers = request.headers.underlying,
+              query = request.headers.hrl.query
             ))
           }
           else {
@@ -120,21 +111,40 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
           if (itemId.isEmpty) {
             if (ContentLogic.isCollectionUri(documentUri) && itemId.isEmpty && request.headers.hrl.location == ViewPut.location) {
               // todo: validate template_uri & filter
-              val newHeaders = MessageHeaders
-                .builder
-                .++=(request.headers)
-                .+=(TransactionLogic.HB_HEADER_TEMPLATE_URI → request.body.content.dynamic.template_uri)
-                .+=(TransactionLogic.HB_HEADER_FILTER → request.body.content.dynamic.filter)
-                .requestHeaders()
-              (documentUri, itemId, None, request.copy(body=DynamicBody(Null), headers=newHeaders))
+              val newHeaders = Headers(
+                TransactionLogic.HB_HEADER_TEMPLATE_URI → request.body.content.dynamic.template_uri,
+                TransactionLogic.HB_HEADER_FILTER → request.body.content.dynamic.filter
+              )
+              (documentUri, itemId, None,
+                ContentPut(
+                  path=request.path,
+                  body=DynamicBody(Null),
+                  headers=newHeaders,
+                  query = request.headers.hrl.query
+                )
+              )
             }
             else {
-              (documentUri, itemId, None, request.copy(body = filterNulls(request.body)))
+              (documentUri, itemId, None,
+                ContentPut(
+                  path=request.path,
+                  body=filterNulls(request.body),
+                  headers=request.headers.underlying,
+                  query = request.headers.hrl.query
+                )
+              )
             }
           }
           else {
             val idFieldName = ContentLogic.getIdFieldName(documentUri)
-            (documentUri, itemId, Some(idFieldName → itemId), request.copy(body = appendId(filterNulls(request.body), itemId, idFieldName)))
+            (documentUri, itemId, Some(idFieldName → itemId),
+              ContentPut(
+                path=request.path,
+                body=appendId(filterNulls(request.body), itemId, idFieldName),
+                headers=request.headers.underlying,
+                query = request.headers.hrl.query
+              )
+            )
           }
 
         case _ ⇒
@@ -149,12 +159,14 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
         executeResourceUpdateTask(owner, documentUri, itemId, task, request)
     } recover {
       case e: Throwable ⇒
-        logger.error(s"Can't deserialize and split path for: $task", e)
-        owner ! WorkerTaskResult(task.key, task.group, hyperbusException(e, task)(MessagingContext.empty))
+        logger.error(s"Can't prepare task: $task", e)
+        if (task.expectsResult) {
+          owner ! WorkerTaskResult(task.key, task.group, Some(hyperbusException(e, task)(MessagingContext.empty)), Null)
+        }
     }
   }
 
-  private def executeResourceUpdateTask(owner: ActorRef, documentUri: String, itemId: String, task: PrimaryContentTask, request: DynamicRequest) = {
+  private def executeResourceUpdateTask(owner: ActorRef, documentUri: String, itemId: String, task: LocalTask, request: PrimaryWorkerRequest) = {
     val futureExisting : Future[(Option[Content], Option[ContentBase], List[IndexDef])] =
       if (request.headers.method == Method.POST) {
         Future.successful((None, None, List.empty))
@@ -183,8 +195,16 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       }
 
     futureExisting.flatMap { case (existingContent, existingContentStatic, indexDefs) ⇒
-      updateResource(documentUri, itemId, request, existingContent, existingContentStatic, indexDefs, task.isClientOperation) map { newTransaction ⇒
-        PrimaryWorkerTaskCompleted(task, newTransaction, (existingContent.isEmpty || existingContent.exists(_.isDeleted.contains(true))) && request.headers.method != Method.DELETE)
+      updateResource(documentUri,
+        itemId,
+        request,
+        existingContent,
+        existingContentStatic,
+        indexDefs,
+        task.extra.dynamic.internal_operation.toBoolean) map { newTransaction ⇒
+        PrimaryWorkerTaskCompleted(task, newTransaction,
+          (existingContent.isEmpty || existingContent.exists(_.isDeleted.contains(true))) && request.headers.method != Method.DELETE
+        )
       }
     } recover {
       case e: Throwable ⇒
@@ -194,16 +214,16 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 
   private def updateResource(documentUri: String,
                              itemId: String,
-                             request: DynamicRequest,
+                             request: PrimaryWorkerRequest,
                              existingContent: Option[Content],
                              existingContentStatic: Option[ContentBase],
                              indexDefs: Seq[IndexDef],
-                             isClientOperation: Boolean
+                             isInternalOperation: Boolean
                             ): Future[Transaction] = {
     implicit val mcx = request
 
     if (existingContentStatic.exists(_.isView.contains(true))
-      && isClientOperation
+      && !isInternalOperation
       && (request.headers.hrl.location != ViewPut.location ||
       request.headers.hrl.location != ViewDelete.location)
     ) Future.failed {
@@ -281,7 +301,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 
   private def createNewTransaction(documentUri: String,
                                    itemId: String,
-                                   request: DynamicRequest,
+                                   request: PrimaryWorkerRequest,
                                    existingContent: Option[Content],
                                    existingContentStatic: Option[ContentBase],
                                    transactionBodyValue: Option[Value] = None
@@ -298,7 +318,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     // always preserve null fields in transaction
     // this is required to correctly publish patch events
     implicit val so = SerializationOptions.forceOptionalFields
-    val transaction = request.copy(
+    val transaction = DynamicRequest(
       body = transactionBodyValue.map(DynamicBody(_)).getOrElse(request.body),
       headers = MessageHeaders.builder
         .++=(request.headers)
@@ -313,7 +333,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 
   private def updateContent(documentUri: String,
                             itemId: String,
-                            request: DynamicRequest,
+                            request: PrimaryWorkerRequest,
                             existingContent: Option[Content],
                             existingContentStatic: Option[ContentBase]): (Transaction,Content) = {
     val ttl = request.headers.get(HyperStorageHeader.HYPER_STORAGE_TTL).map(_.toInt)
@@ -326,7 +346,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 
   private def putContent(documentUri: String,
                          itemId: String,
-                         request: DynamicRequest,
+                         request: PrimaryWorkerRequest,
                          existingContent: Option[Content],
                          existingContentStatic: Option[ContentBase],
                          ttl: Option[Int]
@@ -397,7 +417,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 
   private def patchContent(documentUri: String,
                            itemId: String,
-                           request: DynamicRequest,
+                           request: PrimaryWorkerRequest,
                            existingContent: Option[Content],
                            existingContentStatic: Option[ContentBase],
                            ttl: Option[Int]
@@ -509,7 +529,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     }
   }
 
-  private def evaluateBodyPatch(existingBody: Value, request: DynamicRequest): Value = {
+  private def evaluateBodyPatch(existingBody: Value, request: PrimaryWorkerRequest): Value = {
     val context = ExpressionEvaluatorContext(request, existingBody)
     evaluateField(request.body.content, context)
   }
@@ -535,7 +555,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 
   private def deleteContent(documentUri: String,
                             itemId: String,
-                            request: DynamicRequest,
+                            request: PrimaryWorkerRequest,
                             existingContent: Option[Content],
                             existingContentStatic: Option[ContentBase]): (Transaction,Content) = {
     implicit val mcx: MessagingContext = request
@@ -565,8 +585,8 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
   }
 
   private def taskWaitResult(owner: ActorRef,
-                             originalTask: PrimaryContentTask,
-                             request: DynamicRequest,
+                             originalTask: LocalTask,
+                             request: PrimaryWorkerRequest,
                              documentUri: String,
                              id: String,
                              idField: Option[(String, String)],
@@ -574,26 +594,41 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
                             (implicit mcf: MessagingContext): Receive = {
     case PrimaryWorkerTaskCompleted(task, transaction, created) if task == originalTask ⇒
       logger.debug(s"task $originalTask is completed")
-      owner ! BackgroundContentTask(System.currentTimeMillis() + backgroundTaskTimeout.toMillis, transaction.documentUri, expectsResult=false)
-      val result: Response[Body] = if (created) {
-        val target = idField.map(kv ⇒ Obj.from(kv._1 → Text(kv._2))).getOrElse(Null)
-        Created(HyperStorageTransactionCreated(transaction.uuid.toString, request.path, transaction.revision, target),
-          location=HRL(ContentGet.location, Obj.from("path" → (documentUri + "/" + id))))
+      val bgTask = LocalTask(
+        key = documentUri,
+        group = HyperstorageWorkerSettings.SECONDARY,
+        ttl = backgroundTaskTimeout.toMillis + 1000,
+        expectsResult = false,
+        BackgroundContentTasksPost(BackgroundContentTask(documentUri)),
+        extra = Null
+      )
+      owner ! bgTask
+      if (task.expectsResult) {
+        val result: Option[ResponseBase] = if (created) {
+          val target = idField.map(kv ⇒ Obj.from(kv._1 → Text(kv._2))).getOrElse(Null)
+          Some(Created(HyperStorageTransactionCreated(transaction.uuid.toString, request.path, transaction.revision, target),
+            location = HRL(ContentGet.location, Obj.from("path" → (documentUri + "/" + id)))))
+        }
+        else {
+          Some(Ok(api.HyperStorageTransaction(transaction.uuid.toString, request.path, transaction.revision)))
+        }
+        owner ! WorkerTaskResult(task.key, task.group, result, Null)
       }
-      else {
-        Ok(api.HyperStorageTransaction(transaction.uuid.toString, request.path, transaction.revision))
-      }
-      owner ! WorkerTaskResult(task.key, task.group, PrimaryWorkerTaskResult(result.serializeToString))
       trackProcessTime.stop()
       unbecome()
 
     case PrimaryWorkerTaskFailed(task, e) if task == originalTask ⇒
-      owner ! WorkerTaskResult(task.key, task.group, hyperbusException(e, task))
+      if (task.expectsResult) {
+        owner ! WorkerTaskResult(task.key, task.group, Some(hyperbusException(e, task)), Null)
+      }
+      else {
+        logger.debug(s"task $originalTask is failed", e)
+      }
       trackProcessTime.stop()
       unbecome()
   }
 
-  private def hyperbusException(e: Throwable, task: ShardTask)(implicit mcx: MessagingContext): PrimaryWorkerTaskResult = {
+  private def hyperbusException(e: Throwable, task: ShardTask)(implicit mcx: MessagingContext): ResponseBase = {
     val (response: HyperbusError[ErrorBody], logException) = e match {
       case h: HyperbusClientError[ErrorBody] @unchecked ⇒ (h, false)
       case h: HyperbusError[ErrorBody] @unchecked ⇒ (h, true)
@@ -604,7 +639,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       logger.error(s"task $task is failed", e)
     }
 
-    PrimaryWorkerTaskResult(response.serializeToString)
+    response
   }
 
   private def filterNulls(body: DynamicBody): DynamicBody = {
@@ -614,10 +649,6 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
   private def appendId(body: DynamicBody, id: Value, idFieldName: String): DynamicBody = {
     body.copy(content = Obj(body.content.toMap + (idFieldName → id)))
   }
-
-  implicit class RequestWrapper(val request: DynamicRequest) {
-    def path: String = request.headers.hrl.query.dynamic.path.toString
-  }
 }
 
 object PrimaryWorker {
@@ -625,7 +656,7 @@ object PrimaryWorker {
     Props(new PrimaryWorker(hyperbus, db, tracker, backgroundTaskTimeout))
 }
 
-case class ExpressionEvaluatorContext(request: DynamicRequest, original: Value) extends Context{
+case class ExpressionEvaluatorContext(request: PrimaryWorkerRequest, original: Value) extends Context{
   private lazy val obj = Obj.from(
     "headers" → Obj(request.headers),
     "location" → request.headers.hrl.location,

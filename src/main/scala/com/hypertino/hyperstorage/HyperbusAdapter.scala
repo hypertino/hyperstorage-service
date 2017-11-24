@@ -22,7 +22,7 @@ import com.hypertino.hyperstorage.api.{HyperStorageIndexSortItem, _}
 import com.hypertino.hyperstorage.db._
 import com.hypertino.hyperstorage.indexing._
 import com.hypertino.hyperstorage.metrics.Metrics
-import com.hypertino.hyperstorage.workers.primary.{PrimaryContentTask, PrimaryWorkerTaskResult}
+import com.hypertino.hyperstorage.sharding.{LocalTask, WorkerTaskResult}
 import com.hypertino.hyperstorage.workers.secondary.IndexDefTask
 import com.hypertino.metrics.MetricsTracker
 import com.hypertino.parser.ast.{Expression, Identifier}
@@ -32,6 +32,8 @@ import monix.eval.{Callback, Task}
 import monix.execution.{Ack, Cancelable, Scheduler}
 import monix.execution.Ack.Continue
 import com.hypertino.hyperstorage.utils.{ErrorCode, Sort, SortBy}
+import com.hypertino.hyperstorage.workers.HyperstorageWorkerSettings
+import com.hypertino.hyperstorage.workers.primary.{PrimaryExtra, PrimaryWorkerRequest}
 import com.typesafe.scalalogging.StrictLogging
 
 import scala.concurrent.Future
@@ -115,19 +117,15 @@ class HyperbusAdapter(hyperbus: Hyperbus,
     Task.eval(subscriptions.foreach(_.cancel()))
   }
 
-  private def executeRequest(implicit request: RequestBase, uri: String): Task[ResponseBase] = {
-    val str = request.serializeToString
+  private def executeRequest(implicit request: PrimaryWorkerRequest, uri: String): Task[ResponseBase] = {
     val ttl = Math.max(requestTimeout.toMillis - 100, 100)
     val documentUri = ContentLogic.splitPath(uri).documentUri
-    val task = PrimaryContentTask(documentUri, System.currentTimeMillis() + ttl, str, expectsResult = true, isClientOperation = true)
+    val task = LocalTask(documentUri, HyperstorageWorkerSettings.PRIMARY, ttl, expectsResult = true, request, Obj.from(PrimaryExtra.INTERNAL_OPERATION → false))
 
     // todo: what happens when error is returned
     val primaryTask = Task.fromFuture {
       implicit val timeout: akka.util.Timeout = requestTimeout
-      hyperStorageProcessor ? task map {
-        case PrimaryWorkerTaskResult(content) ⇒
-          MessageReader.fromString(content, StandardResponse.apply) // todo: we are deserializing just to serialize back here
-      }
+      (hyperStorageProcessor ? task).asInstanceOf[Future[DynamicResponse]]
     }
 
     primaryTask.flatMap { result ⇒

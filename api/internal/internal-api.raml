@@ -39,6 +39,7 @@ types:
       expects_result: boolean
       task_headers: object
       task_body: string
+      extra: object
 
   RemoteTaskResult:
     type: object
@@ -48,6 +49,18 @@ types:
         format: long
       result_headers: object
       result_body: string
+      extra: object
+
+  BackgroundContentTask:
+    type: object
+    properties:
+      document_uri: string
+
+  BackgroundContentTaskResult:
+    type: object
+    properties:
+      document_uri: string
+      transactions: string[]
 
 /node:
   get:
@@ -81,3 +94,12 @@ types:
         type: RemoteTaskResult
     responses:
       202:
+
+/background-content-tasks:
+  post:
+    body:
+      application/json: BackgroundContentTask
+    responses:
+      200:
+        body:
+          application/json: BackgroundContentTaskResult

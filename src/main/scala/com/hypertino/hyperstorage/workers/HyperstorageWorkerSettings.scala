@@ -21,6 +21,9 @@ import monix.execution.Scheduler
 import scala.concurrent.duration.FiniteDuration
 
 object HyperstorageWorkerSettings {
+  final val PRIMARY = "hyperstorage-primary-worker"
+  final val SECONDARY = "hyperstorage-secondary-worker"
+
   def apply(hyperbus: Hyperbus,
             db: Db,
             metricsTracker: MetricsTracker,
@@ -35,8 +38,8 @@ object HyperstorageWorkerSettings {
     val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, metricsTracker, indexManager, scheduler)
     val secondaryRequestMeta = Seq(IndexPost, IndexDelete)
     Map(
-      "hyperstorage-primary-worker" → WorkerGroupSettings(primaryWorkerProps, primaryWorkerCount, "pgw-", primaryRequestMeta),
-      "hyperstorage-secondary-worker" → WorkerGroupSettings(secondaryWorkerProps, secondaryWorkerCount, "sgw-", secondaryRequestMeta)
+      PRIMARY → WorkerGroupSettings(primaryWorkerProps, primaryWorkerCount, "pgw-", primaryRequestMeta),
+      SECONDARY → WorkerGroupSettings(secondaryWorkerProps, secondaryWorkerCount, "sgw-", secondaryRequestMeta)
     )
   }
 }
