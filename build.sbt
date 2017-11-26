@@ -18,7 +18,7 @@ ramlHyperbusSources := Seq(
       "ContentDelete" → Seq("com.hypertino.hyperstorage.workers.primary.PrimaryWorkerRequest"),
       "ContentPost" → Seq("com.hypertino.hyperstorage.workers.primary.PrimaryWorkerRequest"),
       "ContentPatch" → Seq("com.hypertino.hyperstorage.workers.primary.PrimaryWorkerRequest"),
-      "ViewPut" → Seq("com.hypertino.hyperstorage.workers.primary.PrimaryWorkerRequest"),
+//      "ViewPut" → Seq("com.hypertino.hyperstorage.workers.primary.PrimaryWorkerRequest"),
       "ViewDelete" → Seq("com.hypertino.hyperstorage.workers.primary.PrimaryWorkerRequest")
     )
   ),

@@ -28,4 +28,6 @@ object ErrorCode {
   final val QUERY_COUNT_LIMITED = "query_count_limited"
   final val QUERY_SKIPPED_ROWS_LIMITED = "query_skipped_rows_limited"
   final val NOT_FOUND = "not_found"
+
+  val BACKGROUND_TASK_FAILED = "background_task_failed"
 }

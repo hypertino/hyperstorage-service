@@ -8,22 +8,22 @@
 
 package com.hypertino.hyperstorage.workers.secondary
 
-import java.util.UUID
-
 import akka.actor.ActorRef
 import akka.pattern.ask
 import com.datastax.driver.core.utils.UUIDs
-import com.hypertino.binders.value.{Null, Number, Value}
+import com.hypertino.binders.value.{Null, Number, Obj, Value}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model.{DynamicRequest, _}
 import com.hypertino.hyperbus.serialization.MessageReader
 import com.hypertino.hyperstorage.api._
 import com.hypertino.hyperstorage.db.{Transaction, _}
 import com.hypertino.hyperstorage.indexing.{IndexLogic, ItemIndexer}
-import com.hypertino.hyperstorage.internal.api.BackgroundContentTasksPost
+import com.hypertino.hyperstorage.internal.api.{BackgroundContentTaskResult, BackgroundContentTasksPost}
 import com.hypertino.hyperstorage.metrics.Metrics
 import com.hypertino.hyperstorage.sharding.{LocalTask, WorkerTaskResult}
-import com.hypertino.hyperstorage.utils.FutureUtils
+import com.hypertino.hyperstorage.utils.{ErrorCode, FutureUtils}
+import com.hypertino.hyperstorage.workers.HyperstorageWorkerSettings
+import com.hypertino.hyperstorage.workers.primary.PrimaryExtra
 import com.hypertino.hyperstorage.{ResourcePath, _}
 import com.hypertino.metrics.MetricsTracker
 import monix.eval.Task
@@ -31,18 +31,6 @@ import monix.execution.Scheduler
 
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Future, duration}
-import scala.util.Success
-import scala.util.control.NonFatal
-
-//@SerialVersionUID(1L) case class BackgroundContentTask(ttl: Long, documentUri: String, expectsResult: Boolean) extends SecondaryTaskTrait {
-//  def key = documentUri
-//}
-//
-//@SerialVersionUID(1L) case class BackgroundContentTaskResult(documentUri: String, transactions: Seq[UUID])
-//
-//@SerialVersionUID(1L) case class BackgroundContentTaskNoSuchResourceException(documentUri: String) extends RuntimeException(s"No such resource: $documentUri") with SecondaryTaskError
-//
-//@SerialVersionUID(1L) case class BackgroundContentTaskFailedException(documentUri: String, reason: String) extends RuntimeException(s"Background task for $documentUri is failed: $reason") with SecondaryTaskError
 
 trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBase {
   def hyperbus: Hyperbus
@@ -50,39 +38,30 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
   def tracker: MetricsTracker
   implicit def scheduler: Scheduler
 
-  def deleteIndexDefAndData(indexDef: IndexDef): Future[Unit]
+  def deleteIndexDefAndData(indexDef: IndexDef): Task[Unit]
 
-  def executeBackgroundTask(owner: ActorRef, task: LocalTask, request: BackgroundContentTasksPost): Future[WorkerTaskResult] = {
-    try {
-      implicit val mcx = request
-      val ResourcePath(documentUri, itemId) = ContentLogic.splitPath(request.body.documentUri)
-      if (!itemId.isEmpty) {
-        throw new IllegalArgumentException(s"Background task path ${request.body.documentUri} doesn't correspond to $documentUri")
-      }
-      else {
-        tracker.timeOfFuture(Metrics.SECONDARY_PROCESS_TIME) {
-          db.selectContentStatic(documentUri) flatMap {
-            case None ⇒
-              logger.warn(s"Didn't found resource to background complete, dismissing task: $request")
-              Future.failed(NotFound(ErrorBody("resource_not_found",Some(s"$documentUri is not found"))))
-            case Some(content) ⇒
-              try {
-                logger.debug(s"Background task for $content")
-
-                completeTransactions(task, request, content, owner)
-              } catch {
-                case e: Throwable ⇒
-                  logger.error(s"Background task $request didn't complete", e)
-                  Future.failed(e)
-              }
-          }
-        }
-      }
+  def executeBackgroundTask(owner: ActorRef, task: LocalTask, request: BackgroundContentTasksPost): Task[ResponseBase] = {
+    implicit val mcx = request
+    val ResourcePath(documentUri, itemId) = ContentLogic.splitPath(request.body.documentUri)
+    if (!itemId.isEmpty) {
+      Task.now(BadRequest(ErrorBody(ErrorCode.BACKGROUND_TASK_FAILED, Some(s"Background task path ${request.body.documentUri} doesn't correspond to $documentUri"))))
     }
-    catch {
-      case e: Throwable ⇒
-        logger.error(s"Background task $request didn't complete", e)
-        Future.failed(e)
+    else {
+      val timer = tracker.timer(Metrics.SECONDARY_PROCESS_TIME).time()
+      val stopTimer = Task.eval{
+        timer.stop()
+        ()
+      }
+      Task.fromFuture(db.selectContentStatic(documentUri)).flatMap {
+        case None ⇒
+          logger.warn(s"Didn't found resource to background complete, dismissing task: $request")
+          Task.now(NotFound(ErrorBody(ErrorCode.NOT_FOUND, Some(s"$documentUri is not found"))))
+
+        case Some(content) ⇒
+          logger.debug(s"Background task for $content")
+          completeTransactions(task, request, content, owner)
+      } .doOnFinish(_ ⇒ stopTimer)
+        .doOnCancel(stopTimer)
     }
   }
 
@@ -90,57 +69,53 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
   private def completeTransactions(task: LocalTask,
                                    request: BackgroundContentTasksPost,
                                    content: ContentStatic,
-                                   owner: ActorRef,
-                                   ttl: Long): Future[WorkerTaskResult] = {
+                                   owner: ActorRef)(implicit mcx: MessagingContext): Task[ResponseBase] = {
     if (content.transactionList.isEmpty) {
-      Future.successful(WorkerTaskResult(task.key, task.group, BackgroundContentTaskResult(request.documentUri, Seq.empty)))
+      Task.now(Ok(BackgroundContentTaskResult(request.body.documentUri, Seq.empty)))
     }
     else {
-      selectIncompleteTransactions(content) flatMap { incompleteTransactions ⇒
-        val updateIndexFuture: Future[Any] = updateIndexes(content, incompleteTransactions, owner, ttl).runAsync
-        updateIndexFuture.flatMap { _ ⇒
-          FutureUtils.serial(incompleteTransactions) { it ⇒
-            val event = it.unwrappedBody
-            val viewTask: Task[Unit] = event.headers.hrl.location match {
-              case l if l == ViewPut.location ⇒
-                val templateUri = event.headers.getOrElse(TransactionLogic.HB_HEADER_TEMPLATE_URI, Null).toString
-                val filter = event.headers.getOrElse(TransactionLogic.HB_HEADER_FILTER, Null) match {
-                  case Null ⇒ None
-                  case other ⇒ Some(other.toString)
-                }
-                Task.fromFuture(db.insertViewDef(ViewDef(key="*", request.documentUri, templateUri, filter)))
-              case l if l == ViewDelete.location ⇒
-                Task.fromFuture(db.deleteViewDef(key="*", request.documentUri))
-              case _ ⇒
-                Task.unit
-            }
+      Task.fromFuture(selectIncompleteTransactions(content)).flatMap { incompleteTransactions ⇒
+        val updateIndexTask: Task[Any] = updateIndexes(content, incompleteTransactions, owner, task.ttl)
 
-            viewTask
-              .flatMap( _ ⇒ hyperbus.publish(event))
-              .runAsync
-              .flatMap{ publishResult ⇒
-              logger.debug(s"Event $event is published with result $publishResult")
-
-              db.completeTransaction(it.transaction) map { _ ⇒
-                logger.debug(s"${it.transaction} is complete")
-
-                it.transaction
+        updateIndexTask.flatMap { _ ⇒
+          Task.sequence{
+            incompleteTransactions.map { it ⇒
+              val event = it.unwrappedBody
+              val viewTask: Task[Unit] = event.headers.hrl.location match {
+                case l if l == ViewPut.location ⇒
+                  val templateUri = event.headers.getOrElse(TransactionLogic.HB_HEADER_TEMPLATE_URI, Null).toString
+                  val filter = event.headers.getOrElse(TransactionLogic.HB_HEADER_FILTER, Null) match {
+                    case Null ⇒ None
+                    case other ⇒ Some(other.toString)
+                  }
+                  Task.fromFuture(db.insertViewDef(ViewDef(key = "*", request.body.documentUri, templateUri, filter)))
+                case l if l == ViewDelete.location ⇒
+                  Task.fromFuture(db.deleteViewDef(key = "*", request.body.documentUri))
+                case _ ⇒
+                  Task.unit
               }
+
+              viewTask
+                .flatMap(_ ⇒ hyperbus.publish(event))
+                .flatMap { publishResult ⇒
+                  logger.debug(s"Event $event is published with result $publishResult")
+
+                  Task.fromFuture(db.completeTransaction(it.transaction)) map { _ ⇒
+                    logger.debug(s"${it.transaction} is complete")
+
+                    it.transaction
+                  }
+                }
             }
           }
         } map { updatedTransactions ⇒
-          WorkerTaskResult(request.key, request.group, BackgroundContentTaskResult(request.documentUri, updatedTransactions.map(_.uuid)))
-        } recover {
-          case e: Throwable ⇒
-            logger.error(s"Task failed: $request",e)
-            WorkerTaskResult(request.key, request.group, BackgroundContentTaskFailedException(request.documentUri, e.toString))
-        } andThen {
-          case Success(WorkerTaskResult(_, _, BackgroundContentTaskResult(documentUri, updatedTransactions))) ⇒
-            logger.debug(s"Removing completed transactions $updatedTransactions from $documentUri")
-            db.removeCompleteTransactionsFromList(documentUri, updatedTransactions.toList) recover {
-              case e: Throwable ⇒
-                logger.error(s"Can't remove complete transactions $updatedTransactions from $documentUri", e)
-            }
+          logger.debug(s"Removing completed transactions $updatedTransactions from ${request.body.documentUri}")
+          db.removeCompleteTransactionsFromList(request.body.documentUri, updatedTransactions.map(_.uuid).toList) recover {
+            case e: Throwable ⇒
+              logger.error(s"Can't remove complete transactions $updatedTransactions from ${request.body.documentUri}", e)
+          }
+
+          Ok(BackgroundContentTaskResult(request.body.documentUri, updatedTransactions.map(_.uuid.toString)))
         }
       }
     }
@@ -178,7 +153,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
           .flatMap { indexDefs ⇒
             Task.wander(indexDefs) { indexDef ⇒
               logger.debug(s"Removing index $indexDef")
-              Task.fromFuture(deleteIndexDefAndData(indexDef))
+              deleteIndexDefAndData(indexDef)
             }
           }
       }
@@ -224,10 +199,10 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
                         contentTask
                           .flatMap {
                             case Some(item) if !item.isDeleted.contains(true) ⇒
-                              Task.fromFuture(deleteObsoleteFuture.flatMap { countAfterDelete ⇒
+                              Task.fromFuture(deleteObsoleteFuture).flatMap { countAfterDelete ⇒
                                 val count = if (indexDef.status == IndexDef.STATUS_NORMAL) Some(countAfterDelete + 1) else None
                                 indexItem(indexDef, item, idFieldName, count).map(_._2)
-                              })
+                              }
 
                             case _ ⇒
                               logger.debug(s"No content to index for ${contentStatic.documentUri}/$itemId")
@@ -263,7 +238,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
     ).flatMap { case (existingIndexes, templateDefs) ⇒
       val newIndexTasks = templateDefs.filterNot(t ⇒ existingIndexes.exists(_.indexId == t.indexId)).map { templateDef ⇒
         ContentLogic.pathAndTemplateToId(documentUri, templateDef.templateUri).map { _ ⇒
-          Task.fromFuture(insertIndexDef(documentUri, templateDef.indexId, templateDef.sortByParsed, templateDef.filter, templateDef.materialize))
+          insertIndexDef(documentUri, templateDef.indexId, templateDef.sortByParsed, templateDef.filter, templateDef.materialize)
             .map(Some(_))
         } getOrElse {
           Task.now(None) // todo: cache that this document doesn't match to template
@@ -330,32 +305,31 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
       Headers.empty
     }
 
-    Task.fromFuture(owner ? PrimaryContentTask(
-      documentUri,
-      ttl,
-      ContentPut(
-        documentUri + "/" + itemId,
-        DynamicBody(content.bodyValue),
-        headers=headers
-      ).serializeToString,
-      expectsResult = true,
-      isClientOperation = false
-    )).map{
+    val task = LocalTask(documentUri, HyperstorageWorkerSettings.PRIMARY, ttl, expectsResult = true, ContentPut(
+      documentUri + "/" + itemId,
+      DynamicBody(content.bodyValue),
+      headers=headers
+    ), Obj.from(PrimaryExtra.INTERNAL_OPERATION → true))
+
+    Task.fromFuture(owner ? task).map{
       _ ⇒ handlePrimaryWorkerTaskResult
     }
   }
 
   private def deleteViewItem(documentUri: String, itemId: String, owner: ActorRef, ttl: Long)(implicit mcx: MessagingContext): Task[Any] = {
     implicit val timeout = akka.util.Timeout(Duration(ttl - System.currentTimeMillis() + 3000, duration.MILLISECONDS))
-    Task.fromFuture(owner ? PrimaryContentTask(documentUri, ttl, ContentDelete(documentUri + "/" + itemId).serializeToString, expectsResult = true, isClientOperation = false)).map{
+    val task = LocalTask(documentUri, HyperstorageWorkerSettings.PRIMARY, ttl, expectsResult = true,
+      ContentDelete(documentUri + "/" + itemId),
+      Obj.from(PrimaryExtra.INTERNAL_OPERATION → true)
+    )
+
+    Task.fromFuture(owner ? task).map{
       _ ⇒ handlePrimaryWorkerTaskResult
     }
   }
 
-  private def handlePrimaryWorkerTaskResult: PartialFunction[PrimaryWorkerTaskResult, Unit] = {
-    case result: PrimaryWorkerTaskResult ⇒ MessageReader.fromString(result.content, StandardResponse.apply) match {
-      case e: Throwable ⇒ throw e
-    }
+  private def handlePrimaryWorkerTaskResult: PartialFunction[ResponseBase, Unit] = {
+    case e: Throwable ⇒ throw e
   }
 }
 

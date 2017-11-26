@@ -22,8 +22,7 @@ import com.hypertino.hyperstorage.api.{HyperStorageIndexSortItem, _}
 import com.hypertino.hyperstorage.db._
 import com.hypertino.hyperstorage.indexing._
 import com.hypertino.hyperstorage.metrics.Metrics
-import com.hypertino.hyperstorage.sharding.{LocalTask, WorkerTaskResult}
-import com.hypertino.hyperstorage.workers.secondary.IndexDefTask
+import com.hypertino.hyperstorage.sharding.LocalTask
 import com.hypertino.metrics.MetricsTracker
 import com.hypertino.parser.ast.{Expression, Identifier}
 import com.hypertino.parser.eval.ValueContext
@@ -117,7 +116,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
     Task.eval(subscriptions.foreach(_.cancel()))
   }
 
-  private def executeRequest(implicit request: PrimaryWorkerRequest, uri: String): Task[ResponseBase] = {
+  private def executeRequest(implicit request: RequestBase, uri: String): Task[ResponseBase] = {
     val ttl = Math.max(requestTimeout.toMillis - 100, 100)
     val documentUri = ContentLogic.splitPath(uri).documentUri
     val task = LocalTask(documentUri, HyperstorageWorkerSettings.PRIMARY, ttl, expectsResult = true, request, Obj.from(PrimaryExtra.INTERNAL_OPERATION → false))
@@ -167,7 +166,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
       case post: IndexPost ⇒ post.path
       case delete: IndexDelete ⇒ delete.path
     }
-    val indexDefTask = IndexDefTask(System.currentTimeMillis() + ttl, key, request.serializeToString, expectsResult=true)
+    val indexDefTask = LocalTask(key, HyperstorageWorkerSettings.SECONDARY, ttl, expectsResult = true, request, Obj.from(PrimaryExtra.INTERNAL_OPERATION → false))
     implicit val timeout: akka.util.Timeout = requestTimeout
 
     Task.fromFuture {

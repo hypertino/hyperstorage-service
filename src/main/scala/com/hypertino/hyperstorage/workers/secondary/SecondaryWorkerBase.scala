@@ -11,15 +11,18 @@ package com.hypertino.hyperstorage.workers.secondary
 import akka.actor.ActorRef
 import akka.util.Timeout
 import com.datastax.driver.core.utils.UUIDs
-import com.hypertino.hyperbus.model.{ErrorBody, HyperbusError, InternalServerError, MessagingContext}
+import com.hypertino.hyperbus.model.{ErrorBody, HyperbusError, InternalServerError, MessagingContext, RequestBase}
 import com.hypertino.hyperstorage.api.HyperStorageIndexSortItem
 import com.hypertino.hyperstorage.db.{Db, IndexDef, PendingIndex}
-import com.hypertino.hyperstorage.indexing.{IndexDefTransaction, IndexLogic, IndexManager}
+import com.hypertino.hyperstorage.indexing.{IndexLogic, IndexManager}
 import com.hypertino.hyperstorage.{ContentLogic, ResourcePath, TransactionLogic}
-import com.hypertino.hyperstorage.sharding.WorkerTaskResult
+import com.hypertino.hyperstorage.sharding.{LocalTask, WorkerTaskResult}
 import akka.pattern.ask
+import com.hypertino.binders.value.Null
+import com.hypertino.hyperstorage.internal.api.IndexDefTransaction
 import com.hypertino.hyperstorage.utils.ErrorCode
 import com.typesafe.scalalogging.StrictLogging
+import monix.eval.Task
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
@@ -37,17 +40,7 @@ trait SecondaryWorkerBase extends StrictLogging {
     }
   }
 
-  protected def withHyperbusException(task: SecondaryTaskTrait): PartialFunction[Throwable, WorkerTaskResult] = {
-    case e: Throwable ⇒
-      logger.error(s"Can't execute $task", e)
-      val he = e match {
-        case h: HyperbusError[ErrorBody] @unchecked ⇒ h
-        case _ ⇒ InternalServerError(ErrorBody(ErrorCode.INTERNAL_SERVER_ERROR, Some(e.toString)))(MessagingContext.empty)
-      }
-      WorkerTaskResult(task.key, task.group, IndexDefTaskTaskResult(he.serializeToString))
-  }
-
-  protected def insertIndexDef(documentUri: String, indexId: String, sortBy: Seq[HyperStorageIndexSortItem], filter: Option[String], materialize: Boolean): Future[IndexDef] = {
+  protected def insertIndexDef(documentUri: String, indexId: String, sortBy: Seq[HyperStorageIndexSortItem], filter: Option[String], materialize: Boolean): Task[IndexDef] = {
     val tableName = IndexLogic.tableName(sortBy)
     val indexDef = IndexDef(documentUri, indexId, IndexDef.STATUS_INDEXING,
       IndexLogic.serializeSortByFields(sortBy), filter, tableName, defTransactionId = UUIDs.timeBased(),
@@ -55,18 +48,18 @@ trait SecondaryWorkerBase extends StrictLogging {
     )
     val pendingIndex = PendingIndex(TransactionLogic.partitionFromUri(documentUri), documentUri, indexId, None, indexDef.defTransactionId)
     // validate: id, sort, expression, etc
-    db.insertPendingIndex(pendingIndex) flatMap { _ ⇒
+    Task.fromFuture(db.insertPendingIndex(pendingIndex) flatMap { _ ⇒
       db.insertIndexDef(indexDef) flatMap { _ ⇒
         implicit val timeout = Timeout(60.seconds)
         indexManager ? IndexManager.IndexCreatedOrDeleted(IndexDefTransaction(
           documentUri,
           indexId,
-          pendingIndex.defTransactionId
+          pendingIndex.defTransactionId.toString
         )) map { _ ⇒
           indexDef
         }
       }
-    }
+    })
   }
 
 }

@@ -71,8 +71,28 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
   }
 
   def receive = {
-    case task: LocalTask ⇒
-      executeTask(sender(), task)
+    case task: LocalTask ⇒ {
+      task.request match {
+        case request: ViewPut ⇒
+          val newHeaders = MessageHeaders.builder
+            .++=(request.headers)
+            .+=(TransactionLogic.HB_HEADER_TEMPLATE_URI → request.body.templateUri.toValue)
+            .+=(TransactionLogic.HB_HEADER_FILTER → request.body.filter.toValue)
+            .requestHeaders()
+
+          val newRequest =
+            new ContentPut(
+              path = request.path,
+              body = DynamicBody(Null),
+              headers = newHeaders,
+              plain__init = true
+            )
+
+          executeTask(sender(), task.copy(request = newRequest))
+        case _ ⇒
+          executeTask(sender(), task)
+      }
+    }
   }
 
   def executeTask(owner: ActorRef, task: LocalTask): Unit = {
@@ -109,22 +129,22 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 
         case Method.PUT ⇒
           if (itemId.isEmpty) {
-            if (ContentLogic.isCollectionUri(documentUri) && itemId.isEmpty && request.headers.hrl.location == ViewPut.location) {
-              // todo: validate template_uri & filter
-              val newHeaders = Headers(
-                TransactionLogic.HB_HEADER_TEMPLATE_URI → request.body.content.dynamic.template_uri,
-                TransactionLogic.HB_HEADER_FILTER → request.body.content.dynamic.filter
-              )
-              (documentUri, itemId, None,
-                ContentPut(
-                  path=request.path,
-                  body=DynamicBody(Null),
-                  headers=newHeaders,
-                  query = request.headers.hrl.query
-                )
-              )
-            }
-            else {
+//            if (ContentLogic.isCollectionUri(documentUri) && itemId.isEmpty && request.headers.hrl.location == ViewPut.location) {
+//              // todo: validate template_uri & filter
+//              val newHeaders = Headers(
+//                TransactionLogic.HB_HEADER_TEMPLATE_URI → request.body.content.dynamic.template_uri,
+//                TransactionLogic.HB_HEADER_FILTER → request.body.content.dynamic.filter
+//              )
+//              (documentUri, itemId, None,
+//                ContentPut(
+//                  path=request.path,
+//                  body=DynamicBody(Null),
+//                  headers=newHeaders,
+//                  query = request.headers.hrl.query
+//                )
+//              )
+//            }
+//            else {
               (documentUri, itemId, None,
                 ContentPut(
                   path=request.path,
@@ -133,7 +153,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
                   query = request.headers.hrl.query
                 )
               )
-            }
+//            }
           }
           else {
             val idFieldName = ContentLogic.getIdFieldName(documentUri)
@@ -152,7 +172,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       }
       (resultDocumentUri, updatedItemId, updatedIdField, updatedRequest)
     } map {
-      case (documentUri: String, itemId: String, updatedIdField: Option[(String,String)]@unchecked, request: DynamicRequest) ⇒
+      case (documentUri: String, itemId: String, updatedIdField: Option[(String,String)]@unchecked, request: PrimaryWorkerRequest) ⇒
         become(taskWaitResult(owner, task, request, documentUri, itemId, updatedIdField, trackProcessTime)(request))
 
         // fetch and complete existing content
@@ -160,9 +180,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     } recover {
       case e: Throwable ⇒
         logger.error(s"Can't prepare task: $task", e)
-        if (task.expectsResult) {
-          owner ! WorkerTaskResult(task.key, task.group, Some(hyperbusException(e, task)(MessagingContext.empty)), Null)
-        }
+        owner ! WorkerTaskResult(task, hyperbusException(e, task)(MessagingContext.empty))
     }
   }
 
@@ -603,27 +621,20 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
         extra = Null
       )
       owner ! bgTask
-      if (task.expectsResult) {
-        val result: Option[ResponseBase] = if (created) {
-          val target = idField.map(kv ⇒ Obj.from(kv._1 → Text(kv._2))).getOrElse(Null)
-          Some(Created(HyperStorageTransactionCreated(transaction.uuid.toString, request.path, transaction.revision, target),
-            location = HRL(ContentGet.location, Obj.from("path" → (documentUri + "/" + id)))))
-        }
-        else {
-          Some(Ok(api.HyperStorageTransaction(transaction.uuid.toString, request.path, transaction.revision)))
-        }
-        owner ! WorkerTaskResult(task.key, task.group, result, Null)
+      val result: ResponseBase = if (created) {
+        val target = idField.map(kv ⇒ Obj.from(kv._1 → Text(kv._2))).getOrElse(Null)
+        Created(HyperStorageTransactionCreated(transaction.uuid.toString, request.path, transaction.revision, target),
+          location = HRL(ContentGet.location, Obj.from("path" → (documentUri + "/" + id))))
       }
+      else {
+        Ok(api.HyperStorageTransaction(transaction.uuid.toString, request.path, transaction.revision))
+      }
+      owner ! WorkerTaskResult(task, result)
       trackProcessTime.stop()
       unbecome()
 
     case PrimaryWorkerTaskFailed(task, e) if task == originalTask ⇒
-      if (task.expectsResult) {
-        owner ! WorkerTaskResult(task.key, task.group, Some(hyperbusException(e, task)), Null)
-      }
-      else {
-        logger.debug(s"task $originalTask is failed", e)
-      }
+      owner ! WorkerTaskResult(task, hyperbusException(e, task))
       trackProcessTime.stop()
       unbecome()
   }

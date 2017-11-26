@@ -12,26 +12,24 @@ import akka.actor.{Actor, ActorRef, Props}
 import akka.pattern.pipe
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model._
+import com.hypertino.hyperstorage.api.{IndexDelete, IndexPost}
 import com.hypertino.hyperstorage.db._
-import com.hypertino.hyperstorage.sharding.{ShardTask, WorkerTaskResult}
+import com.hypertino.hyperstorage.internal.api.{BackgroundContentTasksPost, IndexContentTasksPost}
+import com.hypertino.hyperstorage.sharding.{LocalTask, WorkerTaskResult}
+import com.hypertino.hyperstorage.utils.ErrorCode
 import com.hypertino.metrics.MetricsTracker
 import com.typesafe.scalalogging.StrictLogging
+import monix.eval.Task
 import monix.execution.Scheduler
 
 import scala.concurrent.ExecutionContext
-import scala.util.control.NonFatal
+import scala.util.Try
 
-// todo: do we really need a ShardTaskComplete ?
-
-trait SecondaryTaskTrait extends ShardTask {
-  def group = "hyperstorage-secondary-worker"
-}
-
-trait SecondaryTaskError
-
-@SerialVersionUID(1L) case class SecondaryTaskFailed(key: String, reason: String) extends RuntimeException(s"Secondary task for '$key' is failed with reason $reason") with SecondaryTaskError
-
-class SecondaryWorker(val hyperbus: Hyperbus, val db: Db, val tracker: MetricsTracker, val indexManager: ActorRef, implicit val scheduler: Scheduler) extends Actor with StrictLogging
+class SecondaryWorker(val hyperbus: Hyperbus,
+                      val db: Db,
+                      val tracker: MetricsTracker,
+                      val indexManager: ActorRef,
+                      implicit val scheduler: Scheduler) extends Actor with StrictLogging
   with BackgroundContentTaskCompleter
   with IndexDefTaskWorker
   with IndexContentTaskWorker {
@@ -39,28 +37,31 @@ class SecondaryWorker(val hyperbus: Hyperbus, val db: Db, val tracker: MetricsTr
   override def executionContext: ExecutionContext = context.dispatcher // todo: use other instead of this?
 
   override def receive: Receive = {
-    case task: BackgroundContentTask ⇒
+    case task: LocalTask ⇒
       val owner = sender()
-      executeBackgroundTask(owner, task) recover withSecondaryTaskFailed(task) pipeTo owner
+      implicit val mcx = task.request
+      val t: Task[WorkerTaskResult] = Try {
+        {
+          task.request match {
+            case r: BackgroundContentTasksPost ⇒ executeBackgroundTask(owner, task, r)
+            case r: IndexContentTasksPost ⇒ indexNextBucket(task, r)
+            case r: IndexPost ⇒ createNewIndex(task, r)
+            case r: IndexDelete ⇒ removeIndex(task, r)
+          }
+        }.map { r ⇒
+          WorkerTaskResult(task, r)
+        }
+      }.recover {
+        case e: HyperbusError[_] ⇒
+          logger.error(s"Secondary task $task didn't complete", e)
+          Task.now(WorkerTaskResult(task, e))
 
-    case task: IndexDefTask ⇒
-      val owner = sender()
-      executeIndexDefTask(task) recover withSecondaryTaskFailed(task) pipeTo owner
+        case e: Throwable ⇒
+          logger.error(s"Secondary task $task didn't complete", e)
+          Task.now(WorkerTaskResult(task, InternalServerError(ErrorBody(ErrorCode.BACKGROUND_TASK_FAILED, Some(s"Task on ${task.key} is failed: ${e.toString}")))))
+      }.get
 
-    case task: IndexContentTask ⇒
-      val owner = sender()
-      indexNextBucket(task) recover withSecondaryTaskFailed(task) pipeTo owner
-  }
-
-
-  private def withSecondaryTaskFailed(task: SecondaryTaskTrait): PartialFunction[Throwable, WorkerTaskResult] = {
-    case e: SecondaryTaskError ⇒
-      logger.error(s"Can't execute $task", e)
-      WorkerTaskResult(task.key, task.group, e)
-
-    case e: Throwable ⇒
-      logger.error(s"Can't execute $task", e)
-      WorkerTaskResult(task.key, task.group, SecondaryTaskFailed(task.key, e.toString))
+      t.runAsync pipeTo owner
   }
 }
 

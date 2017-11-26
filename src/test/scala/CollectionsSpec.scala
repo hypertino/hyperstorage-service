@@ -16,9 +16,11 @@ import com.hypertino.hyperbus.serialization.SerializationOptions
 import com.hypertino.hyperbus.util.SeqGenerator
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.api._
+import com.hypertino.hyperstorage.internal.api.{BackgroundContentTaskResult, BackgroundContentTasksPost}
 import com.hypertino.hyperstorage.sharding._
-import com.hypertino.hyperstorage.workers.primary.{PrimaryContentTask, PrimaryWorker, PrimaryWorkerTaskResult}
-import com.hypertino.hyperstorage.workers.secondary.{BackgroundContentTask, BackgroundContentTaskResult, SecondaryWorker}
+import com.hypertino.hyperstorage.workers.HyperstorageWorkerSettings
+import com.hypertino.hyperstorage.workers.primary.{PrimaryExtra, PrimaryWorker}
+import com.hypertino.hyperstorage.workers.secondary.SecondaryWorker
 import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.time.{Millis, Span}
@@ -55,12 +57,11 @@ class CollectionsSpec extends FlatSpec
 
     db.selectContent(collection, item1).futureValue shouldBe None
 
-    val taskStr = task.serializeToString
-    worker ! PrimaryContentTask(collection, System.currentTimeMillis() + 10000, taskStr, expectsResult=true,isClientOperation=true)
-    val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
-    backgroundWorkerTask.documentUri should equal(collection)
+    worker ! primaryTask(collection, task)
+    val backgroundWorkerTask = expectMsgType[BackgroundContentTasksPost]
+    backgroundWorkerTask.body.documentUri should equal(collection)
     val workerResult = expectMsgType[WorkerTaskResult]
-    val r = response(workerResult.result.asInstanceOf[PrimaryWorkerTaskResult].content)
+    val r = workerResult.result.get
     r.headers.statusCode should equal(Status.CREATED)
     r.headers.correlationId should equal(task.correlationId)
 
@@ -77,12 +78,11 @@ class CollectionsSpec extends FlatSpec
       path = s"$collection/$item2",
       DynamicBody(Obj.from("text" → "Test item value 2"))
     )
-    val task2Str = task2.serializeToString
-    worker ! PrimaryContentTask(collection, System.currentTimeMillis() + 10000, task2Str, expectsResult=true,isClientOperation=true)
-    val backgroundWorkerTask2 = expectMsgType[BackgroundContentTask]
-    backgroundWorkerTask2.documentUri should equal(collection)
+    worker ! primaryTask(collection, task2)
+    val backgroundWorkerTask2 = expectMsgType[BackgroundContentTasksPost]
+    backgroundWorkerTask2.body.documentUri should equal(collection)
     val workerResult2 = expectMsgType[WorkerTaskResult]
-    val r2 = response(workerResult2.result.asInstanceOf[PrimaryWorkerTaskResult].content)
+    val r2 = workerResult2.result.get
     r2.headers.statusCode should equal(Status.CREATED)
     r2.headers.correlationId should equal(task2.correlationId)
 
@@ -104,9 +104,9 @@ class CollectionsSpec extends FlatSpec
     val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
     backgroundWorker ! backgroundWorkerTask
     val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
-    val rc = backgroundWorkerResult.result.asInstanceOf[BackgroundContentTaskResult]
-    rc.documentUri should equal(collection)
-    rc.transactions should equal(content2.get.transactionList.reverse)
+    val rc = backgroundWorkerResult.result.get.asInstanceOf[Ok[BackgroundContentTaskResult]]
+    rc.body.documentUri should equal(collection)
+    rc.body.transactions should equal(content2.get.transactionList.reverse)
 
     eventually {
       db.selectContentStatic(collection).futureValue.get.transactionList shouldBe empty
@@ -128,26 +128,23 @@ class CollectionsSpec extends FlatSpec
     val ResourcePath(documentUri, itemId) = ContentLogic.splitPath(path)
 
     implicit val so = SerializationOptions.forceOptionalFields
-    val taskPutStr = ContentPut(path,
+    val put = ContentPut(path,
       DynamicBody(Obj.from("text1" → "abc", "text2" → "klmn"))
-    ).serializeToString
+    )
 
-    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPutStr, expectsResult=true,isClientOperation=true)
-    expectMsgType[BackgroundContentTask]
+    worker ! primaryTask(documentUri, put)
+    expectMsgType[BackgroundContentTasksPost]
     expectMsgType[WorkerTaskResult]
 
-    val task = ContentPatch(path,
+    val patch = ContentPatch(path,
       DynamicBody(Obj.from("text1" → "efg", "text2" → Null, "text3" → "zzz"))
     )
-    val taskPatchStr = task.serializeToString
-    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPatchStr, expectsResult=true,isClientOperation=true)
+    worker ! primaryTask(documentUri, patch)
 
-    expectMsgType[BackgroundContentTask]
+    expectMsgType[BackgroundContentTasksPost]
     expectMsgPF() {
-      case WorkerTaskResult(_, _, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.OK &&
-        response(result.content).headers.correlationId == task.correlationId ⇒ {
-        true
-      }
+      case WorkerTaskResult(_, _, result, _) if result.get.headers.statusCode == Status.OK &&
+        result.get.headers.correlationId == patch.correlationId ⇒ true
     }
 
     whenReady(db.selectContent(documentUri, itemId)) { result =>
@@ -159,21 +156,18 @@ class CollectionsSpec extends FlatSpec
     }
 
     // delete element
-    val deleteTask = ContentDelete(path)
-    val deleteTaskStr = deleteTask.serializeToString
-    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, deleteTaskStr, expectsResult=true,isClientOperation=true)
-    expectMsgType[BackgroundContentTask]
+    val delete = ContentDelete(path)
+    worker ! primaryTask(documentUri, delete)
+    expectMsgType[BackgroundContentTasksPost]
     expectMsgType[WorkerTaskResult]
 
-    // now patch should return 404
-    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPatchStr, expectsResult=true,isClientOperation=true)
+    // now patch should create again
+    worker ! primaryTask(documentUri, patch)
 
-    expectMsgType[BackgroundContentTask]
+    expectMsgType[BackgroundContentTasksPost]
     expectMsgPF() {
-      case WorkerTaskResult(_, _, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.CREATED &&
-        response(result.content).headers.correlationId == task.correlationId ⇒ {
-        true
-      }
+      case WorkerTaskResult(_, _, result, _) if result.get.headers.statusCode == Status.CREATED &&
+        result.get.headers.correlationId == patch.correlationId ⇒ true
     }
 
     whenReady(db.selectContent(documentUri, itemId)) { result =>
@@ -197,24 +191,21 @@ class CollectionsSpec extends FlatSpec
     val path = s"$collection/$item1"
     val ResourcePath(documentUri, itemId) = ContentLogic.splitPath(path)
 
-    val taskPutStr = ContentPut(path,
+    val put = ContentPut(path,
       DynamicBody(Obj.from("text1" → "abc", "text2" → "klmn"))
-    ).serializeToString
+    )
 
-    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPutStr, expectsResult=true,isClientOperation=true)
-    expectMsgType[BackgroundContentTask]
+    worker ! primaryTask(documentUri, put)
+    expectMsgType[BackgroundContentTasksPost]
     expectMsgType[WorkerTaskResult]
 
-    val task = ContentDelete(path)
-    val taskStr = task.serializeToString
-    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskStr, expectsResult=true,isClientOperation=true)
+    val delete = ContentDelete(path)
+    worker ! primaryTask(documentUri, delete)
 
-    expectMsgType[BackgroundContentTask]
+    expectMsgType[BackgroundContentTasksPost]
     expectMsgPF() {
-      case WorkerTaskResult(_, _, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.OK &&
-        response(result.content).headers.correlationId == task.headers.correlationId ⇒ {
-        true
-      }
+      case WorkerTaskResult(_, _, r, _) if r.get.headers.statusCode == Status.OK &&
+        r.get.headers.correlationId == delete.headers.correlationId ⇒ true
     }
 
     db.selectContent(documentUri, itemId).futureValue shouldBe None
@@ -231,24 +222,21 @@ class CollectionsSpec extends FlatSpec
     val path = UUID.randomUUID().toString + "~/el1"
     val ResourcePath(documentUri, itemId) = ContentLogic.splitPath(path)
 
-    val taskPutStr = ContentPut(path,
+    val put = ContentPut(path,
       DynamicBody(Obj.from("str" → "abc"))
-    ).serializeToString
+    )
 
-    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPutStr, expectsResult=true,isClientOperation=true)
-    expectMsgType[BackgroundContentTask]
+    worker ! primaryTask(documentUri, put)
+    expectMsgType[BackgroundContentTasksPost]
     expectMsgType[WorkerTaskResult]
 
-    val task = ContentDelete(documentUri)
-    val taskStr = task.serializeToString
-    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskStr, expectsResult=true,isClientOperation=true)
+    val delete = ContentDelete(documentUri)
+    worker ! primaryTask(documentUri, delete)
 
-    expectMsgType[BackgroundContentTask]
+    expectMsgType[BackgroundContentTasksPost]
     expectMsgPF() {
-      case WorkerTaskResult(_, _, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.OK &&
-        response(result.content).headers.correlationId == task.headers.correlationId ⇒ {
-        true
-      }
+      case WorkerTaskResult(_, _, r, _) if r.get.headers.statusCode == Status.OK &&
+        r.get.headers.correlationId == delete.headers.correlationId ⇒ true
     }
 
     db.selectContent(documentUri, itemId).futureValue.get.isDeleted shouldBe Some(true)
@@ -257,12 +245,12 @@ class CollectionsSpec extends FlatSpec
     val itemId2 = "el2"
     val path2 = documentUri + "/" + itemId2
 
-    val taskPut2Str = ContentPut(path2,
+    val put2 = ContentPut(path2,
       DynamicBody(Obj.from("str" → "klmn"))
-    ).serializeToString
+    )
 
-    worker ! PrimaryContentTask(documentUri, System.currentTimeMillis() + 10000, taskPut2Str, expectsResult=true,isClientOperation=true)
-    expectMsgType[BackgroundContentTask]
+    worker ! primaryTask(documentUri, put2)
+    expectMsgType[BackgroundContentTasksPost]
     expectMsgType[WorkerTaskResult]
 
     db.selectContent(documentUri, itemId2).futureValue.get.isDeleted shouldBe None
@@ -279,19 +267,16 @@ class CollectionsSpec extends FlatSpec
     val collection = SeqGenerator.create() + "~"
 
     implicit val so = SerializationOptions.forceOptionalFields
-    val task = ContentPut(collection,
+    val put = ContentPut(collection,
       DynamicBody(Null)
     )
-    val taskPutStr = task.serializeToString
 
-    worker ! PrimaryContentTask(collection, System.currentTimeMillis() + 10000, taskPutStr, expectsResult=true,isClientOperation=true)
-    expectMsgType[BackgroundContentTask]
+    worker ! primaryTask(collection, put)
+    expectMsgType[BackgroundContentTasksPost]
 
     expectMsgPF() {
-      case WorkerTaskResult(_, _, result: PrimaryWorkerTaskResult) if response(result.content).headers.statusCode == Status.CREATED &&
-        response(result.content).headers.correlationId == task.correlationId ⇒ {
-        true
-      }
+      case WorkerTaskResult(_, _, r, _) if r.get.headers.statusCode == Status.CREATED &&
+        r.get.headers.correlationId == put.correlationId ⇒ true
     }
 
     whenReady(db.selectContent(collection, "")) { result =>
@@ -313,21 +298,20 @@ class CollectionsSpec extends FlatSpec
     val collection = SeqGenerator.create() + "/users~"
     val item1 = SeqGenerator.create()
 
-    val task = ContentPut(
+    val put = ContentPut(
       path = s"$collection/$item1",
       DynamicBody(Obj.from("text" → "Test item value", "null" → Null))
     )
 
     db.selectContent(collection, item1).futureValue shouldBe None
 
-    val taskStr = task.serializeToString
-    worker ! PrimaryContentTask(collection, System.currentTimeMillis() + 10000, taskStr, expectsResult=true,isClientOperation=true)
-    val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
-    backgroundWorkerTask.documentUri should equal(collection)
+    worker ! primaryTask(collection, put)
+    val backgroundWorkerTask = expectMsgType[BackgroundContentTasksPost]
+    backgroundWorkerTask.body.documentUri should equal(collection)
     val workerResult = expectMsgType[WorkerTaskResult]
-    val r = response(workerResult.result.asInstanceOf[PrimaryWorkerTaskResult].content)
+    val r = workerResult.result.get
     r.headers.statusCode should equal(Status.CREATED)
-    r.headers.correlationId should equal(task.correlationId)
+    r.headers.correlationId should equal(put.correlationId)
 
     val content = db.selectContent(collection, item1).futureValue
     content shouldNot equal(None)
@@ -338,18 +322,17 @@ class CollectionsSpec extends FlatSpec
     val uuid = content.get.transactionList.head
 
     val item2 = SeqGenerator.create()
-    val task2 = ContentPut(
+    val put2 = ContentPut(
       path = s"$collection/$item2",
       DynamicBody(Obj.from("text" → "Test item value 2"))
     )
-    val task2Str = task2.serializeToString
-    worker ! PrimaryContentTask(collection, System.currentTimeMillis() + 10000, task2Str, expectsResult=true,isClientOperation=true)
-    val backgroundWorkerTask2 = expectMsgType[BackgroundContentTask]
-    backgroundWorkerTask2.documentUri should equal(collection)
+    worker ! primaryTask(collection, put2)
+    val backgroundWorkerTask2 = expectMsgType[BackgroundContentTasksPost]
+    backgroundWorkerTask2.body.documentUri should equal(collection)
     val workerResult2 = expectMsgType[WorkerTaskResult]
-    val r2 = response(workerResult2.result.asInstanceOf[PrimaryWorkerTaskResult].content)
+    val r2 = workerResult2.result.get
     r2.headers.statusCode should equal(Status.CREATED)
-    r2.headers.correlationId should equal(task2.correlationId)
+    r2.headers.correlationId should equal(put2.correlationId)
 
     val content2 = db.selectContent(collection, item2).futureValue
     content2 shouldNot equal(None)

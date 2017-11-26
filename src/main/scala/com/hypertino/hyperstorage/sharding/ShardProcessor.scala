@@ -12,7 +12,7 @@ import java.io.StringReader
 
 import akka.actor._
 import akka.cluster.ClusterEvent._
-import com.hypertino.binders.value.{Obj, Value}
+import com.hypertino.binders.value.{Null, Obj, Value}
 import com.hypertino.hyperbus.model.{Headers, MessagingContext, Ok, RequestBase, RequestHeaders, RequestMeta, RequestMetaCompanion, ResponseBase}
 import com.hypertino.hyperstorage.internal.api
 import com.hypertino.hyperstorage.internal.api._
@@ -60,6 +60,12 @@ private[sharding] case object ShardSyncTimer
 case object ShutdownProcessor
 
 case class WorkerTaskResult(key: String, group: String, result: Option[ResponseBase], extra: Value) // r: Try[Option[ResponseBase]]
+
+object WorkerTaskResult{
+  def apply(task: ShardTask, result: ResponseBase, extra:Value = Null): WorkerTaskResult = WorkerTaskResult(
+    task.key, task.group, if (task.expectsResult) Some(result) else None, extra
+  )
+}
 
 case class ExpectingRemoteResult(client: ActorRef, ttl: Long, key: String, requestMeta: RequestMeta[_ <: RequestBase]) {
   def isExpired: Boolean = ttl < System.currentTimeMillis()

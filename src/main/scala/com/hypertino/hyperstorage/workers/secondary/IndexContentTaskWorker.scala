@@ -8,29 +8,24 @@
 
 package com.hypertino.hyperstorage.workers.secondary
 
+import java.util.UUID
+
 import akka.actor.ActorRef
 import com.hypertino.binders.value.Null
 import com.hypertino.hyperbus.Hyperbus
+import com.hypertino.hyperbus.model.{Ok, ResponseBase}
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.db._
-import com.hypertino.hyperstorage.indexing.{IndexDefTransaction, IndexLogic, ItemIndexer}
-import com.hypertino.hyperstorage.sharding.WorkerTaskResult
-import com.hypertino.hyperstorage.utils.FutureUtils
+import com.hypertino.hyperstorage.indexing.ItemIndexer
+import com.hypertino.hyperstorage.internal.api.{IndexContentTaskResult, IndexContentTasksPost}
+import com.hypertino.hyperstorage.sharding.{LocalTask, WorkerTaskResult}
 import com.hypertino.metrics.MetricsTracker
+import monix.eval.Task
 import monix.execution.Scheduler
 import monix.execution.atomic.AtomicLong
 
-import scala.concurrent.{ExecutionContext, Future}
-import scala.util.Success
-import scala.util.control.NonFatal
-
-@SerialVersionUID(1L) case class IndexContentTask(ttl: Long, indexDefTransaction: IndexDefTransaction, lastItemId: Option[String], processId: Long, expectsResult: Boolean) extends SecondaryTaskTrait {
-  def key = indexDefTransaction.documentUri
-}
-
-@SerialVersionUID(1L) case class IndexContentTaskResult(lastItemSegment: Option[String], processId: Long)
-
-@SerialVersionUID(1L) case class IndexContentTaskFailed(processId: Long, reason: String) extends RuntimeException(s"Index content task for process $processId is failed with reason $reason")
+import scala.concurrent.Future
+import scala.util.Try
 
 trait IndexContentTaskWorker extends ItemIndexer with SecondaryWorkerBase {
   def hyperbus: Hyperbus
@@ -39,38 +34,47 @@ trait IndexContentTaskWorker extends ItemIndexer with SecondaryWorkerBase {
   def indexManager: ActorRef
   implicit def scheduler: Scheduler
 
-  def indexNextBucket(task: IndexContentTask): Future[WorkerTaskResult] = {
-    try {
-      validateCollectionUri(task.key)
-      val idFieldName = ContentLogic.getIdFieldName(task.indexDefTransaction.documentUri)
-      // todo: cache indexDef
-      db.selectIndexDef(task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId) flatMap {
-        case Some(indexDef) if indexDef.defTransactionId == task.indexDefTransaction.defTransactionId ⇒ indexDef.status match {
+  def indexNextBucket(task: LocalTask, request: IndexContentTasksPost): Task[ResponseBase] = {
+    import request.body.indexDefTransaction._
+    implicit val mcx = request
+    Task.fromTry {
+      Try {
+        validateCollectionUri(task.key)
+        ContentLogic.getIdFieldName(documentUri)
+      }
+    }.flatMap { idFieldName ⇒
+      val transactionUuid = UUID.fromString(defTransactionId)
+      // todo: cache indexDef?
+      Task.fromFuture(db.selectIndexDef(documentUri, indexId)) flatMap {
+        case Some(indexDef) if indexDef.defTransactionId.toString == defTransactionId ⇒ indexDef.status match {
           case IndexDef.STATUS_INDEXING ⇒
             val bucketSize = 256 // todo: move to config, or make adaptive, or per index
 
-            db.selectContentCollection(task.indexDefTransaction.documentUri, bucketSize, task.lastItemId.map((_, FilterGt))) flatMap { collectionItems ⇒
-              db.selectIndexContentStatic(indexDef.tableName, indexDef.documentUri, indexDef.indexId) flatMap { indexContentStaticO ⇒
+            Task.fromFuture(db.selectContentCollection(documentUri, bucketSize, request.body.lastItemId.map((_, FilterGt)))) flatMap { collectionItems ⇒
+              Task.fromFuture(db.selectIndexContentStatic(indexDef.tableName, indexDef.documentUri, indexDef.indexId)) flatMap { indexContentStaticO ⇒
                 val countBefore = AtomicLong(indexContentStaticO.flatMap(_.count).getOrElse(0l))
-                FutureUtils.serial(collectionItems.toSeq) { item ⇒
-                  indexItem(indexDef, item, idFieldName, Some(countBefore.get+1)).andThen {
-                    case Success((_, true)) ⇒ countBefore.increment()
-                    case _ ⇒
+                Task.sequence {
+                  collectionItems.toList.map { item ⇒
+                    indexItem(indexDef, item, idFieldName, Some(countBefore.get + 1)).map { r ⇒
+                      if (r._2) {
+                        countBefore.increment()
+                      }
+                      r
+                    }
                   }
                 } flatMap { insertedItemIds ⇒
-
                   if (insertedItemIds.isEmpty) {
                     // indexing is finished
                     // todo: fix code format
-                    db.updateIndexDefStatus(task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId, IndexDef.STATUS_NORMAL, task.indexDefTransaction.defTransactionId) flatMap { _ ⇒
-                      db.deletePendingIndex(TransactionLogic.partitionFromUri(task.indexDefTransaction.documentUri), task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId, task.indexDefTransaction.defTransactionId) map { _ ⇒
-                        IndexContentTaskResult(None, task.processId)
+                    Task.fromFuture(db.updateIndexDefStatus(documentUri, indexId, IndexDef.STATUS_NORMAL, transactionUuid)) flatMap { _ ⇒
+                      Task.fromFuture(db.deletePendingIndex(TransactionLogic.partitionFromUri(documentUri), documentUri, indexId, transactionUuid)) map { _ ⇒
+                        Ok(IndexContentTaskResult(None, request.body.processId, isFailed = false, None))
                       }
                     }
                   } else {
                     val last = insertedItemIds.last._1
-                    db.updatePendingIndexLastItemId(TransactionLogic.partitionFromUri(task.indexDefTransaction.documentUri), task.indexDefTransaction.documentUri, task.indexDefTransaction.indexId, task.indexDefTransaction.defTransactionId, last) map { _ ⇒
-                      IndexContentTaskResult(Some(last), task.processId)
+                    Task.fromFuture(db.updatePendingIndexLastItemId(TransactionLogic.partitionFromUri(documentUri), documentUri, indexId, transactionUuid, last)) map { _ ⇒
+                      Ok(IndexContentTaskResult(Some(last), request.body.processId, isFailed = false, None))
                     }
                   }
                 }
@@ -79,33 +83,28 @@ trait IndexContentTaskWorker extends ItemIndexer with SecondaryWorkerBase {
 
 
           case IndexDef.STATUS_NORMAL ⇒
-            Future.successful(IndexContentTaskResult(None, task.processId))
+            Task.now(Ok(IndexContentTaskResult(None, request.body.processId, isFailed = false, None)))
 
           case IndexDef.STATUS_DELETING ⇒
             deleteIndexDefAndData(indexDef) map { _ ⇒
-              IndexContentTaskResult(None, task.processId)
+              Ok(IndexContentTaskResult(None, request.body.processId, isFailed = false, None))
             }
         }
 
         case _ ⇒
-          Future.failed(IndexContentTaskFailed(task.processId, s"Can't find index for ${task.indexDefTransaction}")) // todo: test this
-      } map { r: IndexContentTaskResult ⇒
-        WorkerTaskResult(task.key, task.group, r)
+          // todo: test this
+          Task.now(Ok(IndexContentTaskResult(None, request.body.processId, isFailed = true, Some(s"Can't find index for $defTransactionId"))))
       }
-    }
-    catch {
-      case e: Throwable ⇒
-        Future.failed(e)
     }
   }
 
-  def deleteIndexDefAndData(indexDef: IndexDef): Future[Unit] = {
-    db.deleteIndex(indexDef.tableName, indexDef.documentUri, indexDef.indexId) flatMap { _ ⇒
+  def deleteIndexDefAndData(indexDef: IndexDef): Task[Unit] = {
+    Task.fromFuture(db.deleteIndex(indexDef.tableName, indexDef.documentUri, indexDef.indexId) flatMap { _ ⇒
       db.deleteIndexDef(indexDef.documentUri, indexDef.indexId) flatMap { _ ⇒
         db.deletePendingIndex(
           TransactionLogic.partitionFromUri(indexDef.documentUri), indexDef.documentUri, indexDef.indexId, indexDef.defTransactionId
         )
       }
-    }
+    })
   }
 }

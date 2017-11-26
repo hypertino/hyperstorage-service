@@ -8,15 +8,21 @@
 
 package com.hypertino.hyperstorage.indexing
 
+import java.util.UUID
+
 import akka.actor.{Actor, ActorRef, ActorSystem, Props}
+import com.hypertino.binders.value.Null
 import com.hypertino.hyperbus.Hyperbus
+import com.hypertino.hyperbus.model.{MessagingContext, Ok}
+import com.hypertino.hyperstorage.TransactionLogic
 import com.hypertino.hyperstorage.db.{Db, IndexDef, PendingIndex}
-import com.hypertino.hyperstorage.workers.secondary.{IndexContentTask, IndexContentTaskFailed, IndexContentTaskResult}
+import com.hypertino.hyperstorage.internal.api._
+import com.hypertino.hyperstorage.sharding.LocalTask
+import com.hypertino.hyperstorage.workers.HyperstorageWorkerSettings
 import com.hypertino.metrics.MetricsTracker
 import com.typesafe.scalalogging.StrictLogging
 
 import scala.concurrent.{ExecutionContext, Future}
-import scala.util.control.NonFatal
 
 case object StartPendingIndexWorker
 
@@ -29,7 +35,7 @@ case class WaitForIndexDef(pendingIndex: PendingIndex)
 case class IndexNextBatchTimeout(processId: Long)
 
 // todo: add indexing progress log
-class PendingIndexWorker(cluster: ActorRef, indexKey: IndexDefTransaction, hyperbus: Hyperbus, db: Db, tracker: MetricsTracker)
+class PendingIndexWorker(shardProcessor: ActorRef, indexKey: IndexDefTransaction, hyperbus: Hyperbus, db: Db, tracker: MetricsTracker)
   extends Actor with StrictLogging {
 
   override def preStart(): Unit = {
@@ -67,16 +73,16 @@ class PendingIndexWorker(cluster: ActorRef, indexKey: IndexDefTransaction, hyper
     case IndexNextBatchTimeout(p) if p == processId ⇒
       indexNextBatch(processId + 1, indexDef, lastItemId)
 
-    case IndexContentTaskResult(Some(latestItemId), p) if p == processId ⇒
+    case Ok(IndexContentTaskResult(Some(latestItemId), p, false, _), _) if p == processId ⇒
       indexNextBatch(processId + 1, indexDef, Some(latestItemId))
 
-    case IndexContentTaskResult(None, p) if p == processId ⇒
+    case Ok(IndexContentTaskResult(None, p, false, _), _) if p == processId ⇒
       logger.info(s"Indexing of: $indexKey is complete")
       context.parent ! IndexManager.IndexingComplete(indexKey)
       context.stop(self)
 
-    case e@IndexContentTaskFailed(p, reason) if p == processId ⇒
-      logger.error(s"Restarting index worker $self", e)
+    case Ok(IndexContentTaskResult(_, p, true, failReason), _) if p == processId ⇒
+      logger.error(s"Restarting index worker $self. Failed because of: $failReason")
       import context._
       become(waitingForIndexDef)
       IndexWorkerImpl.selectPendingIndex(context.self, indexKey, db)
@@ -85,9 +91,21 @@ class PendingIndexWorker(cluster: ActorRef, indexKey: IndexDefTransaction, hyper
   def indexNextBatch(processId: Long, indexDef: IndexDef, lastItemId: Option[String]): Unit = {
     import context.dispatcher
     context.become(indexing(processId, indexDef, lastItemId))
-    cluster ! IndexContentTask(System.currentTimeMillis() + IndexWorkerImpl.RETRY_PERIOD.toMillis,
-      IndexDefTransaction(indexDef.documentUri, indexDef.indexId, indexDef.defTransactionId),
-      lastItemId, processId, expectsResult=true) // todo: do we need to expecting result here?
+    implicit val mcx = MessagingContext.empty
+    val indexTask = LocalTask(
+      key = indexDef.documentUri,
+      group = HyperstorageWorkerSettings.SECONDARY,
+      ttl = IndexWorkerImpl.RETRY_PERIOD.toMillis,
+      expectsResult = true, // todo: do we need to expecting result here?
+      IndexContentTasksPost(
+        IndexContentTask(
+          IndexDefTransaction(indexDef.documentUri, indexDef.indexId, indexDef.defTransactionId.toString),
+          lastItemId, processId
+        )),
+      extra = Null
+    )
+
+    shardProcessor ! indexTask
     context.system.scheduler.scheduleOnce(IndexWorkerImpl.RETRY_PERIOD * 2, self, IndexNextBatchTimeout(processId))
   }
 }
@@ -105,7 +123,7 @@ private[indexing] object IndexWorkerImpl extends StrictLogging {
 
   def selectPendingIndex(notifyActor: ActorRef, indexKey: IndexDefTransaction, db: Db)
                         (implicit ec: ExecutionContext, actorSystem: ActorSystem) = {
-    db.selectPendingIndex(indexKey.partition, indexKey.documentUri, indexKey.indexId, indexKey.defTransactionId) flatMap {
+    db.selectPendingIndex(TransactionLogic.partitionFromUri(indexKey.documentUri), indexKey.documentUri, indexKey.indexId, UUID.fromString(indexKey.defTransactionId)) flatMap {
       case Some(pendingIndex) ⇒
         db.selectIndexDef(indexKey.documentUri, indexKey.indexId) map {
           case Some(indexDef) if indexDef.defTransactionId == pendingIndex.defTransactionId ⇒

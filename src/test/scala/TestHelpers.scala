@@ -13,8 +13,9 @@ import akka.cluster.Cluster
 import akka.testkit.{TestActorRef, _}
 import com.codahale.metrics.ScheduledReporter
 import com.datastax.driver.core.utils.UUIDs
+import com.hypertino.binders.value.{Obj, Value}
 import com.hypertino.hyperbus.Hyperbus
-import com.hypertino.hyperbus.model.{DynamicResponse, StandardResponse}
+import com.hypertino.hyperbus.model.{DynamicResponse, RequestBase, StandardResponse, Status}
 import com.hypertino.hyperbus.serialization.MessageReader
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.db.{Db, Transaction}
@@ -24,6 +25,7 @@ import com.hypertino.hyperstorage.modules.{HyperStorageServiceModule, SystemServ
 import com.hypertino.hyperstorage.sharding._
 import com.hypertino.hyperstorage.sharding.akkacluster.AkkaClusterShardingTransport
 import com.hypertino.hyperstorage.workers.HyperstorageWorkerSettings
+import com.hypertino.hyperstorage.workers.primary.PrimaryExtra
 import com.hypertino.metrics.MetricsTracker
 import com.hypertino.metrics.modules.{ConsoleReporterModule, MetricsModule}
 import com.hypertino.service.config.ConfigModule
@@ -36,6 +38,7 @@ import scaldi.Injectable
 import scala.collection.concurrent.TrieMap
 import scala.concurrent.Await
 import scala.concurrent.duration._
+import scala.reflect.ClassTag
 
 trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures with Injectable with StrictLogging{
   this: org.scalatest.BeforeAndAfterEach with org.scalatest.Suite =>
@@ -174,7 +177,20 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     def processorPath = t.asInstanceOf[TestShardTask].processActorPath getOrElse ""
   }
 
-  def response(content: String): DynamicResponse = MessageReader.fromString(content, StandardResponse.apply)
+  implicit class TestActorEx(t: TestKitBase)(implicit val as: ActorSystem) {
+    def expectTaskR[T](max: FiniteDuration = 20.seconds)(implicit tag: ClassTag[T]): (LocalTask,T) = {
+      t.expectMsgPF(max) {
+        case l @ LocalTask(_, _, _, _, r, _) if tag.runtimeClass.isInstance(r) ⇒ (l, r.asInstanceOf[T])
+      }
+    }
+  }
+
+  //def response(content: String): DynamicResponse = MessageReader.fromString(content, StandardResponse.apply)
+
+  def primaryTask(key: String, request: RequestBase,
+                  ttl: Int = 10000,
+                  extra: Value = Obj.from(PrimaryExtra.INTERNAL_OPERATION → false),
+                  expectsResult: Boolean = true) = LocalTask(key, HyperstorageWorkerSettings.PRIMARY, ttl, expectsResult, request, extra)
 }
 
 case class TestShardTask(key: String, value: String,
@@ -221,7 +237,7 @@ class TestWorker extends Actor with StrictLogging {
         logger.info(s"Task processed: $task")
       }
       logger.info(s"Replying to ${sender()} that task $task is complete")
-      sender() ! WorkerTaskResult(task.key, task.group, TestShardTaskResult(task.key, task.value, task.id))
+//      sender() ! WorkerTaskResult(task, TestShardTaskResult(task.key, task.value, task.id))
     }
   }
 }

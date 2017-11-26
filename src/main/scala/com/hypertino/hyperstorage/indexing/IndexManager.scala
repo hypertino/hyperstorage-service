@@ -14,7 +14,7 @@ import akka.actor.{Actor, ActorRef, Props}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperstorage.TransactionLogic
 import com.hypertino.hyperstorage.db.Db
-import com.hypertino.hyperstorage.internal.api.NodeStatus
+import com.hypertino.hyperstorage.internal.api.{IndexDefTransaction, NodeStatus}
 import com.hypertino.hyperstorage.sharding.{ShardedClusterData, UpdateShardStatus}
 import com.hypertino.hyperstorage.utils.AkkaNaming
 import com.hypertino.metrics.MetricsTracker
@@ -24,9 +24,9 @@ import scala.collection.mutable
 import scala.concurrent.ExecutionContext
 import scala.util.control.NonFatal
 
-case class IndexDefTransaction(documentUri: String, indexId: String, defTransactionId: UUID) {
-  def partition: Int = TransactionLogic.partitionFromUri(documentUri)
-}
+//case class IndexDefTransaction(documentUri: String, indexId: String, defTransactionId: UUID) {
+//  def partition: Int = TransactionLogic.partitionFromUri(documentUri)
+//}
 
 // todo: handle child termination without IndexingComplete
 class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndexWorkers: Int)
@@ -88,7 +88,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
 
     case IndexCreatedOrDeleted(key) ⇒
       val partitionSet = TransactionLogic.getPartitions(stateData).toSet
-      if (partitionSet.contains(key.partition)) {
+      if (partitionSet.contains(TransactionLogic.partitionFromUri(key.documentUri))) {
         if (addPendingIndex(key)) {
           processPendingIndexes(clusterActor)
         }
@@ -100,7 +100,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
   }
 
   def addPendingIndex(key: IndexDefTransaction): Boolean = {
-    val alreadyPending = pendingPartitions.getOrElseUpdate(key.partition, mutable.ListBuffer.empty)
+    val alreadyPending = pendingPartitions.getOrElseUpdate(TransactionLogic.partitionFromUri(key.documentUri), mutable.ListBuffer.empty)
     if (!alreadyPending.contains(key) && !indexWorkers.contains(key) && alreadyPending.size < maxIndexWorkers) {
       alreadyPending += key
       true
@@ -122,7 +122,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
 
     // stop workers for detached partitions
     val toRemove = indexWorkers.flatMap {
-      case (v: IndexDefTransaction, actorRef) if detachedPartitions.contains(v.partition) ⇒
+      case (v: IndexDefTransaction, actorRef) if detachedPartitions.contains(TransactionLogic.partitionFromUri(v.documentUri)) ⇒
         context.stop(actorRef)
         Some(v)
       case _ ⇒
@@ -153,7 +153,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
         clusterActor, key, hyperbus, db, tracker
       ), AkkaNaming.next("idxw-"))
       indexWorkers += key → actorRef
-      pendingPartitions(key.partition) -= key
+      pendingPartitions(TransactionLogic.partitionFromUri(key.documentUri)) -= key
     }
   }
 
@@ -203,7 +203,7 @@ private[indexing] object IndexManagerImpl extends StrictLogging {
                                (implicit ec: ExecutionContext): Unit = {
     db.selectPendingIndexes(partition, maxIndexWorkers) map { indexesIterator ⇒
       notifyActor ! ProcessPartitionPendingIndexes(partition, rev,
-        indexesIterator.map(ii ⇒ IndexDefTransaction(ii.documentUri, ii.indexId, ii.defTransactionId)).toSeq
+        indexesIterator.map(ii ⇒ IndexDefTransaction(ii.documentUri, ii.indexId, ii.defTransactionId.toString)).toSeq
       )
     } recover {
       case e: Throwable ⇒

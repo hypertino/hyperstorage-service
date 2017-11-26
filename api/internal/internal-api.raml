@@ -62,6 +62,32 @@ types:
       document_uri: string
       transactions: string[]
 
+  IndexDefTransaction:
+    type: object
+    properties:
+      document_uri: string
+      index_id: string
+      def_transaction_id: string
+
+  IndexContentTask:
+    type: object
+    properties:
+      index_def_transaction: IndexDefTransaction
+      last_item_id?: string
+      process_id:
+        type: number
+        format: long
+
+  IndexContentTaskResult:
+    type: object
+    properties:
+      last_item_segment?: string
+      process_id:
+        type: number
+        format: long
+      is_failed: boolean
+      fail_reason?: string
+
 /node:
   get:
     responses:
@@ -103,3 +129,12 @@ types:
       200:
         body:
           application/json: BackgroundContentTaskResult
+
+/index-content-tasks:
+  post:
+    body:
+      application/json: IndexContentTask
+    responses:
+      200:
+        body:
+          application/json: IndexContentTaskResult

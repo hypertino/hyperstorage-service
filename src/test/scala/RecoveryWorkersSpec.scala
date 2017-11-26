@@ -16,11 +16,10 @@ import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.api._
-import com.hypertino.hyperstorage.internal.api.NodeStatus
+import com.hypertino.hyperstorage.internal.api.{BackgroundContentTaskResult, BackgroundContentTasksPost, NodeStatus}
 import com.hypertino.hyperstorage.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
 import com.hypertino.hyperstorage.sharding._
-import com.hypertino.hyperstorage.workers.primary.{PrimaryContentTask, PrimaryWorker}
-import com.hypertino.hyperstorage.workers.secondary.{BackgroundContentTask, BackgroundContentTaskFailedException, BackgroundContentTaskResult}
+import com.hypertino.hyperstorage.workers.primary.PrimaryWorker
 import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.time.{Millis, Span}
@@ -52,11 +51,11 @@ class RecoveryWorkersSpec extends FlatSpec
 
     val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
     val path = "incomplete-" + UUID.randomUUID().toString
-    val taskStr1 = ContentPut(path,
+    val put = ContentPut(path,
       DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
-    ).serializeToString
-    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr1, expectsResult=true,isClientOperation=true)
-    val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
+    )
+    worker ! primaryTask(path, put)
+    val backgroundWorkerTask = expectMsgType[BackgroundContentTasksPost]
     expectMsgType[WorkerTaskResult]
 
     val transactionUuids = whenReady(db.selectContent(path, "")) { result =>
@@ -77,11 +76,12 @@ class RecoveryWorkersSpec extends FlatSpec
     // start recovery check
     hotWorker ! UpdateShardStatus(self, NodeStatus.ACTIVE, shardData)
 
-    val backgroundWorkerTask2 = processorProbe.expectMsgType[BackgroundContentTask](max = 30.seconds)
-    backgroundWorkerTask.documentUri should equal(backgroundWorkerTask2.documentUri)
-    processorProbe.reply(BackgroundContentTaskFailedException(backgroundWorkerTask2.documentUri, "Testing worker behavior"))
-    val backgroundWorkerTask3 = processorProbe.expectMsgType[BackgroundContentTask](max = 30.seconds)
-    hotWorker ! processorProbe.reply(BackgroundContentTaskResult(backgroundWorkerTask2.documentUri, transactionUuids))
+    val (backgroundWorkerTask2, br2) = processorProbe.expectTaskR[BackgroundContentTasksPost](max = 30.seconds)
+    backgroundWorkerTask.body.documentUri should equal(br2.body.documentUri)
+    processorProbe.reply(WorkerTaskResult(backgroundWorkerTask2, Conflict(ErrorBody("test",Some("Testing worker behavior")))))
+    val backgroundWorkerTask3 = processorProbe.expectMsgType[BackgroundContentTasksPost](max = 30.seconds)
+    hotWorker ! processorProbe.reply(WorkerTaskResult(backgroundWorkerTask2,
+      Ok(BackgroundContentTaskResult(br2.body.documentUri, transactionUuids.map(_.toString)))))
     gracefulStop(hotWorker, 30 seconds, ShutdownRecoveryWorker).futureValue(TestTimeout(30.seconds))
   }
 
@@ -94,12 +94,12 @@ class RecoveryWorkersSpec extends FlatSpec
 
     val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
     val path = "incomplete-" + UUID.randomUUID().toString
-    val taskStr1 = ContentPut(path,
+    val put = ContentPut(path,
       DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
-    ).serializeToString
+    )
     val millis = System.currentTimeMillis()
-    worker ! PrimaryContentTask(path, System.currentTimeMillis() + 10000, taskStr1, expectsResult=true,isClientOperation=true)
-    val backgroundWorkerTask = expectMsgType[BackgroundContentTask]
+    worker ! primaryTask(path, put)
+    val (backgroundWorkerTask, br) = tk.expectTaskR[BackgroundContentTasksPost]()
     expectMsgType[WorkerTaskResult]
 
     val content = db.selectContent(path, "").futureValue.get
@@ -131,23 +131,25 @@ class RecoveryWorkersSpec extends FlatSpec
     // start recovery check
     hotWorker ! UpdateShardStatus(self, NodeStatus.ACTIVE, shardData)
 
-    val backgroundWorkerTask2 = processorProbe.expectMsgType[BackgroundContentTask](max = 30.seconds)
-    backgroundWorkerTask.documentUri should equal(backgroundWorkerTask2.documentUri)
-    processorProbe.reply(BackgroundContentTaskFailedException(backgroundWorkerTask2.documentUri, "Testing worker behavior"))
+    val (backgroundWorkerTask2, br2) = processorProbe.expectTaskR[BackgroundContentTasksPost](max = 30.seconds)
+    br.body.documentUri should equal(br2.body.documentUri)
+    processorProbe.reply(WorkerTaskResult(backgroundWorkerTask2, Conflict(ErrorBody("test",Some("Testing worker behavior")))))
 
     eventually {
       db.selectCheckpoint(transaction.partition).futureValue shouldBe Some(newTransaction.dtQuantum - 1)
     }
 
-    val backgroundWorkerTask3 = processorProbe.expectMsgType[BackgroundContentTask](max = 30.seconds)
-    hotWorker ! processorProbe.reply(BackgroundContentTaskResult(backgroundWorkerTask2.documentUri, newContent.transactionList))
+    val (backgroundWorkerTask3, br3) = processorProbe.expectTaskR[BackgroundContentTasksPost](max = 30.seconds)
+    hotWorker ! processorProbe.reply(WorkerTaskResult(backgroundWorkerTask2,
+      Ok(BackgroundContentTaskResult(br2.body.documentUri, newContent.transactionList.map(_.toString)))))
 
     eventually {
       db.selectCheckpoint(transaction.partition).futureValue.get shouldBe >(newTransaction.dtQuantum)
     }
 
-    val backgroundWorkerTask4 = processorProbe.expectMsgType[BackgroundContentTask](max = 30.seconds) // this is abandoned
-    hotWorker ! processorProbe.reply(BackgroundContentTaskResult(backgroundWorkerTask4.documentUri, List()))
+    val (backgroundWorkerTask4, br4) = processorProbe.expectTaskR[BackgroundContentTasksPost](max = 30.seconds) // this is abandoned
+    hotWorker ! processorProbe.reply(WorkerTaskResult(backgroundWorkerTask2,
+      Ok(BackgroundContentTaskResult(br4.body.documentUri, List()))))
 
     gracefulStop(hotWorker, 30 seconds, ShutdownRecoveryWorker).futureValue(TestTimeout(30.seconds))
   }

@@ -10,6 +10,7 @@ package com.hypertino.hyperstorage.indexing
 
 import com.hypertino.hyperstorage.db.{Content, Db, IndexContent, IndexDef}
 import com.typesafe.scalalogging.StrictLogging
+import monix.eval.Task
 import monix.execution.Scheduler
 
 import scala.concurrent.Future
@@ -19,7 +20,7 @@ trait ItemIndexer extends StrictLogging {
   def db: Db
   implicit def scheduler: Scheduler
 
-  def indexItem(indexDef: IndexDef, item: Content, idFieldName: String, count: Option[Long]): Future[(String,Boolean)] = {
+  def indexItem(indexDef: IndexDef, item: Content, idFieldName: String, count: Option[Long]): Task[(String,Boolean)] = {
     val contentValue = item.bodyValue
     val sortBy = IndexLogic.extractSortFieldValues(idFieldName, indexDef.sortByParsed, contentValue)
 
@@ -43,12 +44,12 @@ trait ItemIndexer extends StrictLogging {
         if (indexDef.materialize) item.body else None,
         item.createdAt, item.modifiedAt
       )
-      db.insertIndexItem(indexDef.tableName, sortBy, indexContent, item.realTtl) map { _ ⇒
+      Task.fromFuture(db.insertIndexItem(indexDef.tableName, sortBy, indexContent, item.realTtl)) map { _ ⇒
         (item.itemId, write)
       }
     }
     else {
-      Future.successful {
+      Task.now {
         (item.itemId, write)
       }
     }

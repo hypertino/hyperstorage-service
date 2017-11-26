@@ -14,7 +14,7 @@ import akka.actor._
 import akka.pattern.ask
 import com.codahale.metrics.Meter
 import com.hypertino.binders.value.Null
-import com.hypertino.hyperbus.model.{NotFound, Ok}
+import com.hypertino.hyperbus.model.{MessagingContext, NotFound, Ok}
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.db.{Content, Db}
 import com.hypertino.hyperstorage.internal.api.{BackgroundContentTask, BackgroundContentTaskResult, BackgroundContentTasksPost, NodeStatus}
@@ -158,6 +158,7 @@ abstract class RecoveryWorker[T <: WorkerState](
         val incompleteTransactions = partitionTransactions.toList.filter(_.completedAt.isEmpty).groupBy(_.documentUri)
         FutureUtils.serial(incompleteTransactions.toSeq) { case (documentUri, transactions) ⇒
           trackIncompleteMeter.mark(transactions.length)
+          implicit val mcx = MessagingContext.empty
           val task = LocalTask(
             key = documentUri,
             group = HyperstorageWorkerSettings.SECONDARY,
