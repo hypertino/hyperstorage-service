@@ -62,8 +62,8 @@ class HyperStorageSpec extends FlatSpec
 
     val taskStr = task.serializeToString
     worker ! primaryTask(task.path, task)
-    val backgroundTask = expectMsgType[BackgroundContentTasksPost]
-    backgroundTask.body.documentUri should equal(task.path)
+    val (bgTask, br) = tk.expectTaskR[BackgroundContentTasksPost]()
+    br.body.documentUri should equal(task.path)
     val workerResult = expectMsgType[WorkerTaskResult]
     val r = workerResult.result.get
     r.headers.statusCode should equal(Status.CREATED)
@@ -77,11 +77,11 @@ class HyperStorageSpec extends FlatSpec
         transaction.completedAt shouldBe None
         transaction.revision should equal(result.get.revision)
       }
-      result.get.transactionList.head
+      result.get.transactionList.head.toString
     }
 
     val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
-    backgroundWorker ! backgroundTask
+    backgroundWorker ! bgTask.copy(expectsResult=true)
     val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
     val rc = backgroundWorkerResult.result.get.asInstanceOf[Ok[BackgroundContentTaskResult]]
     rc.body.documentUri should equal("test-resource-1")
@@ -108,8 +108,8 @@ class HyperStorageSpec extends FlatSpec
     )
 
     worker ! primaryTask(patch.path, patch)
-    val backgroundTask = expectMsgType[BackgroundContentTasksPost]
-    backgroundTask.body.documentUri should equal(patch.path)
+    val (bgTask, br) = tk.expectTaskR[BackgroundContentTasksPost]()
+    br.body.documentUri should equal(patch.path)
     val workerResult = expectMsgType[WorkerTaskResult]
     val r = workerResult.result.get
     r.headers.statusCode should equal(Status.CREATED)
@@ -123,16 +123,16 @@ class HyperStorageSpec extends FlatSpec
         transaction.completedAt shouldBe None
         transaction.revision should equal(result.get.revision)
       }
-      result.get.transactionList.head
+      result.get.transactionList.head.toString
     }
 
     val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
-    backgroundWorker ! backgroundTask
+    backgroundWorker ! bgTask.copy(expectsResult=true)
     val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
-    val rc = backgroundWorkerResult.result.asInstanceOf[BackgroundContentTaskResult]
-    rc.documentUri should equal("not-existing")
-    rc.transactions should contain(uuid)
-    selectTransactions(rc.transactions.map(UUID.fromString), "not-existing", db) foreach { transaction ⇒
+    val rc = backgroundWorkerResult.result.get.asInstanceOf[Ok[BackgroundContentTaskResult]]
+    rc.body.documentUri should equal("not-existing")
+    rc.body.transactions should contain(uuid)
+    selectTransactions(rc.body.transactions.map(UUID.fromString), "not-existing", db) foreach { transaction ⇒
       transaction.completedAt shouldNot be(None)
       transaction.revision should equal(1)
     }
@@ -152,7 +152,7 @@ class HyperStorageSpec extends FlatSpec
     )
 
     worker ! primaryTask(path, put)
-    expectMsgType[BackgroundContentTasksPost]
+    tk.expectTaskR[BackgroundContentTasksPost]()
     expectMsgType[WorkerTaskResult]
 
     implicit val so = SerializationOptions.forceOptionalFields
@@ -161,7 +161,7 @@ class HyperStorageSpec extends FlatSpec
     )
 
     worker ! primaryTask(path, patch)
-    expectMsgType[BackgroundContentTasksPost]
+    tk.expectTaskR[BackgroundContentTasksPost]()
     expectMsgPF() {
       case WorkerTaskResult(_, _, r, _) if r.get.headers.statusCode == Status.OK &&
         r.get.headers.correlationId == patch.correlationId ⇒ true
@@ -174,32 +174,32 @@ class HyperStorageSpec extends FlatSpec
     // delete resource
     val delete = ContentDelete(path)
     worker ! primaryTask(path, delete)
-    expectMsgType[BackgroundContentTasksPost]
+    tk.expectTaskR[BackgroundContentTasksPost]()
     expectMsgType[WorkerTaskResult]
 
     // now patch should create new resource
     worker ! primaryTask(path, patch)
 
-    val backgroundTask = expectMsgType[BackgroundContentTasksPost]
-    backgroundTask.body.documentUri should equal(patch.path)
+    val (bgTask, br) = tk.expectTaskR[BackgroundContentTasksPost]()
+    br.body.documentUri should equal(patch.path)
     val workerResult = expectMsgType[WorkerTaskResult]
     val r = workerResult.result.get
     r.headers.statusCode should equal(Status.CREATED)
     r.headers.correlationId should equal(patch.correlationId)
 
     val uuid = whenReady(db.selectContent(path, "")) { result =>
-      result.get.body should equal(Some("""{"text3":"zzz","text1":"efg"}"""))
+      result.get.body should equal(Some("""{"text1":"efg","text3":"zzz"}"""))
       result.get.transactionList.size should equal(1)
 
       selectTransactions(result.get.transactionList, result.get.uri, db) foreach { transaction ⇒
         transaction.completedAt shouldBe None
         transaction.revision should equal(result.get.revision)
       }
-      result.get.transactionList.head
+      result.get.transactionList.head.toString
     }
 
     val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
-    backgroundWorker ! backgroundTask
+    backgroundWorker ! bgTask.copy(expectsResult = true)
     val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
     val rc = backgroundWorkerResult.result.get.asInstanceOf[Ok[BackgroundContentTaskResult]]
     rc.body.documentUri should equal(path)
@@ -248,7 +248,7 @@ class HyperStorageSpec extends FlatSpec
     )
 
     worker ! primaryTask(path, put)
-    expectMsgType[BackgroundContentTasksPost]
+    tk.expectTaskR[BackgroundContentTasksPost]()
     expectMsgType[WorkerTaskResult]
 
     whenReady(db.selectContent(path, "")) { result =>
@@ -259,7 +259,7 @@ class HyperStorageSpec extends FlatSpec
     val delete = ContentDelete(path)
 
     worker ! primaryTask(path, delete)
-    expectMsgType[BackgroundContentTasksPost]
+    tk.expectTaskR[BackgroundContentTasksPost]()
     expectMsgPF() {
       case WorkerTaskResult(_, _, Some(r), _) if r.headers.statusCode == Status.OK &&
         r.headers.correlationId == delete.headers.correlationId ⇒ true
@@ -285,7 +285,7 @@ class HyperStorageSpec extends FlatSpec
     )
 
     worker ! primaryTask(path, put)
-    expectMsgType[BackgroundContentTasksPost]
+    tk.expectTaskR[BackgroundContentTasksPost]()
     expectMsgType[WorkerTaskResult]
 
     whenReady(db.selectContent(path, "")) { result =>
@@ -296,7 +296,7 @@ class HyperStorageSpec extends FlatSpec
     val delete = ContentDelete(path)
 
     worker ! primaryTask(path, delete)
-    expectMsgType[BackgroundContentTasksPost]
+    tk.expectTaskR[BackgroundContentTasksPost]()
     expectMsgPF() {
       case WorkerTaskResult(_, _, Some(r), _) if r.headers.statusCode == Status.OK &&
         r.headers.correlationId == delete.headers.correlationId ⇒ true
@@ -307,7 +307,7 @@ class HyperStorageSpec extends FlatSpec
     }
 
     worker ! primaryTask(path, put)
-    expectMsgType[BackgroundContentTasksPost]
+    tk.expectTaskR[BackgroundContentTasksPost]()
     expectMsgType[WorkerTaskResult]
 
     whenReady(db.selectContent(path, "")) { result =>
@@ -331,23 +331,23 @@ class HyperStorageSpec extends FlatSpec
       DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
     )
     worker ! primaryTask(path, put)
-    expectMsgType[BackgroundContentTasksPost]
+    tk.expectTaskR[BackgroundContentTasksPost]()
     val result1 = expectMsgType[WorkerTaskResult]
-    transactionList += result1.result.get.asInstanceOf[Ok[HyperStorageTransactionCreated]].body.transactionId
+    transactionList += result1.result.get.asInstanceOf[Created[HyperStorageTransactionCreated]].body.transactionId
 
     val patch = ContentPatch(path,
       DynamicBody(Obj.from("text" → "abc", "text2" → "klmn"))
     )
     worker ! primaryTask(path, patch)
-    expectMsgType[BackgroundContentTasksPost]
+    tk.expectTaskR[BackgroundContentTasksPost]()
     val result2 = expectMsgType[WorkerTaskResult]
-    transactionList += result2.result.get.asInstanceOf[Ok[HyperStorageTransactionCreated]].body.transactionId
+    transactionList += result2.result.get.asInstanceOf[Created[HyperStorageTransactionCreated]].body.transactionId
 
     val delete = ContentDelete(path)
     worker ! primaryTask(path, delete)
-    val backgroundWorkerTask = expectMsgType[BackgroundContentTasksPost]
+    val (bgTask, br) = tk.expectTaskR[BackgroundContentTasksPost]()
     val workerResult = expectMsgType[WorkerTaskResult]
-    val r = workerResult.result.get.asInstanceOf[Ok[HyperStorageTransactionCreated]]
+    val r = workerResult.result.get.asInstanceOf[Created[HyperStorageTransactionCreated]]
     r.headers.statusCode should equal(Status.OK)
     transactionList += r.body.transactionId
     // todo: list of transactions!s
@@ -366,13 +366,13 @@ class HyperStorageSpec extends FlatSpec
     }
 
     val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
-    backgroundWorker ! backgroundWorkerTask
+    backgroundWorker ! bgTask.copy(expectsResult = true)
     val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
-    val rc = backgroundWorkerResult.result.asInstanceOf[BackgroundContentTaskResult]
-    rc.documentUri should equal(path)
-    rc.transactions should equal(transactions)
+    val rc = backgroundWorkerResult.result.get.asInstanceOf[Ok[BackgroundContentTaskResult]]
+    rc.body.documentUri should equal(path)
+    rc.body.transactions should equal(transactions)
 
-    selectTransactions(rc.transactions.map(UUID.fromString), path, db) foreach { transaction ⇒
+    selectTransactions(rc.body.transactions.map(UUID.fromString), path, db) foreach { transaction ⇒
       transaction.completedAt shouldNot be(None)
     }
   }
@@ -390,14 +390,14 @@ class HyperStorageSpec extends FlatSpec
       DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
     )
     worker ! primaryTask(path, put)
-    expectMsgType[BackgroundContentTasksPost]
+    tk.expectTaskR[BackgroundContentTasksPost]()
     expectMsgType[WorkerTaskResult]
 
     val patch = ContentPatch(path,
       DynamicBody(Obj.from("text" → "abc", "text2" → "klmn"))
     )
     worker ! primaryTask(path, patch)
-    val backgroundWorkerTask = expectMsgType[BackgroundContentTasksPost]
+    val (bgTask, br) = tk.expectTaskR[BackgroundContentTasksPost]()
     expectMsgType[WorkerTaskResult]
 
     val transactionUuids = whenReady(db.selectContent(path, "")) { result =>
@@ -420,7 +420,7 @@ class HyperStorageSpec extends FlatSpec
         }
     }
 
-    backgroundWorker ! backgroundWorkerTask
+    backgroundWorker ! bgTask
     expectMsgType[WorkerTaskResult].result.get shouldBe a[InternalServerError[_]]
     selectTransactions(transactionUuids, path, db) foreach {
       _.completedAt shouldBe None
@@ -436,7 +436,7 @@ class HyperStorageSpec extends FlatSpec
         }
     }
 
-    backgroundWorker ! backgroundWorkerTask
+    backgroundWorker ! bgTask
     expectMsgType[WorkerTaskResult].result.get shouldBe a[InternalServerError[_]]
     val mons = selectTransactions(transactionUuids, path, db)
 
@@ -444,7 +444,7 @@ class HyperStorageSpec extends FlatSpec
     mons.tail.head.completedAt shouldNot be(None)
 
     FaultClientTransport.checkers.clear()
-    backgroundWorker ! backgroundWorkerTask
+    backgroundWorker ! bgTask
     expectMsgType[WorkerTaskResult].result shouldBe a[BackgroundContentTaskResult]
     selectTransactions(transactionUuids, path, db) foreach {
       _.completedAt shouldNot be(None)
@@ -509,15 +509,15 @@ class FakeProcessor(primaryWorker: ActorRef) extends Actor {
   def receive: Receive = {
     case r: LocalTask if r.request.isInstanceOf[PrimaryWorkerRequest] ⇒
       adapter = sender()
-      //println("got from" + sender() + s", self: $self: " + r)
+      println("got from" + sender() + s", self: $self: " + r)
       primaryWorker ! r
 
     case WorkerTaskResult(_, _, r, _) if r.isDefined && r.get.body.isInstanceOf[HyperStorageTransactionCreated] ⇒
-      //println("got from" + sender() + s", self: $self, forwarding to $adapter: " + r)
+      println("got from" + sender() + s", self: $self, forwarding to $adapter: " + r)
       adapter forward r
 
     case r ⇒
-      //println("got unknown from" + sender() + s", self: $self: " + r)
+      println("got unknown from" + sender() + s", self: $self: " + r)
       otherMessages.add(r)
   }
 }
