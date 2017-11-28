@@ -352,9 +352,9 @@ class CollectionsSpec extends FlatSpec
     val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
     backgroundWorker ! bgTask.copy(expectsResult = true)
     val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
-    val rc = backgroundWorkerResult.result.get.asInstanceOf[BackgroundContentTaskResult]
-    rc.documentUri should equal(collection)
-    rc.transactions should equal(content2.get.transactionList.reverse)
+    val rc = backgroundWorkerResult.result.get.asInstanceOf[Ok[BackgroundContentTaskResult]]
+    rc.body.documentUri should equal(collection)
+    rc.body.transactions should equal(content2.get.transactionList.reverse.map(_.toString))
 
     eventually {
       db.selectContentStatic(collection).futureValue.get.transactionList shouldBe empty

@@ -191,7 +191,7 @@ abstract class RecoveryWorker[T <: WorkerState](
             case NotFound(errorBody,_) ⇒
               logger.warn(s"Tried to recover not existing resource: '$errorBody'. Exception is ignored")
               Future.successful()
-            case (e: Throwable, _) ⇒
+            case e: Throwable ⇒
               Future.failed(e)
             case other ⇒
               Future.failed(throw new RuntimeException(s"Unexpected result from recovery task: $other"))

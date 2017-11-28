@@ -55,7 +55,7 @@ class RecoveryWorkersSpec extends FlatSpec
       DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
     )
     worker ! primaryTask(path, put)
-    val backgroundWorkerTask = expectMsgType[BackgroundContentTasksPost]
+    val (bgTask, br) = tk.expectTaskR[BackgroundContentTasksPost]()
     expectMsgType[WorkerTaskResult]
 
     val transactionUuids = whenReady(db.selectContent(path, "")) { result =>
@@ -77,11 +77,11 @@ class RecoveryWorkersSpec extends FlatSpec
     hotWorker ! UpdateShardStatus(self, NodeStatus.ACTIVE, shardData)
 
     val (backgroundWorkerTask2, br2) = processorProbe.expectTaskR[BackgroundContentTasksPost](max = 30.seconds)
-    backgroundWorkerTask.body.documentUri should equal(br2.body.documentUri)
-    processorProbe.reply(WorkerTaskResult(backgroundWorkerTask2, Conflict(ErrorBody("test",Some("Testing worker behavior")))))
-    val backgroundWorkerTask3 = processorProbe.expectMsgType[BackgroundContentTasksPost](max = 30.seconds)
-    hotWorker ! processorProbe.reply(WorkerTaskResult(backgroundWorkerTask2,
-      Ok(BackgroundContentTaskResult(br2.body.documentUri, transactionUuids.map(_.toString)))))
+    br.body.documentUri should equal(br2.body.documentUri)
+    processorProbe.reply(Conflict(ErrorBody("test",Some("Testing worker behavior"))))
+    val (bgTask3, br3) = processorProbe.expectTaskR[BackgroundContentTasksPost](max = 30.seconds)
+
+    hotWorker ! processorProbe.reply(Ok(BackgroundContentTaskResult(br2.body.documentUri, transactionUuids.map(_.toString))))
     gracefulStop(hotWorker, 30 seconds, ShutdownRecoveryWorker).futureValue(TestTimeout(30.seconds))
   }
 
@@ -133,23 +133,21 @@ class RecoveryWorkersSpec extends FlatSpec
 
     val (backgroundWorkerTask2, br2) = processorProbe.expectTaskR[BackgroundContentTasksPost](max = 30.seconds)
     br.body.documentUri should equal(br2.body.documentUri)
-    processorProbe.reply(WorkerTaskResult(backgroundWorkerTask2, Conflict(ErrorBody("test",Some("Testing worker behavior")))))
+    processorProbe.reply(Conflict(ErrorBody("test",Some("Testing worker behavior"))))
 
     eventually {
       db.selectCheckpoint(transaction.partition).futureValue shouldBe Some(newTransaction.dtQuantum - 1)
     }
 
     val (backgroundWorkerTask3, br3) = processorProbe.expectTaskR[BackgroundContentTasksPost](max = 30.seconds)
-    hotWorker ! processorProbe.reply(WorkerTaskResult(backgroundWorkerTask2,
-      Ok(BackgroundContentTaskResult(br2.body.documentUri, newContent.transactionList.map(_.toString)))))
+    hotWorker ! processorProbe.reply(Ok(BackgroundContentTaskResult(br2.body.documentUri, newContent.transactionList.map(_.toString))))
 
     eventually {
       db.selectCheckpoint(transaction.partition).futureValue.get shouldBe >(newTransaction.dtQuantum)
     }
 
     val (backgroundWorkerTask4, br4) = processorProbe.expectTaskR[BackgroundContentTasksPost](max = 30.seconds) // this is abandoned
-    hotWorker ! processorProbe.reply(WorkerTaskResult(backgroundWorkerTask2,
-      Ok(BackgroundContentTaskResult(br4.body.documentUri, List()))))
+    hotWorker ! processorProbe.reply(Ok(BackgroundContentTaskResult(br4.body.documentUri, List.empty)))
 
     gracefulStop(hotWorker, 30 seconds, ShutdownRecoveryWorker).futureValue(TestTimeout(30.seconds))
   }
