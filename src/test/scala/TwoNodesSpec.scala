@@ -7,8 +7,10 @@
  */
 
 import akka.cluster.Cluster
+import com.hypertino.binders.value.Null
+import com.hypertino.hyperbus.model.{MessagingContext, Ok}
 import com.hypertino.hyperstorage.internal.api.NodeStatus
-import com.hypertino.hyperstorage.sharding.ShutdownProcessor
+import com.hypertino.hyperstorage.sharding.{LocalTask, ShutdownProcessor, WorkerTaskResult}
 import org.scalatest._
 import org.scalatest.concurrent.ScalaFutures
 
@@ -72,15 +74,15 @@ class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
     testKit1.awaitCond(fsm1.stateName == NodeStatus.ACTIVE && fsm1.stateData.nodes.nonEmpty, 5 second)
     testKit2.awaitCond(fsm2.stateName == NodeStatus.ACTIVE && fsm2.stateData.nodes.nonEmpty, 5 second)
 
-    val task1 = TestShardTask("abc1", "t1")
+    val (task1, r1) = testTask("abc1", "t1")
     fsm1 ! task1
-    testKit1.awaitCond(task1.isProcessed)
-    task1.processorPath should include(address1)
+    testKit1.awaitCond(r1.isProcessed)
+    r1.processorPath should include(address1)
 
-    val task2 = TestShardTask("klx1", "t2")
+    val (task2, r2) = testTask("klx1", "t2")
     fsm2 ! task2
-    testKit2.awaitCond(task2.isProcessed)
-    task2.processorPath should include(address2)
+    testKit2.awaitCond(r2.isProcessed)
+    r2.processorPath should include(address2)
   }
 
   it should "be forwarded to corresponding actors and results are forwarded back" in {
@@ -97,19 +99,20 @@ class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
     testKit1.awaitCond(fsm1.stateName == NodeStatus.ACTIVE && fsm1.stateData.nodes.nonEmpty, 5 second)
     testKit2.awaitCond(fsm2.stateName == NodeStatus.ACTIVE && fsm2.stateData.nodes.nonEmpty, 5 second)
 
-    val task1 = TestShardTask("abc1", "t3")
+    val (task1, r1) = testTask("abc1", "t3")
 
     {
       import testKit1._
       fsm2 ! task1
     }
 
-    testKit1.awaitCond(task1.isProcessed)
-    task1.processorPath should include(address1)
-    val r1 = testKit1.expectMsgType[TestShardTaskResult]
-    r1.id shouldBe task1.id
+    testKit1.awaitCond(r1.isProcessed)
+    r1.processorPath should include(address1)
 
-    val task2 = TestShardTask("klx1", "t4")
+    val rs1 = testKit1.expectMsgType[Ok[TaskShardTaskResultBody]]
+    rs1.body.id shouldBe r1.body.id
+
+    val (task2, r2) = testTask("klx1", "t4")
     //fsm1 ! task2
 
     {
@@ -117,13 +120,13 @@ class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
       fsm1 ! task2
     }
 
-    testKit2.awaitCond(task2.isProcessed)
-    task2.processorPath should include(address2)
-    val r2 = testKit2.expectMsgType[TestShardTaskResult]
-    r2.id shouldBe task2.id
+    testKit2.awaitCond(r2.isProcessed)
+    r2.processorPath should include(address2)
+    val rs2 = testKit2.expectMsgType[Ok[TaskShardTaskResultBody]]
+    rs2.body.id shouldBe r2.body.id
   }
 
-  it should "for deactivating actor shouldn't be processed before deactivation complete" in {
+  it should "not be processed for deactivating actor before deactivation is complete" in {
     val (fsm1, actorSystem1, testKit1, address1) = {
       implicit val actorSystem1 = testActorSystem(1)
       (createShardProcessor("test-group", waitWhileActivates = false), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
@@ -143,10 +146,10 @@ class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
       fsm1.stateName == NodeStatus.DEACTIVATING
     }, 10.second)
 
-    val task1 = TestShardTask("abc1", "t5", sleep = 500)
+    val (task1, r1) = testTask("abc1", "t5", sleep = 500)
     fsm1 ! task1
 
-    val task2 = TestShardTask("abc1", "t6", sleep = 500)
+    val (task2, r2) = testTask("abc1", "t6", sleep = 500)
     fsm2 ! task2
 
     val c1 = Cluster(actorSystem1)
@@ -156,14 +159,14 @@ class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
       assert(!(
           !fsm2.stateData.nodes.forall(_._2.status == NodeStatus.PASSIVE)
           &&
-          (task2.isProcessed || task1.isProcessed)
+          (r2.isProcessed || r1.isProcessed)
         ))
       fsm2.stateData.nodes.isEmpty
     }, 10 second)
 
-    testKit2.awaitCond(task1.isProcessed && task2.isProcessed)
-    task1.processorPath should include(address2)
-    task2.processorPath should include(address2)
+    testKit2.awaitCond(r1.isProcessed && r2.isProcessed)
+    r1.processorPath should include(address2)
+    r2.processorPath should include(address2)
   }
 
   "Processor" should "not confirm sync/activation until completes processing corresponding task" in {
@@ -172,11 +175,11 @@ class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
       (createShardProcessor("test-group"), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
     }
 
-    val task1 = TestShardTask("klx1", "t7", sleep = 6000)
+    val (task1, r1) = testTask("klx1", "t7", sleep = 6000)
     fsm1 ! task1
-    val task2 = TestShardTask("klx1", "t8")
+    val (task2, r2) = testTask("klx1", "t8")
     fsm1 ! task2
-    testKit1.awaitCond(task1.isProcessingStarted)
+    testKit1.awaitCond(r1.isProcessingStarted)
 
     val (fsm2, actorSystem2, testKit2, address2) = {
       implicit val actorSystem2 = testActorSystem(2)
@@ -185,11 +188,11 @@ class TwoNodesSpec extends FlatSpec with ScalaFutures with TestHelpers {
 
     testKit1.awaitCond({
       assert(fsm2.stateName == NodeStatus.ACTIVATING)
-      task1.isProcessed
+      r1.isProcessed
     }, 10 second)
 
-    task1.processorPath should include(address1)
-    testKit2.awaitCond(task2.isProcessed, 10 second)
-    task2.processorPath should include(address2)
+    r1.processorPath should include(address1)
+    testKit2.awaitCond(r2.isProcessed, 10 second)
+    r2.processorPath should include(address2)
   }
 }

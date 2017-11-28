@@ -117,7 +117,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
   }
 
   private def executeRequest(implicit request: RequestBase, uri: String): Task[ResponseBase] = {
-    val ttl = Math.max(requestTimeout.toMillis - 100, 100)
+    val ttl = System.currentTimeMillis() + Math.max(requestTimeout.toMillis - 100, 100)
     val documentUri = ContentLogic.splitPath(uri).documentUri
     val task = LocalTask(documentUri, HyperstorageWorkerSettings.PRIMARY, ttl, expectsResult = true, request, Obj.from(PrimaryExtra.INTERNAL_OPERATION → false))
 
@@ -161,7 +161,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
   }
 
   private def executeIndexRequest(request: RequestBase): Task[ResponseBase] = {
-    val ttl = Math.max(requestTimeout.toMillis - 100, 100)
+    val ttl = System.currentTimeMillis() + Math.max(requestTimeout.toMillis - 100, 100)
     val key = request match {
       case post: IndexPost ⇒ post.path
       case delete: IndexDelete ⇒ delete.path

@@ -13,10 +13,12 @@ import akka.cluster.Cluster
 import akka.testkit.{TestActorRef, _}
 import com.codahale.metrics.ScheduledReporter
 import com.datastax.driver.core.utils.UUIDs
-import com.hypertino.binders.value.{Obj, Value}
+import com.hypertino.binders.value.{Null, Obj, Value}
 import com.hypertino.hyperbus.Hyperbus
-import com.hypertino.hyperbus.model.{DynamicResponse, RequestBase, StandardResponse, Status}
+import com.hypertino.hyperbus.model.annotations.{body, request}
+import com.hypertino.hyperbus.model.{BadGateway, Body, DefinedResponse, DynamicBody, DynamicResponse, MessagingContext, Method, Ok, Request, RequestBase, ServiceUnavailable, StandardResponse, Status}
 import com.hypertino.hyperbus.serialization.MessageReader
+import com.hypertino.hyperbus.util.IdGenerator
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.db.{Db, Transaction}
 import com.hypertino.hyperstorage.indexing.IndexManager
@@ -55,7 +57,9 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
 
   def createShardProcessor(groupName: String, workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
     val clusterTransport = TestActorRef(AkkaClusterShardingTransport.props("hyperstorage"))
-    val workerSettings = Map(groupName → WorkerGroupSettings(Props[TestWorker], workerCount, "test-worker", Seq.empty))
+    val workerSettings = Map(
+      groupName → WorkerGroupSettings(Props[TestWorker], workerCount, "test-worker", Seq(TestShardTaskPost))
+    )
     val fsm = new TestFSMRef[String, ShardedClusterData, ShardProcessor](actorSystem,
       ShardProcessor.props(clusterTransport, workerSettings, tracker).withDispatcher("deque-dispatcher"),
       GuardianExtractor.guardian(actorSystem),
@@ -169,13 +173,13 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     reporter.report()
   }
 
-  implicit class TaskEx(t: ShardTask) {
-    def isProcessingStarted = t.asInstanceOf[TestShardTask].isProcessingStarted
-
-    def isProcessed = t.asInstanceOf[TestShardTask].isProcessed
-
-    def processorPath = t.asInstanceOf[TestShardTask].processActorPath getOrElse ""
-  }
+//  implicit class TaskEx(t: TestShardTaskPost) {
+//    def isProcessingStarted = t.asInstanceOf[TestShardTask].isProcessingStarted
+//
+//    def isProcessed = t.asInstanceOf[TestShardTask].isProcessed
+//
+//    def processorPath = t.asInstanceOf[TestShardTask].processActorPath getOrElse ""
+//  }
 
   implicit class TestActorEx(t: TestKitBase)(implicit val as: ActorSystem) {
     def expectTaskR[T](max: FiniteDuration = 20.seconds)(implicit tag: ClassTag[T]): (LocalTask,T) = {
@@ -188,61 +192,72 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
   //def response(content: String): DynamicResponse = MessageReader.fromString(content, StandardResponse.apply)
 
   def primaryTask(key: String, request: RequestBase,
-                  ttl: Int = 10000,
+                  ttl: Long = System.currentTimeMillis() + 10000l,
                   extra: Value = Obj.from(PrimaryExtra.INTERNAL_OPERATION → false),
                   expectsResult: Boolean = true) = LocalTask(key, HyperstorageWorkerSettings.PRIMARY, ttl, expectsResult, request, extra)
+
+  def testTask(key: String, value: String, sleep: Int = 0): (LocalTask, TestShardTaskPost) = {
+    implicit val mcx = MessagingContext.empty
+    val t = TestShardTaskPost(
+      TaskShardTaskBody(value, sleep)
+    )
+    (LocalTask(key, "test-group", System.currentTimeMillis() + 20000, true, t, Null), t)
+  }
 }
 
-case class TestShardTask(key: String, value: String,
-                         sleep: Int = 0,
-                         ttl: Long = System.currentTimeMillis() + 60 * 1000,
-                         id: UUID = UUID.randomUUID()) extends ShardTask {
-  def group = "test-group"
+@body("test-shard-task-body")
+case class TaskShardTaskBody(value: String,
+                             sleep: Int = 0,
+                             id: String = IdGenerator.create()) extends Body
 
+@body("test-shard-task-result-body")
+case class TaskShardTaskResultBody(value: String,
+                                   id: String = IdGenerator.create()) extends Body
+
+@request(Method.POST, "hb://test-shard-tasks")
+case class TestShardTaskPost(body: TaskShardTaskBody) extends Request[TaskShardTaskBody]
+  with DefinedResponse[Ok[TaskShardTaskResultBody]] {
   def processingStarted(actorPath: String): Unit = {
-    ProcessedRegistry.tasksStarted += id → (actorPath, this)
+    ProcessedRegistry.tasksStarted += body.id → (actorPath, this)
   }
 
   def processed(actorPath: String): Unit = {
-    ProcessedRegistry.tasks += id → (actorPath, this)
+    ProcessedRegistry.tasks += body.id → (actorPath, this)
   }
 
-  def isProcessed = ProcessedRegistry.tasks.get(id).isDefined
+  def isProcessed = ProcessedRegistry.tasks.get(body.id).isDefined
 
-  def isProcessingStarted = ProcessedRegistry.tasksStarted.get(id).isDefined
+  def isProcessingStarted = ProcessedRegistry.tasksStarted.get(body.id).isDefined
 
-  override def toString = s"TestTask($key, $value, $sleep, $ttl, #${System.identityHashCode(this)}, actor: $processActorPath"
-
-  def processActorPath: Option[String] = ProcessedRegistry.tasks.get(id) map { kv ⇒ kv._1 }
-
-  override def expectsResult: Boolean = true
+  def processorPath: String = ProcessedRegistry.tasks.get(body.id) map { kv ⇒ kv._1 } getOrElse ""
 }
-
-case class TestShardTaskResult(key: String, value: String, id: UUID)
 
 class TestWorker extends Actor with StrictLogging {
   def receive = {
-    case task: TestShardTask => {
+    case task: LocalTask => {
       if (task.isExpired) {
         logger.error(s"Task is expired: $task")
+        sender() ! WorkerTaskResult(task, ServiceUnavailable()(MessagingContext.empty), Null)
       } else {
+        implicit val request = task.request.asInstanceOf[TestShardTaskPost]
+
         val c = Cluster(context.system)
         val path = c.selfAddress + "/" + self.path.toString
         logger.info(s"Processing task: $task")
-        task.processingStarted(path)
-        if (task.sleep > 0) {
-          Thread.sleep(task.sleep)
+        request.processingStarted(path)
+        if (request.body.sleep > 0) {
+          Thread.sleep(request.body.sleep)
         }
-        task.processed(path)
+        request.processed(path)
         logger.info(s"Task processed: $task")
+        logger.info(s"Replying to ${sender()} that task $task is complete")
+        sender() ! WorkerTaskResult(task, Ok(TaskShardTaskResultBody(request.body.value, request.body.id)))
       }
-      logger.info(s"Replying to ${sender()} that task $task is complete")
-//      sender() ! WorkerTaskResult(task, TestShardTaskResult(task.key, task.value, task.id))
     }
   }
 }
 
 object ProcessedRegistry {
-  val tasks = TrieMap[UUID, (String, TestShardTask)]()
-  val tasksStarted = TrieMap[UUID, (String, TestShardTask)]()
+  val tasks = TrieMap[String, (String, TestShardTaskPost)]()
+  val tasksStarted = TrieMap[String, (String, TestShardTaskPost)]()
 }

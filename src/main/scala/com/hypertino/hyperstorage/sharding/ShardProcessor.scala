@@ -433,7 +433,7 @@ class ShardProcessor(clusterTransport: ActorRef,
         case r: RemoteTask ⇒ r
         case l: LocalTask ⇒
           val taskId = nextTaskId()
-          val bodyString = l.request.serializeToString
+          val bodyString = l.request.body.serializeToString
           val r = RemoteTask(data.selfId,taskId,l.key,l.group,l.ttl,l.expectsResult,Obj(l.request.headers.underlying.v),bodyString,l.extra)
           val requestMeta = workersSettings.get(l.group).map(_.lookupRequestMeta(l.request.headers)).getOrElse {
             throw new IllegalArgumentException(s"No settings are defined for a group ${l.group}")
@@ -477,7 +477,7 @@ class ShardProcessor(clusterTransport: ActorRef,
                   data.nodes.get(remoteData.nodeId) match {
                     case Some(rvm) ⇒
                       logger.debug(s"Forwarding result $result to source node ${remoteData.nodeId}")
-                      val r = RemoteTaskResult(remoteData.taskId, Obj(result.headers.v), result.serializeToString, workerTaskResult.extra)
+                      val r = RemoteTaskResult(remoteData.taskId, Obj(result.headers.v), result.body.serializeToString, workerTaskResult.extra)
                       clusterTransport ! TransportMessage(rvm.transportNode, r)
 
                     case None ⇒
@@ -530,7 +530,10 @@ class ShardProcessor(clusterTransport: ActorRef,
       val requestHeaders = RequestHeaders(Headers(remoteTask.taskHeaders.toMap.toSeq: _*))
       val requestMeta = s.lookupRequestMeta(requestHeaders)
       val stringReader = new StringReader(remoteTask.taskBody)
-      requestMeta(stringReader, requestHeaders.underlying)
+      println(s"deserializing: " + remoteTask.taskBody)
+      val r = requestMeta(stringReader, requestHeaders.underlying)
+      println(s"got: $r")
+      r
     } getOrElse {
       throw new IllegalArgumentException(s"No settings are defined for a group ${remoteTask.group}")
     }

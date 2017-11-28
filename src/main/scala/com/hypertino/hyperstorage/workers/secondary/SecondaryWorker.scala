@@ -40,26 +40,30 @@ class SecondaryWorker(val hyperbus: Hyperbus,
     case task: LocalTask ⇒
       val owner = sender()
       implicit val mcx = task.request
-      val t: Task[WorkerTaskResult] = Try {
-        {
-          task.request match {
-            case r: BackgroundContentTasksPost ⇒ executeBackgroundTask(owner, task, r)
-            case r: IndexContentTasksPost ⇒ indexNextBucket(task, r)
-            case r: IndexPost ⇒ createNewIndex(task, r)
-            case r: IndexDelete ⇒ removeIndex(task, r)
+      val t: Task[WorkerTaskResult] = Task.fromTry {
+        Try {
+          {
+            task.request match {
+              case r: BackgroundContentTasksPost ⇒ executeBackgroundTask(owner, task, r)
+              case r: IndexContentTasksPost ⇒ indexNextBucket(task, r)
+              case r: IndexPost ⇒ createNewIndex(task, r)
+              case r: IndexDelete ⇒ removeIndex(task, r)
+            }
+          }.map { r ⇒
+            WorkerTaskResult(task, r)
           }
-        }.map { r ⇒
-          WorkerTaskResult(task, r)
         }
-      }.recover {
-        case e: HyperbusError[_] ⇒
-          logger.error(s"Secondary task $task didn't complete", e)
-          Task.now(WorkerTaskResult(task, e))
+      }
+        .flatten
+        .onErrorRecoverWith {
+          case e: HyperbusError[_] ⇒
+            logger.error(s"Secondary task $task didn't complete", e)
+            Task.now(WorkerTaskResult(task, e))
 
-        case e: Throwable ⇒
-          logger.error(s"Secondary task $task didn't complete", e)
-          Task.now(WorkerTaskResult(task, InternalServerError(ErrorBody(ErrorCode.BACKGROUND_TASK_FAILED, Some(s"Task on ${task.key} is failed: ${e.toString}")))))
-      }.get
+          case e: Throwable ⇒
+            logger.error(s"Secondary task $task didn't complete", e)
+            Task.now(WorkerTaskResult(task, InternalServerError(ErrorBody(ErrorCode.BACKGROUND_TASK_FAILED, Some(s"Task on ${task.key} is failed: ${e.toString}")))))
+        }
 
       t.runAsync pipeTo owner
   }

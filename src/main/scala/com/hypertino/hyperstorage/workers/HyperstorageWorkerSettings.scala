@@ -12,6 +12,7 @@ import akka.actor.ActorRef
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperstorage.api._
 import com.hypertino.hyperstorage.db.Db
+import com.hypertino.hyperstorage.internal.api.{BackgroundContentTasksPost, IndexContentTasksPost}
 import com.hypertino.hyperstorage.sharding.WorkerGroupSettings
 import com.hypertino.hyperstorage.workers.primary.PrimaryWorker
 import com.hypertino.hyperstorage.workers.secondary.SecondaryWorker
@@ -36,7 +37,7 @@ object HyperstorageWorkerSettings {
     val primaryRequestMeta = Seq(ContentPut, ContentPatch, ContentDelete, ViewPut, ViewDelete)
 
     val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, metricsTracker, indexManager, scheduler)
-    val secondaryRequestMeta = Seq(IndexPost, IndexDelete)
+    val secondaryRequestMeta = Seq(IndexPost, IndexDelete, BackgroundContentTasksPost, IndexContentTasksPost)
     Map(
       PRIMARY → WorkerGroupSettings(primaryWorkerProps, primaryWorkerCount, "pgw-", primaryRequestMeta),
       SECONDARY → WorkerGroupSettings(secondaryWorkerProps, secondaryWorkerCount, "sgw-", secondaryRequestMeta)

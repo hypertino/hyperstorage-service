@@ -11,7 +11,6 @@ import java.util.concurrent.ConcurrentLinkedQueue
 
 import akka.actor.{Actor, ActorRef, Props}
 import akka.testkit.TestActorRef
-import com.datastax.driver.core.utils.UUIDs
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperbus.serialization.SerializationOptions
@@ -341,13 +340,13 @@ class HyperStorageSpec extends FlatSpec
     worker ! primaryTask(path, patch)
     tk.expectTaskR[BackgroundContentTasksPost]()
     val result2 = expectMsgType[WorkerTaskResult]
-    transactionList += result2.result.get.asInstanceOf[Created[HyperStorageTransactionCreated]].body.transactionId
+    transactionList += result2.result.get.asInstanceOf[Ok[HyperStorageTransaction]].body.transactionId
 
     val delete = ContentDelete(path)
     worker ! primaryTask(path, delete)
     val (bgTask, br) = tk.expectTaskR[BackgroundContentTasksPost]()
     val workerResult = expectMsgType[WorkerTaskResult]
-    val r = workerResult.result.get.asInstanceOf[Created[HyperStorageTransactionCreated]]
+    val r = workerResult.result.get.asInstanceOf[Ok[HyperStorageTransaction]]
     r.headers.statusCode should equal(Status.OK)
     transactionList += r.body.transactionId
     // todo: list of transactions!s
@@ -357,11 +356,11 @@ class HyperStorageSpec extends FlatSpec
       result.get.transactionList
     }
 
-    val transactions = transactionList.map(UUID.fromString)
+    val transactionsUUIDs = transactionList.map(UUID.fromString)
 
-    transactions should equal(transactionsC.reverse)
+    transactionsUUIDs should equal(transactionsC.reverse)
 
-    selectTransactions(transactions, path, db) foreach { transaction ⇒
+    selectTransactions(transactionsUUIDs, path, db) foreach { transaction ⇒
       transaction.completedAt should be(None)
     }
 
@@ -370,7 +369,7 @@ class HyperStorageSpec extends FlatSpec
     val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
     val rc = backgroundWorkerResult.result.get.asInstanceOf[Ok[BackgroundContentTaskResult]]
     rc.body.documentUri should equal(path)
-    rc.body.transactions should equal(transactions)
+    rc.body.transactions should equal(transactionList)
 
     selectTransactions(rc.body.transactions.map(UUID.fromString), path, db) foreach { transaction ⇒
       transaction.completedAt shouldNot be(None)
@@ -420,7 +419,7 @@ class HyperStorageSpec extends FlatSpec
         }
     }
 
-    backgroundWorker ! bgTask
+    backgroundWorker ! bgTask.copy(expectsResult = true)
     expectMsgType[WorkerTaskResult].result.get shouldBe a[InternalServerError[_]]
     selectTransactions(transactionUuids, path, db) foreach {
       _.completedAt shouldBe None
@@ -436,7 +435,7 @@ class HyperStorageSpec extends FlatSpec
         }
     }
 
-    backgroundWorker ! bgTask
+    backgroundWorker ! bgTask.copy(expectsResult = true)
     expectMsgType[WorkerTaskResult].result.get shouldBe a[InternalServerError[_]]
     val mons = selectTransactions(transactionUuids, path, db)
 
@@ -444,8 +443,8 @@ class HyperStorageSpec extends FlatSpec
     mons.tail.head.completedAt shouldNot be(None)
 
     FaultClientTransport.checkers.clear()
-    backgroundWorker ! bgTask
-    expectMsgType[WorkerTaskResult].result shouldBe a[BackgroundContentTaskResult]
+    backgroundWorker ! bgTask.copy(expectsResult = true)
+    expectMsgType[WorkerTaskResult].result.get.body shouldBe a[BackgroundContentTaskResult]
     selectTransactions(transactionUuids, path, db) foreach {
       _.completedAt shouldNot be(None)
     }
@@ -482,7 +481,7 @@ class HyperStorageSpec extends FlatSpec
       import scala.collection.JavaConverters._
       val h = fakeProcessor.underlyingActor.otherMessages.asScala.head
       h shouldBe a[LocalTask] // from primary worker
-      h.asInstanceOf[LocalTask].request shouldBe BackgroundContentTasksPost
+      h.asInstanceOf[LocalTask].request shouldBe a[BackgroundContentTasksPost]
       h.asInstanceOf[LocalTask]
     }
 

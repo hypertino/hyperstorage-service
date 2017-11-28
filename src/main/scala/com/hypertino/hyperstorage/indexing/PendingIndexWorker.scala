@@ -95,7 +95,7 @@ class PendingIndexWorker(shardProcessor: ActorRef, indexKey: IndexDefTransaction
     val indexTask = LocalTask(
       key = indexDef.documentUri,
       group = HyperstorageWorkerSettings.SECONDARY,
-      ttl = IndexWorkerImpl.RETRY_PERIOD.toMillis,
+      ttl = System.currentTimeMillis() + IndexWorkerImpl.RETRY_PERIOD.toMillis,
       expectsResult = true, // todo: do we need to expecting result here?
       IndexContentTasksPost(
         IndexContentTask(

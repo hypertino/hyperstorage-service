@@ -615,7 +615,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       val bgTask = LocalTask(
         key = documentUri,
         group = HyperstorageWorkerSettings.SECONDARY,
-        ttl = backgroundTaskTimeout.toMillis + 1000,
+        ttl = System.currentTimeMillis() + backgroundTaskTimeout.toMillis + 1000,
         expectsResult = false,
         BackgroundContentTasksPost(BackgroundContentTask(documentUri)),
         extra = Null
