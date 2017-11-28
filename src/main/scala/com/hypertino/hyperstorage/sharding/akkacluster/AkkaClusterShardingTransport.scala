@@ -8,7 +8,7 @@
 
 package com.hypertino.hyperstorage.sharding.akkacluster
 
-import akka.actor.{Actor, ActorContext, ActorRef, ActorSelection, AddressFromURIString, Props, RootActorPath}
+import akka.actor.{Actor, ActorRef, AddressFromURIString, Props, RootActorPath}
 import akka.cluster.ClusterEvent._
 import akka.cluster.{Cluster, ClusterEvent}
 import com.hypertino.hyperbus.model.RequestBase

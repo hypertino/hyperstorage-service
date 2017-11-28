@@ -88,21 +88,26 @@ types:
       is_failed: boolean
       fail_reason?: string
 
-/node:
-  get:
-    responses:
-      200:
-        body:
-          application/json: Node
+#/node:
+#  get:
+#    responses:
+#      200:
+#        body:
+#          application/json: Node
 
 /nodes:
   post:
     body:
       application/json: Node
     responses:
-      200:
-        body:
-          application/json: NodeUpdated
+      202:
+
+/node-updates:
+  post:
+    body:
+      application/json: NodeUpdated
+    responses:
+      202:
       409:
 
 /tasks:

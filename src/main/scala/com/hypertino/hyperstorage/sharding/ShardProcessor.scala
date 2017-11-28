@@ -163,16 +163,15 @@ class ShardProcessor(clusterTransport: ClusterTransport,
   }
 
   whenUnhandled {
-    case Event(get: NodeGet, data) ⇒
-      implicit val mcx = get
-      sender() ! Ok(api.Node(data.selfId, data.selfStatus, data.clusterHash))
-      stay()
-
+//    case Event(get: NodeGet, data) ⇒
+//      implicit val mcx = get
+//      sender() ! Ok(api.Node(data.selfId, data.selfStatus, data.clusterHash))
+//      stay()
     case Event(sync: NodesPost, data) ⇒
       updateAndStay(incomingSync(sync, data))
 
-    case Event(Ok(syncReply: NodeUpdated, _), data) ⇒
-      updateAndStay(processReply(syncReply, data))
+    case Event(syncReply: NodeUpdatesPost, data) ⇒
+      updateAndStay(processReply(syncReply.body, data))
 
     case Event(TransportNodeUp(node), data) ⇒
       updateAndStay(addNode(node, data))
@@ -184,7 +183,7 @@ class ShardProcessor(clusterTransport: ClusterTransport,
       workerIsReadyForNextTask(wt, data)
       stay()
 
-    case Event(rr: TaskResultsPost, data) ⇒
+    case Event(rr: TaskResultsPost, _) ⇒
       handleRemoteTaskResult(rr.body)
       stay()
 
@@ -308,14 +307,15 @@ class ShardProcessor(clusterTransport: ClusterTransport,
         }
 
         if (allowSync) { // todo: zmq, new name for nodeStatuses? vs clusterNodes
-          val syncReply = Ok(NodeUpdated(data.selfId, stateName, sync.body.status, data.clusterHash))(MessagingContext.empty)
+          val syncReply = NodeUpdatesPost(NodeUpdated(data.selfId, stateName, sync.body.status, data.clusterHash))(MessagingContext.empty)
           logger.debug(s"Replying with $syncReply to $sender")
-          sender() ! syncReply
+          clusterTransport.fireMessage(sync.body.nodeId, syncReply)
         }
         newData
       } orElse {
         logger.error(s"Got $sync from unknown member. Current members: ${data.nodes}")
-        sender() ! Ok(NodeUpdated(data.selfId, stateName, NodeStatus.PASSIVE, data.clusterHash))(MessagingContext.empty)
+        val syncReply = NodeUpdatesPost(NodeUpdated(data.selfId, stateName, NodeStatus.PASSIVE, data.clusterHash))(MessagingContext.empty)
+        clusterTransport.fireMessage(sync.body.nodeId, syncReply)
         None
       }
     }
