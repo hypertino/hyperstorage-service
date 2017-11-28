@@ -53,6 +53,7 @@ trait CassandraFixture extends BeforeAndAfterAll with ScalaFutures with StrictLo
       import scala.collection.JavaConversions._
       val cleanDs = new ClassPathCQLDataSet("cleanup.cql", "hyper_storage_test")
       cleanDs.getCQLStatements.foreach(c ⇒ Cassandra.session.execute(c))
+      Thread.sleep(1000)
     }
   }
 
@@ -64,6 +65,7 @@ trait CassandraFixture extends BeforeAndAfterAll with ScalaFutures with StrictLo
 object Cassandra extends CassandraCQLUnit(
   new ClassPathCQLDataSet("schema.cql", "hyper_storage_test"), null, 60000l
 ) {
+  readTimeoutMillis = 30000
   //this.startupTimeoutMillis = 60000l
   lazy val start = {
     before()
