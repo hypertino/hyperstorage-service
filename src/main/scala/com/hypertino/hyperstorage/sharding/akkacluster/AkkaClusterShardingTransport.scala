@@ -8,7 +8,7 @@
 
 package com.hypertino.hyperstorage.sharding.akkacluster
 
-import akka.actor.{Actor, ActorRef, AddressFromURIString, Props, RootActorPath}
+import akka.actor.{Actor, ActorContext, ActorRef, ActorSelection, AddressFromURIString, Props, RootActorPath}
 import akka.cluster.ClusterEvent._
 import akka.cluster.{Cluster, ClusterEvent}
 import com.hypertino.hyperbus.model.RequestBase
@@ -42,6 +42,11 @@ class AkkaClusterShardingTransportActor(roleName: String) extends Actor with Str
     } catch  {
       case t: Throwable ⇒
         logger.error(s"Can't send transport message: $message", t)
+    }
+    case UnsubscribeFromEvents ⇒ {
+      context.unbecome
+      cluster.unsubscribe(self)
+      context.stop(self)
     }
   }
 }
