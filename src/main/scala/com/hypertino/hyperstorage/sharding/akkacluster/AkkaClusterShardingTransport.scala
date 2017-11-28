@@ -8,17 +8,18 @@
 
 package com.hypertino.hyperstorage.sharding.akkacluster
 
-import akka.actor.{Actor, ActorRef, ActorSelection, Props, RootActorPath}
+import akka.actor.{Actor, ActorContext, ActorRef, ActorSelection, AddressFromURIString, Props, RootActorPath}
 import akka.cluster.ClusterEvent._
-import akka.cluster.{Cluster, ClusterEvent, Member}
-import com.hypertino.hyperstorage.internal.api.NodeStatus
+import akka.cluster.{Cluster, ClusterEvent}
+import com.hypertino.hyperbus.model.RequestBase
 import com.hypertino.hyperstorage.sharding._
 import com.typesafe.scalalogging.StrictLogging
 
-private[akkacluster] case class AKNode(nodeId: String,
-                                       actorRef: ActorSelection) extends TransportNode
+private[akkacluster] case object SubscribeToEvents
+private[akkacluster] case object UnsubscribeFromEvents
+private[akkacluster] case class AKMessage(nodeId: String, message: RequestBase)
 
-class AkkaClusterShardingTransport(roleName: String) extends Actor with StrictLogging {
+class AkkaClusterShardingTransportActor(roleName: String) extends Actor with StrictLogging {
   private val cluster = Cluster(context.system)
   if (!cluster.selfRoles.contains(roleName)) {
     logger.error(s"Cluster doesn't contains '$roleName' role. Please configure.")
@@ -32,23 +33,33 @@ class AkkaClusterShardingTransport(roleName: String) extends Actor with StrictLo
   }
 
   def subscribed(subscriber: ActorRef): Receive = {
-    case MemberUp(member) if member.hasRole(roleName) ⇒ subscriber ! TransportNodeUp(akn(member))
+    case MemberUp(member) if member.hasRole(roleName) ⇒ subscriber ! TransportNodeUp(member.address.toString)
     case MemberExited(member) if member.hasRole(roleName) => subscriber ! TransportNodeDown(member.address.toString)
     case MemberRemoved(member, _) if member.hasRole(roleName) ⇒ subscriber ! TransportNodeDown(member.address.toString)
-    // case MemberLeft(member) ⇒ subscriber ! TransportNodeDown(member.address.toString) todo: zmq do we need this?
-
-    case TransportMessage(AKNode(_, actor), message) ⇒ actor forward message
-    //case DeliverTask(AKNode(_, actor), task) ⇒ actor forward task
-  }
-
-  private def akn(member: Member): AKNode = {
-    val actor = context.actorSelection(RootActorPath(member.address) / "user" / roleName)
-    AKNode(member.address.toString, actor)
+    case AKMessage(nodeId, message) ⇒ try {
+      val actor = context.actorSelection(RootActorPath(AddressFromURIString(nodeId)) / "user" / roleName)
+      actor ! message
+    } catch  {
+      case t: Throwable ⇒
+        logger.error(s"Can't send transport message: $message", t)
+    }
   }
 }
 
-object AkkaClusterShardingTransport {
+object AkkaClusterShardingTransportActor {
   def props(
              roleName: String
-           ) = Props(new AkkaClusterShardingTransport(roleName))
+           ) = Props(new AkkaClusterShardingTransportActor(roleName))
+}
+
+class AkkaClusterShardingTransport(transportActor: ActorRef) extends ClusterTransport {
+  override def subscribe(actor: ActorRef): Unit = {
+    transportActor.!(SubscribeToEvents)(actor)
+  }
+  override def unsubscribe(actor: ActorRef): Unit = {
+    transportActor.!(UnsubscribeFromEvents)(actor)
+  }
+  override def fireMessage(nodeId: String, message: RequestBase): Unit = {
+    transportActor ! AKMessage(nodeId, message)
+  }
 }

@@ -8,15 +8,15 @@
 
 package com.hypertino.hyperstorage.sharding
 
-trait TransportNode {
-  def nodeId: String
-}
+import akka.actor.ActorRef
+import com.hypertino.hyperbus.model.RequestBase
 
-sealed trait TransportNodeEvent
-case class TransportNodeUp(node: TransportNode) extends TransportNodeEvent
-case class TransportNodeDown(nodeId: String) extends TransportNodeEvent
-
-case class TransportMessage(node: TransportNode, message: Any)
+case class TransportNodeUp(nodeId: String) extends AnyVal
+case class TransportNodeDown(nodeId: String) extends AnyVal
 case class TransportStarted(nodeId: String)
 
-case object SubscribeToEvents
+trait ClusterTransport {
+  def subscribe(actor: ActorRef): Unit
+  def unsubscribe(actor: ActorRef): Unit
+  def fireMessage(nodeId: String, message: RequestBase)
+}

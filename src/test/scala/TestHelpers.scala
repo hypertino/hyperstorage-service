@@ -16,8 +16,7 @@ import com.datastax.driver.core.utils.UUIDs
 import com.hypertino.binders.value.{Null, Obj, Value}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model.annotations.{body, request}
-import com.hypertino.hyperbus.model.{BadGateway, Body, DefinedResponse, DynamicBody, DynamicResponse, MessagingContext, Method, Ok, Request, RequestBase, ServiceUnavailable, StandardResponse, Status}
-import com.hypertino.hyperbus.serialization.MessageReader
+import com.hypertino.hyperbus.model.{Body, DefinedResponse, MessagingContext, Method, Ok, Request, RequestBase, ServiceUnavailable}
 import com.hypertino.hyperbus.util.IdGenerator
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.db.{Db, Transaction}
@@ -25,7 +24,7 @@ import com.hypertino.hyperstorage.indexing.IndexManager
 import com.hypertino.hyperstorage.internal.api.NodeStatus
 import com.hypertino.hyperstorage.modules.{HyperStorageServiceModule, SystemServicesModule}
 import com.hypertino.hyperstorage.sharding._
-import com.hypertino.hyperstorage.sharding.akkacluster.AkkaClusterShardingTransport
+import com.hypertino.hyperstorage.sharding.akkacluster.{AkkaClusterShardingTransport, AkkaClusterShardingTransportActor}
 import com.hypertino.hyperstorage.workers.HyperstorageWorkerSettings
 import com.hypertino.hyperstorage.workers.primary.PrimaryExtra
 import com.hypertino.metrics.MetricsTracker
@@ -56,7 +55,8 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
   implicit def scheduler = inject [monix.execution.Scheduler]
 
   def createShardProcessor(groupName: String, workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
-    val clusterTransport = TestActorRef(AkkaClusterShardingTransport.props("hyperstorage"))
+    val clusterTransportRef = TestActorRef(AkkaClusterShardingTransportActor.props("hyperstorage"))
+    val clusterTransport = new AkkaClusterShardingTransport(clusterTransportRef)
     val workerSettings = Map(
       groupName → WorkerGroupSettings(Props[TestWorker], workerCount, "test-worker", Seq(TestShardTaskPost))
     )
@@ -83,7 +83,8 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     val indexManager = TestActorRef(IndexManager.props(hyperbus, db, tracker, 1))
     val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, indexManager, scheduler)
 
-    val clusterTransport = TestActorRef(AkkaClusterShardingTransport.props("hyperstorage"))
+    val clusterTransportRef = TestActorRef(AkkaClusterShardingTransportActor.props("hyperstorage"))
+    val clusterTransport = new AkkaClusterShardingTransport(clusterTransportRef)
     val processor = new TestFSMRef[String, ShardedClusterData, ShardProcessor](system,
       ShardProcessor.props(clusterTransport, workerSettings, tracker).withDispatcher("deque-dispatcher"),
       GuardianExtractor.guardian(system),

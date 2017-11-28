@@ -13,7 +13,7 @@ import java.io.StringReader
 import akka.actor._
 import akka.cluster.ClusterEvent._
 import com.hypertino.binders.value.{Null, Obj, Value}
-import com.hypertino.hyperbus.model.{Headers, MessagingContext, Ok, RequestBase, RequestHeaders, RequestMeta, RequestMetaCompanion, ResponseBase}
+import com.hypertino.hyperbus.model.{Headers, MessagingContext, Ok, Request, RequestBase, RequestHeaders, RequestMeta, RequestMetaCompanion, ResponseBase}
 import com.hypertino.hyperstorage.internal.api
 import com.hypertino.hyperstorage.internal.api._
 import com.hypertino.hyperstorage.metrics.Metrics
@@ -23,43 +23,39 @@ import com.typesafe.scalalogging.StrictLogging
 
 import scala.collection.mutable
 import scala.concurrent.duration._
-import scala.util.control.NonFatal
 
-@SerialVersionUID(1L) trait ShardTask {
+trait ShardTask {
   def key: String
-
   def group: String
-
   def ttl: Long
-
   def expectsResult: Boolean
-
   def isExpired: Boolean = ttl < System.currentTimeMillis()
+}
+
+trait RemoteTaskBase extends Request[RemoteTask] with ShardTask {
+  def key: String = body.key
+  def group: String = body.group
+  def ttl: Long = body.ttl
+  def expectsResult: Boolean = body.expectsResult
 }
 
 case class LocalTask(key: String, group: String, ttl: Long, expectsResult: Boolean, request: RequestBase, extra: Value) extends ShardTask
 
-//case class RemoteRTask(sourceNodeId: String, taskId: Long, key: String, group: String, ttl: Long, expectsResult: Boolean, task: ShardTask) extends ShardTask with Serializable
+case class NoSuchGroupWorkerException(groupName: String) extends RuntimeException(s"No such worker group: $groupName")
 
-//case class RemoteRTaskResult(taskId: Long, key: String, result: Any)
-
-@SerialVersionUID(1L) case class NoSuchGroupWorkerException(groupName: String) extends RuntimeException(s"No such worker group: $groupName")
-
-case class ShardNode(transportNode: TransportNode,
+case class ShardNode(nodeId: String,
                      status: String,
                      confirmedStatus: String)
 
-// todo: is this used?
 case class SubscribeToShardStatus(subscriber: ActorRef)
 
-// todo: is this used?
 case class UpdateShardStatus(self: ActorRef, status: String, stateData: ShardedClusterData)
 
 private[sharding] case object ShardSyncTimer
 
 case object ShutdownProcessor
 
-case class WorkerTaskResult(key: String, group: String, result: Option[ResponseBase], extra: Value) // r: Try[Option[ResponseBase]]
+case class WorkerTaskResult(key: String, group: String, result: Option[ResponseBase], extra: Value)
 
 object WorkerTaskResult{
   def apply(task: ShardTask, result: ResponseBase, extra:Value = Null): WorkerTaskResult = WorkerTaskResult(
@@ -85,7 +81,7 @@ case class WorkerGroupSettings(props: Props, maxCount: Int, prefix: String, meta
   }
 }
 
-private [sharding] case class ActiveWorkerRemoteData(nodeId: String, taskId: Long/*, meta: RequestMeta[_ <: RequestBase]*/)
+private [sharding] case class ActiveWorkerRemoteData(nodeId: String, taskId: Long)
 
 private [sharding] case class ActiveWorker(taskId: Long,
                                            workerActor: ActorRef,
@@ -93,13 +89,13 @@ private [sharding] case class ActiveWorker(taskId: Long,
                                            remoteData: Option[ActiveWorkerRemoteData]
                                           )
 
-class ShardProcessor(clusterTransport: ActorRef,
+class ShardProcessor(clusterTransport: ClusterTransport,
                      workersSettings: Map[String, WorkerGroupSettings],
                      tracker: MetricsTracker,
                      syncTimeout: FiniteDuration = 1000.millisecond)
   extends FSMEx[String, ShardedClusterData] with Stash with StrictLogging {
 
-  private val activeWorkers = workersSettings.keys.map { // todo: make this Map of Map!
+  private val activeWorkers = workersSettings.keys.map {
     _ → mutable.Map[String, ActiveWorker]()
   }.toMap
   private val shardStatusSubscribers = mutable.MutableList[ActorRef]()
@@ -111,7 +107,7 @@ class ShardProcessor(clusterTransport: ActorRef,
   private val trackForwardMeter = tracker.meter(Metrics.SHARD_PROCESSOR_FORWARD_METER)
   private var lastTaskId: Long = 0
 
-  clusterTransport ! SubscribeToEvents
+  clusterTransport.subscribe(self)
 
   startWith(NodeStatus.ACTIVATING, ShardedClusterData(Map.empty, "", NodeStatus.ACTIVATING))
 
@@ -153,6 +149,7 @@ class ShardProcessor(clusterTransport: ActorRef,
   when(NodeStatus.DEACTIVATING) {
     case Event(ShardSyncTimer, data) ⇒
       if (confirmStatus(data, NodeStatus.DEACTIVATING, isFirst = false)) {
+        clusterTransport.unsubscribe(self)
         confirmStatus(data, NodeStatus.PASSIVE, isFirst = false) // not reliable
         stop()
       }
@@ -174,7 +171,7 @@ class ShardProcessor(clusterTransport: ActorRef,
     case Event(sync: NodesPost, data) ⇒
       updateAndStay(incomingSync(sync, data))
 
-    case Event(syncReply: Ok[NodeUpdated] @unchecked, data) ⇒
+    case Event(Ok(syncReply: NodeUpdated, _), data) ⇒
       updateAndStay(processReply(syncReply, data))
 
     case Event(TransportNodeUp(node), data) ⇒
@@ -187,8 +184,8 @@ class ShardProcessor(clusterTransport: ActorRef,
       workerIsReadyForNextTask(wt, data)
       stay()
 
-    case Event(rr: RemoteTaskResult, data) ⇒
-      handleRemoteTaskResult(rr)
+    case Event(rr: TaskResultsPost, data) ⇒
+      handleRemoteTaskResult(rr.body)
       stay()
 
     case Event(task: ShardTask, data) ⇒
@@ -224,14 +221,14 @@ class ShardProcessor(clusterTransport: ActorRef,
     }
   }
 
-  private def introduceSelfTo(node: TransportNode, data: ShardedClusterData): Option[ShardedClusterData] = {
-    if (node.nodeId != data.selfId) {
+  private def introduceSelfTo(nodeId: String, data: ShardedClusterData): Option[ShardedClusterData] = {
+    if (nodeId != data.selfId) {
       // todo: zmq
-      val newData: ShardedClusterData = data + (node.nodeId → ShardNode(node, NodeStatus.PASSIVE, NodeStatus.PASSIVE))
+      val newData: ShardedClusterData = data + (nodeId → ShardNode(nodeId, NodeStatus.PASSIVE, NodeStatus.PASSIVE))
       val sync = NodesPost(Node(data.selfId, NodeStatus.ACTIVATING, newData.clusterHash))(MessagingContext.empty)
-      clusterTransport ! TransportMessage(node, sync)
+      clusterTransport.fireMessage(nodeId, sync)
       setSyncTimer()
-      logger.info(s"New member of shard cluster: $node. $sync was sent.")
+      logger.info(s"New member of shard cluster: $nodeId. $sync was sent.")
 
       Some(newData)
     }
@@ -246,15 +243,15 @@ class ShardProcessor(clusterTransport: ActorRef,
     setTimer("syncing", ShardSyncTimer, syncTimeout)
   }
 
-  private def processReply(syncReply: Ok[NodeUpdated], data: ShardedClusterData): Option[ShardedClusterData] = {
+  private def processReply(syncReply: NodeUpdated, data: ShardedClusterData): Option[ShardedClusterData] = {
     logger.debug(s"$syncReply received from $sender")
-    if (data.clusterHash != syncReply.body.clusterHash) {
+    if (data.clusterHash != syncReply.clusterHash) {
       logger.info(s"ClusterHash for ${data.selfId} (${data.clusterHash}) is not matched for $syncReply. SyncReply is ignored")
       None
     } else {
-      data.nodes.get(syncReply.body.sourceNodeId) map { node ⇒
-        data + (syncReply.body.sourceNodeId →
-          node.copy(status = syncReply.body.sourceStatus, confirmedStatus = syncReply.body.acceptedStatus))
+      data.nodes.get(syncReply.sourceNodeId) map { node ⇒
+        data + (syncReply.sourceNodeId →
+          node.copy(status = syncReply.sourceStatus, confirmedStatus = syncReply.acceptedStatus))
       } orElse {
         logger.warn(s"Got $syncReply from unknown node. Current nodes: ${data.nodes}")
         None
@@ -279,7 +276,7 @@ class ShardProcessor(clusterTransport: ActorRef,
       if (node.confirmedStatus != status) {
         syncedWithAllMembers = false
         val sync = NodesPost(Node(data.selfId, status, data.clusterHash))(MessagingContext.empty)
-        clusterTransport ! TransportMessage(node.transportNode, sync)
+        clusterTransport.fireMessage(node.nodeId, sync)
         setSyncTimer()
         if (!isFirst) {
           logger.debug(s"Didn't received reply from: $node. $sync was sent to.")
@@ -324,13 +321,12 @@ class ShardProcessor(clusterTransport: ActorRef,
     }
   }
 
-  private def addNode(node: TransportNode, data: ShardedClusterData): Option[ShardedClusterData] = {
-    if (node.nodeId != data.selfId) {
-      val newData = data + (node.nodeId → ShardNode(
-        node, NodeStatus.PASSIVE, NodeStatus.PASSIVE
+  private def addNode(nodeId: String, data: ShardedClusterData): Option[ShardedClusterData] = {
+    if (nodeId != data.selfId) {
+      val newData = data + (nodeId → ShardNode(
+        nodeId, NodeStatus.PASSIVE, NodeStatus.PASSIVE
       ))
-      logger.info(s"New node $node. State is unknown yet")
-      logger.debug(s"Node ${node.nodeId} is added")
+      logger.info(s"New node $nodeId. State is unknown yet")
       Some(newData)
     }
     else {
@@ -371,10 +367,10 @@ class ShardProcessor(clusterTransport: ActorRef,
                     logger.debug(s"Starting worker for task $task sent from ${sender()}")
                     val localTaskId = nextTaskId()
                     val (localTask, remoteData) = task match {
-                      case r: RemoteTask ⇒
-                        val req = deserializeRequest(r)
-                        val l = LocalTask(r.key, r.group, r.ttl, r.expectsResult, req, r.extra)
-                        (l, Some(ActiveWorkerRemoteData(r.sourceNodeId,r.taskId)))
+                      case r: TasksPost ⇒
+                        val req = deserializeRequest(r.body)
+                        val l = LocalTask(r.key, r.group, r.ttl, r.expectsResult, req, r.body.extra)
+                        (l, Some(ActiveWorkerRemoteData(r.body.sourceNodeId, r.body.taskId)))
 
                       case l: LocalTask ⇒ (l, None)
                     }
@@ -429,19 +425,20 @@ class ShardProcessor(clusterTransport: ActorRef,
     data.nodes.get(address) map { rvm ⇒
       logger.debug(s"Task is forwarded to $address: $task")
       clearExpiredRemoteTasks()
-      val remoteTask = task match {
-        case r: RemoteTask ⇒ r
+      val remoteTaskPost: TasksPost = task match {
+        case r: TasksPost ⇒ r
         case l: LocalTask ⇒
+          implicit val mcx = l.request
           val taskId = nextTaskId()
           val bodyString = l.request.body.serializeToString
-          val r = RemoteTask(data.selfId,taskId,l.key,l.group,l.ttl,l.expectsResult,Obj(l.request.headers.underlying.v),bodyString,l.extra)
+          val r = TasksPost(RemoteTask(data.selfId,taskId,l.key,l.group,l.ttl,l.expectsResult,Obj(l.request.headers.underlying.v),bodyString,l.extra))
           val requestMeta = workersSettings.get(l.group).map(_.lookupRequestMeta(l.request.headers)).getOrElse {
             throw new IllegalArgumentException(s"No settings are defined for a group ${l.group}")
           }
           remoteTasks += taskId → ExpectingRemoteResult(sender(), task.ttl, task.key, requestMeta)
           r
       }
-      clusterTransport ! TransportMessage(rvm.transportNode, remoteTask)
+      clusterTransport.fireMessage(rvm.nodeId, remoteTaskPost)
       true
     } getOrElse {
       logger.error(s"Task actor is not found: $address, dropping: $task")
@@ -477,8 +474,9 @@ class ShardProcessor(clusterTransport: ActorRef,
                   data.nodes.get(remoteData.nodeId) match {
                     case Some(rvm) ⇒
                       logger.debug(s"Forwarding result $result to source node ${remoteData.nodeId}")
-                      val r = RemoteTaskResult(remoteData.taskId, Obj(result.headers.v), result.body.serializeToString, workerTaskResult.extra)
-                      clusterTransport ! TransportMessage(rvm.transportNode, r)
+                      implicit val mcx = MessagingContext.empty
+                      val r = TaskResultsPost(RemoteTaskResult(remoteData.taskId, Obj(result.headers.v), result.body.serializeToString, workerTaskResult.extra))
+                      clusterTransport.fireMessage(rvm.nodeId, r)
 
                     case None ⇒
                       logger.error(s"Dropping result $workerTaskResult, didn't found source node ${remoteData.nodeId}")
@@ -558,7 +556,7 @@ class ShardProcessor(clusterTransport: ActorRef,
 
 object ShardProcessor {
   def props(
-             clusterTransport: ActorRef,
+             clusterTransport: ClusterTransport,
              workersSettings: Map[String, WorkerGroupSettings],
              tracker: MetricsTracker,
              syncTimeout: FiniteDuration = 1000.millisecond // todo: move to config!

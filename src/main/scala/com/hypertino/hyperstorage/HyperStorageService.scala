@@ -16,11 +16,9 @@ import com.hypertino.hyperstorage.db.Db
 import com.hypertino.hyperstorage.indexing.IndexManager
 import com.hypertino.hyperstorage.metrics.MetricsReporter
 import com.hypertino.hyperstorage.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
-import com.hypertino.hyperstorage.sharding.akkacluster.AkkaClusterShardingTransport
-import com.hypertino.hyperstorage.sharding.{ShardProcessor, ShutdownProcessor, SubscribeToShardStatus, WorkerGroupSettings}
+import com.hypertino.hyperstorage.sharding.akkacluster.{AkkaClusterShardingTransport, AkkaClusterShardingTransportActor}
+import com.hypertino.hyperstorage.sharding.{ShardProcessor, ShutdownProcessor, SubscribeToShardStatus}
 import com.hypertino.hyperstorage.workers.HyperstorageWorkerSettings
-import com.hypertino.hyperstorage.workers.primary.PrimaryWorker
-import com.hypertino.hyperstorage.workers.secondary.SecondaryWorker
 import com.hypertino.metrics.MetricsTracker
 import com.hypertino.service.control.api.Service
 import com.typesafe.config.Config
@@ -96,11 +94,12 @@ class HyperStorageService(implicit val scheduler: Scheduler,
     backgroundTaskTimeout, indexManagerRef, scheduler)
 
   // shard shard cluster transport
-  private val shardTransportRef = actorSystem.actorOf(AkkaClusterShardingTransport.props("hyperstorage"))
+  private val shardTransportRef = actorSystem.actorOf(AkkaClusterShardingTransportActor.props("hyperstorage"))
+  private val shardTransport = new AkkaClusterShardingTransport(shardTransportRef)
 
   // shard processor actor
   private val shardProcessorRef = actorSystem.actorOf(
-    ShardProcessor.props(shardTransportRef, workerSettings, tracker, shardSyncTimeout), "hyperstorage"
+    ShardProcessor.props(shardTransport, workerSettings, tracker, shardSyncTimeout), "hyperstorage"
   )
 
   private val hyperbusAdapter = new HyperbusAdapter(hyperbus, shardProcessorRef, db, tracker, requestTimeout)

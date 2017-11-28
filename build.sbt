@@ -4,7 +4,7 @@ organization := "com.hypertino"
 
 version := "0.6.1-SNAPSHOT"
 
-crossScalaVersions := Seq("2.12.3", "2.11.11")
+crossScalaVersions := Seq("2.12.4", "2.11.12")
 
 scalaVersion := crossScalaVersions.value.head
 
@@ -29,7 +29,7 @@ ramlHyperbusSources := Seq(
       packageName = "com.hypertino.hyperstorage.internal.api",
       isResource = false,
       baseClasses = Map(
-        "RemoteTask" → Seq("com.hypertino.hyperstorage.sharding.ShardTask")
+        "TasksPost" → Seq("com.hypertino.hyperstorage.sharding.RemoteTaskBase")
       )
   )
 )

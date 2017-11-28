@@ -27,8 +27,6 @@ import org.scalatest.{FlatSpec, FreeSpec, Matchers}
 
 import scala.concurrent.duration._
 
-case class TestTransportNode(nodeId: String) extends TransportNode
-
 class RecoveryWorkersSpec extends FlatSpec
   with Matchers
   with ScalaFutures
@@ -70,7 +68,7 @@ class RecoveryWorkersSpec extends FlatSpec
     val hotWorker = TestActorRef(hotWorkerProps)
     val selfAddress = Address("tcp", "127.0.0.1")
     val shardData = ShardedClusterData(Map(
-      selfAddress.toString → ShardNode(TestTransportNode(selfAddress.toString), NodeStatus.ACTIVE, NodeStatus.ACTIVE)
+      selfAddress.toString → ShardNode(selfAddress.toString, NodeStatus.ACTIVE, NodeStatus.ACTIVE)
     ), selfAddress.toString, NodeStatus.ACTIVE)
 
     // start recovery check
@@ -125,7 +123,7 @@ class RecoveryWorkersSpec extends FlatSpec
     val hotWorker = TestActorRef(staleWorkerProps)
     val selfAddress = Address("tcp", "127.0.0.1")
     val shardData = ShardedClusterData(Map(
-      selfAddress.toString → ShardNode(TestTransportNode(selfAddress.toString), NodeStatus.ACTIVE, NodeStatus.ACTIVE)
+      selfAddress.toString → ShardNode(selfAddress.toString, NodeStatus.ACTIVE, NodeStatus.ACTIVE)
     ), selfAddress.toString, NodeStatus.ACTIVE)
 
     // start recovery check
