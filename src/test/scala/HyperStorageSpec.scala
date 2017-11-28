@@ -489,9 +489,9 @@ class HyperStorageSpec extends FlatSpec
     createTask.isCompleted shouldBe false
 
     val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
-    backgroundWorker ! backgroundWorkerTask
+    backgroundWorker ! backgroundWorkerTask.copy(expectsResult = true)
     val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
-    backgroundWorkerResult.result shouldBe a[BackgroundContentTaskResult]
+    backgroundWorkerResult.result.get.body shouldBe a[BackgroundContentTaskResult]
 
     selectTransactions(Seq(tr1), path, db) foreach { transaction ⇒
       transaction.completedAt shouldNot be(None)
@@ -502,18 +502,18 @@ class HyperStorageSpec extends FlatSpec
 }
 
 class FakeProcessor(primaryWorker: ActorRef) extends Actor {
-  var adapter: ActorRef = null
+  var client: ActorRef = null
   var otherMessages = new ConcurrentLinkedQueue[Any]()
 
   def receive: Receive = {
     case r: LocalTask if r.request.isInstanceOf[PrimaryWorkerRequest] ⇒
-      adapter = sender()
+      client = sender()
       println("got from" + sender() + s", self: $self: " + r)
       primaryWorker ! r
 
     case WorkerTaskResult(_, _, r, _) if r.isDefined && r.get.body.isInstanceOf[HyperStorageTransactionCreated] ⇒
-      println("got from" + sender() + s", self: $self, forwarding to $adapter: " + r)
-      adapter forward r
+      println("got from" + sender() + s", self: $self, forwarding to $client: " + r.get)
+      client forward r.get
 
     case r ⇒
       println("got unknown from" + sender() + s", self: $self: " + r)

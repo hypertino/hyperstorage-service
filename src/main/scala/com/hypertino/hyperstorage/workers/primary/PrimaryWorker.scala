@@ -43,6 +43,10 @@ trait PrimaryWorkerRequest extends Request[DynamicBody] {
   def path: String
 }
 
+trait HyperStorageTransactionBase extends Body {
+  def transactionId: String
+}
+
 private [primary] case class PrimaryWorkerTaskFailed(task: ShardTask, inner: Throwable)
 
 private [primary] case class PrimaryWorkerTaskCompleted(task: ShardTask, transaction: Transaction, resourceCreated: Boolean)
@@ -76,7 +80,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
         case request: ViewPut ⇒
           val newHeaders = MessageHeaders.builder
             .++=(request.headers)
-            .+=(TransactionLogic.HB_HEADER_TEMPLATE_URI → request.body.templateUri.toValue)
+            .+=(TransactionLogic.HB_HEADER_VIEW_TEMPLATE_URI → request.body.templateUri.toValue)
             .+=(TransactionLogic.HB_HEADER_FILTER → request.body.filter.toValue)
             .requestHeaders()
 

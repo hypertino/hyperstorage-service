@@ -81,18 +81,21 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
           Task.sequence{
             incompleteTransactions.map { it ⇒
               val event = it.unwrappedBody
-              val viewTask: Task[Unit] = event.headers.hrl.location match {
-                case l if l == ViewPut.location ⇒
-                  val templateUri = event.headers.getOrElse(TransactionLogic.HB_HEADER_TEMPLATE_URI, Null).toString
+              val viewTask: Task[Unit] = {
+                event.headers.get(TransactionLogic.HB_HEADER_VIEW_TEMPLATE_URI).map { templateUri ⇒
                   val filter = event.headers.getOrElse(TransactionLogic.HB_HEADER_FILTER, Null) match {
                     case Null ⇒ None
                     case other ⇒ Some(other.toString)
                   }
-                  Task.fromFuture(db.insertViewDef(ViewDef(key = "*", request.body.documentUri, templateUri, filter)))
-                case l if l == ViewDelete.location ⇒
-                  Task.fromFuture(db.deleteViewDef(key = "*", request.body.documentUri))
-                case _ ⇒
-                  Task.unit
+                  Task.fromFuture(db.insertViewDef(ViewDef(key = "*", request.body.documentUri, templateUri.toString, filter)))
+                } getOrElse {
+                  if (event.headers.hrl.location == ViewDelete.location) {
+                    Task.fromFuture(db.deleteViewDef(key = "*", request.body.documentUri))
+                  }
+                  else {
+                    Task.unit
+                  }
+                }
               }
 
               viewTask

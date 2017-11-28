@@ -32,7 +32,7 @@ import monix.execution.{Ack, Cancelable, Scheduler}
 import monix.execution.Ack.Continue
 import com.hypertino.hyperstorage.utils.{ErrorCode, Sort, SortBy}
 import com.hypertino.hyperstorage.workers.HyperstorageWorkerSettings
-import com.hypertino.hyperstorage.workers.primary.{PrimaryExtra, PrimaryWorkerRequest}
+import com.hypertino.hyperstorage.workers.primary.{HyperStorageTransactionBase, PrimaryExtra, PrimaryWorkerRequest}
 import com.typesafe.scalalogging.StrictLogging
 
 import scala.concurrent.Future
@@ -124,13 +124,13 @@ class HyperbusAdapter(hyperbus: Hyperbus,
     // todo: what happens when error is returned
     val primaryTask = Task.fromFuture {
       implicit val timeout: akka.util.Timeout = requestTimeout
-      (hyperStorageProcessor ? task).asInstanceOf[Future[DynamicResponse]]
+      (hyperStorageProcessor ? task).asInstanceOf[Future[Response[HyperStorageTransactionBase]]]
     }
 
     primaryTask.flatMap { result ⇒
       if ((result.headers.statusCode == Ok.statusCode || result.headers.statusCode == Created.statusCode) &&
         request.headers.get(HyperStorageHeader.HYPER_STORAGE_WAIT).contains(Text("full"))) {
-        val transactionId = result.body.content.dynamic.transaction_id.toString()
+        val transactionId = result.body.transactionId
         waitForTransaction(transactionId).map(_ ⇒ result)
       }
       else {

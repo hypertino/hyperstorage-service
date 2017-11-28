@@ -106,7 +106,7 @@ class CollectionsSpec extends FlatSpec
     val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
     val rc = backgroundWorkerResult.result.get.asInstanceOf[Ok[BackgroundContentTaskResult]]
     rc.body.documentUri should equal(collection)
-    rc.body.transactions should equal(content2.get.transactionList.reverse)
+    rc.body.transactions should equal(content2.get.transactionList.reverse.map(_.toString))
 
     eventually {
       db.selectContentStatic(collection).futureValue.get.transactionList shouldBe empty
@@ -171,7 +171,7 @@ class CollectionsSpec extends FlatSpec
     }
 
     whenReady(db.selectContent(documentUri, itemId)) { result =>
-      result.get.body should equal(Some(s"""{"id":"$itemId","text3":"zzz","text1":"efg"}"""))
+      result.get.body should equal(Some(s"""{"id":"$itemId","text1":"efg","text3":"zzz"}"""))
       result.get.modifiedAt shouldBe None
       result.get.documentUri should equal(documentUri)
       result.get.itemId should equal(itemId)
