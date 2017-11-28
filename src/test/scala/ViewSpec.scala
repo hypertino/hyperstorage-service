@@ -250,6 +250,8 @@ class ViewSpec extends FlatSpec
       .runAsync
       .futureValue shouldBe a[Created[_]]
 
+    db.selectContentStatic("abcs~").futureValue.head.isView should contain(true)
+
     eventually {
       val h = db.selectViewDefs().futureValue.toSeq.head
       h.documentUri shouldBe "abcs~"

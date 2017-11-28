@@ -133,31 +133,14 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 
         case Method.PUT ⇒
           if (itemId.isEmpty) {
-//            if (ContentLogic.isCollectionUri(documentUri) && itemId.isEmpty && request.headers.hrl.location == ViewPut.location) {
-//              // todo: validate template_uri & filter
-//              val newHeaders = Headers(
-//                TransactionLogic.HB_HEADER_TEMPLATE_URI → request.body.content.dynamic.template_uri,
-//                TransactionLogic.HB_HEADER_FILTER → request.body.content.dynamic.filter
-//              )
-//              (documentUri, itemId, None,
-//                ContentPut(
-//                  path=request.path,
-//                  body=DynamicBody(Null),
-//                  headers=newHeaders,
-//                  query = request.headers.hrl.query
-//                )
-//              )
-//            }
-//            else {
-              (documentUri, itemId, None,
-                ContentPut(
-                  path=request.path,
-                  body=filterNulls(request.body),
-                  headers=request.headers.underlying,
-                  query = request.headers.hrl.query
-                )
+            (documentUri, itemId, None,
+              ContentPut(
+                path=request.path,
+                body=filterNulls(request.body),
+                headers=request.headers.underlying,
+                query = request.headers.hrl.query
               )
-//            }
+            )
           }
           else {
             val idFieldName = ContentLogic.getIdFieldName(documentUri)
@@ -247,7 +230,8 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
     if (existingContentStatic.exists(_.isView.contains(true))
       && !isInternalOperation
       && (request.headers.hrl.location != ViewPut.location ||
-      request.headers.hrl.location != ViewDelete.location)
+      request.headers.hrl.location != ViewDelete.location ||
+      !request.headers.contains(TransactionLogic.HB_HEADER_VIEW_TEMPLATE_URI))
     ) Future.failed {
       Conflict(ErrorBody(ErrorCode.VIEW_MODIFICATION, Some(s"Can't modify view: $documentUri")))
     }
@@ -405,7 +389,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
           transactionList = List(newTransaction.uuid),
           isDeleted = existingContent.flatMap(_.isDeleted.map(_ ⇒ false)),
           count = newCount,
-          isView = if (request.headers.hrl.location == ViewPut.location) Some(true) else None,
+          isView = if (request.headers.contains(TransactionLogic.HB_HEADER_VIEW_TEMPLATE_URI)) Some(true) else None,
           body = newBody,
           createdAt = existingContent.map(_.createdAt).getOrElse(new Date),
           modifiedAt = existingContent.flatMap(_.modifiedAt),
@@ -414,7 +398,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
         )
 
       case Some(static) ⇒
-        if (request.headers.hrl.location == ViewPut.location && !static.isView.contains(true)) {
+        if (request.headers.contains(TransactionLogic.HB_HEADER_VIEW_TEMPLATE_URI) && !static.isView.contains(true)) {
           throw Conflict(ErrorBody(ErrorCode.COLLECTION_VIEW_CONFLICT, Some(s"Can't put view over existing collection")))
         }
         val newCount = if (isCollection) {
