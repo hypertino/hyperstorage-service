@@ -51,7 +51,7 @@ libraryDependencies ++= Seq(
   "com.hypertino"               %% "service-metrics"              % "0.3.0",
   "com.hypertino"               %% "typesafe-config-binders"      % "0.2.0",
 
-  "com.hypertino"               %% "hyperbus"                     % "0.4-SNAPSHOT",
+  "com.hypertino"               %% "hyperbus"                     % "0.5-SNAPSHOT",
 //  "com.hypertino"               %% "hyperbus-t-kafka"             % "0.2-SNAPSHOT",
   "com.hypertino"               %% "hyperbus-t-zeromq"            % "0.4-SNAPSHOT",
 

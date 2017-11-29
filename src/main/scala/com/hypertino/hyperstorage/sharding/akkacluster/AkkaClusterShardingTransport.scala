@@ -11,7 +11,7 @@ package com.hypertino.hyperstorage.sharding.akkacluster
 import akka.actor.{Actor, ActorContext, ActorRef, ActorSelection, AddressFromURIString, Props, RootActorPath}
 import akka.cluster.ClusterEvent._
 import akka.cluster.{Cluster, ClusterEvent}
-import com.hypertino.hyperbus.model.RequestBase
+import com.hypertino.hyperbus.model.{RequestBase, RequestMeta}
 import com.hypertino.hyperstorage.sharding._
 import com.typesafe.scalalogging.StrictLogging
 
@@ -64,7 +64,7 @@ class AkkaClusterShardingTransport(transportActor: ActorRef) extends ClusterTran
   override def unsubscribe(actor: ActorRef): Unit = {
     transportActor.!(UnsubscribeFromEvents)(actor)
   }
-  override def fireMessage(nodeId: String, message: RequestBase): Unit = {
+  override def fireMessage[T <: RequestBase](nodeId: String, message: T)(implicit requestMeta: RequestMeta[T]): Unit = {
     transportActor ! AKMessage(nodeId, message)
   }
 }
