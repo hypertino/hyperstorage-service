@@ -17,6 +17,7 @@ import com.hypertino.hyperstorage.indexing.IndexManager
 import com.hypertino.hyperstorage.metrics.MetricsReporter
 import com.hypertino.hyperstorage.recovery.{HotRecoveryWorker, ShutdownRecoveryWorker, StaleRecoveryWorker}
 import com.hypertino.hyperstorage.sharding.akkacluster.{AkkaClusterTransport, AkkaClusterTransportActor}
+import com.hypertino.hyperstorage.sharding.consulzmq.ZMQCClusterTransport
 import com.hypertino.hyperstorage.sharding.{ShardProcessor, ShutdownProcessor, SubscribeToShardStatus}
 import com.hypertino.hyperstorage.workers.HyperstorageWorkerSettings
 import com.hypertino.metrics.MetricsTracker
@@ -40,8 +41,9 @@ case class HyperStorageConfig(
                                hotRecovery: FiniteDuration,
                                hotRecoveryRetry: FiniteDuration,
                                staleRecovery: FiniteDuration,
-                               staleRecoveryRetry: FiniteDuration
-                        )
+                               staleRecoveryRetry: FiniteDuration,
+                               clusterManager: String
+                             )
 
 class HyperStorageService(implicit val scheduler: Scheduler,
                           implicit val injector: Injector) extends Service with Injectable with StrictLogging {
@@ -50,13 +52,16 @@ class HyperStorageService(implicit val scheduler: Scheduler,
 
   // configuration
   private val config: Config = inject[Config]
-  private val connector: CassandraConnector = inject[CassandraConnector]
+  logger.info(s"Hyperstorage configuration: $config")
 
   import com.hypertino.binders.config.ConfigBinders._
-
   private val serviceConfig = config.getValue("hyperstorage").read[HyperStorageConfig]
 
-  logger.info(s"Hyperstorage configuration: $config")
+  private val zmqClusterManager: Boolean = if (serviceConfig.clusterManager == "zmqc") true
+  else if (serviceConfig.clusterManager == "akka-cluster") false
+  else throw new RuntimeException(s"Invalid cluster-manager specified: ${serviceConfig.clusterManager}")
+
+  private val connector: CassandraConnector = inject[CassandraConnector]
 
   // metrics tracker
   private val tracker = inject[MetricsTracker]
@@ -69,7 +74,13 @@ class HyperStorageService(implicit val scheduler: Scheduler,
   private val hyperbus = inject[Hyperbus]
 
   // currently we rely on the name of system
-  private val actorSystem = ActorSystem("hyperstorage", config.getConfig("hyperstorage.actor-system"))
+  private val actorSystem = if (zmqClusterManager) {
+    ActorSystem("hyperstorage", config.getConfig("hyperstorage.regular-actor-system"))
+  }
+  else {
+    ActorSystem("hyperstorage", config.getConfig("hyperstorage.cluster-actor-system"))
+  }
+
   // ActorSystemRegistry.get("eu-inn").get
   private val cluster = Cluster(actorSystem)
 
@@ -94,8 +105,14 @@ class HyperStorageService(implicit val scheduler: Scheduler,
     backgroundTaskTimeout, indexManagerRef, scheduler)
 
   // shard shard cluster transport
-  private val shardTransportRef = actorSystem.actorOf(AkkaClusterTransportActor.props("hyperstorage"))
-  private val shardTransport = new AkkaClusterTransport(shardTransportRef)
+  private val shardTransport = if (zmqClusterManager) {
+    new ZMQCClusterTransport(
+      config.getConfig(s"hyperstorage.zmq-cluster-manager")
+    )
+  } else {
+    val shardTransportRef = actorSystem.actorOf(AkkaClusterTransportActor.props("hyperstorage"))
+    new AkkaClusterTransport(shardTransportRef)
+  }
 
   // shard processor actor
   private val shardProcessorRef = actorSystem.actorOf(
@@ -146,6 +163,13 @@ class HyperStorageService(implicit val scheduler: Scheduler,
         db.close()
       }
       .recover(logException("ActorSystem didn't stopped gracefully"))
+      .map { _ ⇒
+        if (zmqClusterManager) {
+          logger.info(s"Stopping ZMQCClusterTransport...")
+          clusterManager.asInstanceOf[ZMQCClusterTransport].close()
+        }
+      }
+      .recover(logException("ZMQCClusterTransport didn't stopped gracefully"))
       .map { _ ⇒
         logger.info("Hyperstorage stopped.")
       }
