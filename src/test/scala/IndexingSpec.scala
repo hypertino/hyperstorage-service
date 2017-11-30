@@ -41,20 +41,20 @@ class IndexingSpecMaterialized extends FlatSpec
     val f2 = hyperbus.ask(IndexPost(path, HyperStorageIndexNew(Some("index1"), Seq.empty, None, materialize=Some(materialize)))).runAsync
     f2.futureValue.headers.statusCode should equal(Status.CREATED)
 
-    val indexDef = db.selectIndexDef("collection-1~", "index1").futureValue
+    val indexDef = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
     indexDef shouldBe defined
     indexDef.get.documentUri shouldBe "collection-1~"
     indexDef.get.indexId shouldBe "index1"
     indexDef.get.materialize shouldBe materialize
 
     eventually {
-      val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+      val indexDefUp = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
       indexDefUp shouldBe defined
       indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
     }
 
     eventually {
-      val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+      val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent.size shouldBe 1
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
@@ -73,7 +73,7 @@ class IndexingSpecMaterialized extends FlatSpec
     f3.futureValue.headers.statusCode should equal(Status.CREATED)
 
     eventually {
-      val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+      val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent.size shouldBe 2
       indexContent(1).documentUri shouldBe "collection-1~"
       indexContent(1).itemId shouldBe "item2"
@@ -116,20 +116,20 @@ class IndexingSpecMaterialized extends FlatSpec
     ))).runAsync
     fi.futureValue.headers.statusCode should equal(Status.CREATED)
 
-    val indexDef = db.selectIndexDef("collection-1~", "index1").futureValue
+    val indexDef = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
     indexDef shouldBe defined
     indexDef.get.documentUri shouldBe "collection-1~"
     indexDef.get.indexId shouldBe "index1"
     indexDef.get.materialize shouldBe materialize
 
     eventually {
-      val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+      val indexDefUp = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
       indexDefUp shouldBe defined
       indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
     }
 
     eventually {
-      val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+      val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent.size shouldBe 1
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
@@ -151,7 +151,7 @@ class IndexingSpecMaterialized extends FlatSpec
     f3.futureValue.headers.statusCode should equal(Status.CREATED)
 
     eventually {
-      val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+      val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent.size shouldBe 2
       indexContent(1).documentUri shouldBe "collection-1~"
       indexContent(1).itemId shouldBe "item3"
@@ -162,9 +162,9 @@ class IndexingSpecMaterialized extends FlatSpec
         indexContent(1).body shouldBe None
     }
 
-//    removeContent("collection-1~", "item1").futureValue
-//    removeContent("collection-1~", "item2").futureValue
-//    removeContent("collection-1~", "item3").futureValue
+//    removeContent("collection-1~", "item1").runAsync.futureValue
+//    removeContent("collection-1~", "item2").runAsync.futureValue
+//    removeContent("collection-1~", "item3").runAsync.futureValue
 
     import com.hypertino.hyperstorage.utils.Sort._
     val f4 = hyperbus.ask(ContentGet(
@@ -208,13 +208,13 @@ class IndexingSpecMaterialized extends FlatSpec
     fi2.futureValue.headers.statusCode should equal(Status.CREATED)
 
     eventually {
-      val indexDefUp1 = db.selectIndexDef("collection-1~", "index1").futureValue
+      val indexDefUp1 = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
       indexDefUp1 shouldBe defined
       indexDefUp1.get.status shouldBe IndexDef.STATUS_NORMAL
     }
 
     eventually {
-      val indexDefUp2 = db.selectIndexDef("collection-1~", "index2").futureValue
+      val indexDefUp2 = db.selectIndexDef("collection-1~", "index2").runAsync.futureValue
       indexDefUp2 shouldBe defined
       indexDefUp2.get.status shouldBe IndexDef.STATUS_NORMAL
     }
@@ -222,7 +222,7 @@ class IndexingSpecMaterialized extends FlatSpec
     eventually {
       val indexContent1 = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
         "item_id", "", FilterGt
-      )), Seq.empty, 10).futureValue.toSeq
+      )), Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent1.size shouldBe 1
       indexContent1.head.documentUri shouldBe "collection-1~"
       indexContent1.head.itemId shouldBe "item1"
@@ -237,7 +237,7 @@ class IndexingSpecMaterialized extends FlatSpec
     eventually {
       val indexContent2 = db.selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq(FieldFilter(
         "t0", "", FilterGt
-      )), Seq.empty, 10).futureValue.toSeq
+      )), Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent2.size shouldBe 1
       indexContent2.head.documentUri shouldBe "collection-1~"
       indexContent2.head.itemId shouldBe "item1"
@@ -255,14 +255,14 @@ class IndexingSpecMaterialized extends FlatSpec
     eventually {
       val indexContent1 = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
         "item_id", "", FilterGt
-      )), Seq.empty, 10).futureValue.toSeq
+      )), Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent1 shouldBe empty
     }
 
     eventually {
       val indexContent2 = db.selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq(FieldFilter(
         "t0", "", FilterGt
-      )), Seq.empty, 10).futureValue.toSeq
+      )), Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent2 shouldBe empty
     }
   }
@@ -287,13 +287,13 @@ class IndexingSpecMaterialized extends FlatSpec
     fi2.futureValue.headers.statusCode should equal(Status.CREATED)
 
     eventually {
-      val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+      val indexDefUp = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
       indexDefUp shouldBe defined
       indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
     }
 
     eventually {
-      val indexDefUp2 = db.selectIndexDef("collection-1~", "index2").futureValue
+      val indexDefUp2 = db.selectIndexDef("collection-1~", "index2").runAsync.futureValue
       indexDefUp2 shouldBe defined
       indexDefUp2.get.status shouldBe IndexDef.STATUS_NORMAL
     }
@@ -301,7 +301,7 @@ class IndexingSpecMaterialized extends FlatSpec
     eventually {
       val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
         "item_id", "", FilterGt
-      )), Seq.empty, 10).futureValue.toSeq
+      )), Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent.size shouldBe 1
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
@@ -317,7 +317,7 @@ class IndexingSpecMaterialized extends FlatSpec
     eventually {
       val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq(FieldFilter(
         "t0", "", FilterGt
-      )), Seq.empty, 10).futureValue.toSeq
+      )), Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent.size shouldBe 1
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
@@ -338,7 +338,7 @@ class IndexingSpecMaterialized extends FlatSpec
     eventually {
       val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
         "item_id", "", FilterGt
-      )), Seq.empty, 10).futureValue.toSeq
+      )), Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent.size shouldBe 1
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
@@ -357,7 +357,7 @@ class IndexingSpecMaterialized extends FlatSpec
     eventually {
       val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq(FieldFilter(
         "t0", "", FilterGt
-      )), Seq.empty, 10).futureValue.toSeq
+      )), Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent.size shouldBe 1
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
@@ -379,14 +379,14 @@ class IndexingSpecMaterialized extends FlatSpec
     eventually {
       val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
         "item_id", "", FilterGt
-      )), Seq.empty, 10).futureValue.toSeq
+      )), Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent shouldBe empty
     }
 
     eventually {
       val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index1", Seq(FieldFilter(
         "t0", "", FilterGt
-      )), Seq.empty, 10).futureValue.toSeq
+      )), Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent shouldBe empty
     }
 
@@ -428,13 +428,13 @@ class IndexingSpecMaterialized extends FlatSpec
     fi2.futureValue.statusCode should equal(Status.CREATED)
 
     eventually {
-      val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+      val indexDefUp = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
       indexDefUp shouldBe defined
       indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
     }
 
     eventually {
-      val indexDefUp = db.selectIndexDef("collection-1~", "index2").futureValue
+      val indexDefUp = db.selectIndexDef("collection-1~", "index2").runAsync.futureValue
       indexDefUp shouldBe defined
       indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
     }
@@ -442,7 +442,7 @@ class IndexingSpecMaterialized extends FlatSpec
     eventually {
       val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
         "item_id", "", FilterGt
-      )), Seq.empty, 10).futureValue.toSeq
+      )), Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent.size shouldBe 1
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
@@ -458,7 +458,7 @@ class IndexingSpecMaterialized extends FlatSpec
     eventually {
       val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq(FieldFilter(
         "t0", "", FilterGt
-      )), Seq.empty, 10).futureValue.toSeq
+      )), Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent.size shouldBe 1
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
@@ -479,7 +479,7 @@ class IndexingSpecMaterialized extends FlatSpec
     eventually {
       val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
         "item_id", "", FilterGt
-      )), Seq.empty, 10).futureValue.toSeq
+      )), Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent.size shouldBe 1
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
@@ -497,7 +497,7 @@ class IndexingSpecMaterialized extends FlatSpec
     eventually {
       val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq(FieldFilter(
         "t0", "", FilterGt
-      )), Seq.empty, 10).futureValue.toSeq
+      )), Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent.size shouldBe 1
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
@@ -519,14 +519,14 @@ class IndexingSpecMaterialized extends FlatSpec
     eventually {
       val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
         "item_id", "", FilterGt
-      )), Seq.empty, 10).futureValue.toSeq
+      )), Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent shouldBe empty
     }
 
     eventually {
       val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index2", Seq(FieldFilter(
         "t0", "", FilterGt
-      )), Seq.empty, 10).futureValue.toSeq
+      )), Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent shouldBe empty
     }
   }
@@ -544,20 +544,20 @@ class IndexingSpecMaterialized extends FlatSpec
       Seq(HyperStorageIndexSortItem("b", order = Some("asc"), fieldType = Some("decimal"))), Some("b > 10"),materialize=Some(materialize)))).runAsync
     fi.futureValue.statusCode should equal(Status.CREATED)
 
-    val indexDef = db.selectIndexDef("collection-1~", "index1").futureValue
+    val indexDef = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
     indexDef shouldBe defined
     indexDef.get.documentUri shouldBe "collection-1~"
     indexDef.get.indexId shouldBe "index1"
     indexDef.get.materialize shouldBe materialize
 
     eventually {
-      val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+      val indexDefUp = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
       indexDefUp shouldBe defined
       indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
     }
 
     eventually {
-      val indexContent = db.selectIndexCollection("index_content_da0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+      val indexContent = db.selectIndexCollection("index_content_da0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent.size shouldBe 1
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
@@ -580,7 +580,7 @@ class IndexingSpecMaterialized extends FlatSpec
     f3.futureValue.headers.statusCode should equal(Status.CREATED)
 
     eventually {
-      val indexContent = db.selectIndexCollection("index_content_da0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+      val indexContent = db.selectIndexCollection("index_content_da0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent.size shouldBe 2
       indexContent(0).documentUri shouldBe "collection-1~"
       indexContent(0).itemId shouldBe "item3"
@@ -617,20 +617,20 @@ class IndexingSpecMaterialized extends FlatSpec
       materialize=Some(materialize)))).runAsync
     fi.futureValue.statusCode should equal(Status.CREATED)
 
-    val indexDef = db.selectIndexDef("collection-1~", "index1").futureValue
+    val indexDef = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
     indexDef shouldBe defined
     indexDef.get.documentUri shouldBe "collection-1~"
     indexDef.get.indexId shouldBe "index1"
     indexDef.get.materialize shouldBe materialize
 
     eventually {
-      val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+      val indexDefUp = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
       indexDefUp shouldBe defined
       indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
     }
 
     eventually {
-      val indexContent = db.selectIndexCollection("index_content_dd0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+      val indexContent = db.selectIndexCollection("index_content_dd0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent.size shouldBe 1
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
@@ -651,7 +651,7 @@ class IndexingSpecMaterialized extends FlatSpec
     f3.futureValue.headers.statusCode should equal(Status.CREATED)
 
     eventually {
-      val indexContent = db.selectIndexCollection("index_content_dd0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+      val indexContent = db.selectIndexCollection("index_content_dd0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent.size shouldBe 2
       indexContent(0).documentUri shouldBe "collection-1~"
       indexContent(0).itemId shouldBe "item1"
@@ -687,20 +687,20 @@ class IndexingSpecMaterialized extends FlatSpec
       materialize=Some(materialize)))).runAsync
     fi.futureValue.statusCode should equal(Status.CREATED)
 
-    val indexDef = db.selectIndexDef("collection-1~", "index1").futureValue
+    val indexDef = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
     indexDef shouldBe defined
     indexDef.get.documentUri shouldBe "collection-1~"
     indexDef.get.indexId shouldBe "index1"
     indexDef.get.materialize shouldBe materialize
 
     eventually {
-      val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+      val indexDefUp = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
       indexDefUp shouldBe defined
       indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
     }
 
     eventually {
-      val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+      val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent.size shouldBe 1
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
@@ -721,7 +721,7 @@ class IndexingSpecMaterialized extends FlatSpec
     f3.futureValue.headers.statusCode should equal(Status.CREATED)
 
     eventually {
-      val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+      val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).runAsync.futureValue.toSeq
       //println(indexContent)
       indexContent.size shouldBe 2
       indexContent(0).documentUri shouldBe "collection-1~"
@@ -759,20 +759,20 @@ class IndexingSpecMaterialized extends FlatSpec
     ))).runAsync
     fi.futureValue.statusCode should equal(Status.CREATED)
 
-    val indexDef = db.selectIndexDef("collection-1~", "index1").futureValue
+    val indexDef = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
     indexDef shouldBe defined
     indexDef.get.documentUri shouldBe "collection-1~"
     indexDef.get.indexId shouldBe "index1"
     indexDef.get.materialize shouldBe materialize
 
     eventually {
-      val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+      val indexDefUp = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
       indexDefUp shouldBe defined
       indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
     }
 
     eventually {
-      val indexContent = db.selectIndexCollection("index_content_td0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+      val indexContent = db.selectIndexCollection("index_content_td0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent.size shouldBe 1
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
@@ -793,7 +793,7 @@ class IndexingSpecMaterialized extends FlatSpec
     f3.futureValue.headers.statusCode should equal(Status.CREATED)
 
     eventually {
-      val indexContent = db.selectIndexCollection("index_content_td0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+      val indexContent = db.selectIndexCollection("index_content_td0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent.size shouldBe 2
       indexContent(0).documentUri shouldBe "collection-1~"
       indexContent(0).itemId shouldBe "item3"
@@ -827,17 +827,17 @@ class IndexingSpecMaterialized extends FlatSpec
     val f1 = hyperbus.ask(ContentPut("collection-1~/item1", DynamicBody(c1))).runAsync
     f1.futureValue.headers.statusCode should equal(Status.CREATED)
 
-    val indexDef = db.selectIndexDef("collection-1~", "index1").futureValue
+    val indexDef = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
     indexDef shouldBe defined
     indexDef.get.documentUri shouldBe "collection-1~"
     indexDef.get.indexId shouldBe "index1"
     indexDef.get.materialize shouldBe materialize
 
     eventually {
-      val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+      val indexDefUp = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
       indexDefUp shouldBe defined
       indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
-      val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+      val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent.size shouldBe 1
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
@@ -854,9 +854,9 @@ class IndexingSpecMaterialized extends FlatSpec
     f3.futureValue.headers.statusCode should equal(Status.NO_CONTENT)
 
     eventually {
-      val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+      val indexDefUp = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
       indexDefUp shouldBe None
-      val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+      val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent shouldBe empty
     }
   }
@@ -873,17 +873,17 @@ class IndexingSpecMaterialized extends FlatSpec
     val f1 = hyperbus.ask(ContentPut("collection-1~/item1", DynamicBody(c1))).runAsync
     f1.futureValue.headers.statusCode should equal(Status.CREATED)
 
-    val indexDef = db.selectIndexDef("collection-1~", "index1").futureValue
+    val indexDef = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
     indexDef shouldBe defined
     indexDef.get.documentUri shouldBe "collection-1~"
     indexDef.get.indexId shouldBe "index1"
     indexDef.get.materialize shouldBe materialize
 
     eventually {
-      val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+      val indexDefUp = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
       indexDefUp shouldBe defined
       indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
-      val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+      val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent.size shouldBe 1
       indexContent.head.documentUri shouldBe "collection-1~"
       indexContent.head.itemId shouldBe "item1"
@@ -901,9 +901,9 @@ class IndexingSpecMaterialized extends FlatSpec
     f3.futureValue.statusCode should equal(Status.OK)
 
     eventually {
-      val indexDefUp = db.selectIndexDef("collection-1~", "index1").futureValue
+      val indexDefUp = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
       indexDefUp shouldBe None
-      val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+      val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq.empty, Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent shouldBe empty
     }
   }
@@ -924,7 +924,7 @@ class IndexingSpecMaterialized extends FlatSpec
 //    fb1.futureValue.headers.statusCode should equal(Status.CREATED)
 
 
-    val templateIndexDefs = db.selectTemplateIndexDefs("*").futureValue.toList
+    val templateIndexDefs = db.selectTemplateIndexDefs("*").runAsync.futureValue.toList
     templateIndexDefs.size shouldBe 1
 
     templateIndexDefs.head.templateUri shouldBe "a-1~"
@@ -932,14 +932,14 @@ class IndexingSpecMaterialized extends FlatSpec
     templateIndexDefs.head.materialize shouldBe materialize
 
     eventually {
-      val indexDef = db.selectIndexDef("a-1~", "t1").futureValue
+      val indexDef = db.selectIndexDef("a-1~", "t1").runAsync.futureValue
       indexDef shouldBe defined
       indexDef.get.documentUri shouldBe "a-1~"
       indexDef.get.indexId shouldBe "t1"
       indexDef.get.materialize shouldBe materialize
       indexDef.get.status shouldBe IndexDef.STATUS_NORMAL
 
-      val indexContent = db.selectIndexCollection("index_content", "a-1~", "t1", Seq.empty, Seq.empty, 10).futureValue.toSeq
+      val indexContent = db.selectIndexCollection("index_content", "a-1~", "t1", Seq.empty, Seq.empty, 10).runAsync.futureValue.toSeq
       indexContent.size shouldBe 1
       indexContent.head.documentUri shouldBe "a-1~"
       indexContent.head.itemId shouldBe "item1"
@@ -952,7 +952,7 @@ class IndexingSpecMaterialized extends FlatSpec
       }
     }
 
-    db.selectIndexDef("b-1~", "t1").futureValue.toList shouldBe empty
+    db.selectIndexDef("b-1~", "t1").runAsync.futureValue.toList shouldBe empty
   }
 }
 

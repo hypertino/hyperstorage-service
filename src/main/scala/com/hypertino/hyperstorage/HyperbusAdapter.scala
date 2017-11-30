@@ -38,7 +38,7 @@ import com.typesafe.scalalogging.StrictLogging
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.util.Success
-import scala.util.control.NonFatal
+import com.hypertino.hyperstorage.utils.TrackerUtils._
 
 // todo: convert Task.fromFuture to tasks...
 
@@ -60,8 +60,8 @@ class HyperbusAdapter(hyperbus: Hyperbus,
   private val fixedGroupName = Some("hs-adapter-" + IdGenerator.create())
   private val subscriptions = hyperbus.subscribe(this, logger)
 
-  def onContentGet(implicit get: ContentGet) = Task.fromFuture[ResponseBase] {
-    tracker.timeOfFuture(Metrics.RETRIEVE_TIME) {
+  def onContentGet(implicit get: ContentGet) = {
+    tracker.timeOfTask(Metrics.RETRIEVE_TIME) {
       val resourcePath = ContentLogic.splitPath(get.path)
       if (ContentLogic.isCollectionUri(resourcePath.documentUri) && resourcePath.itemId.isEmpty) {
         queryCollection(resourcePath, get)
@@ -93,16 +93,15 @@ class HyperbusAdapter(hyperbus: Hyperbus,
       materialize=request.body.materialize.getOrElse(false)
     )
 
-    Task.fromFuture(db.insertTemplateIndexDef(templateIndexDef)).map { _ ⇒
+    db.insertTemplateIndexDef(templateIndexDef).map { _ ⇒
       Created(HyperStorageTemplateIndexCreated(templateIndexDef.indexId))
     }
   }.flatten
 
-  def onTemplateIndexDelete(implicit request: TemplateIndexDelete) = Task.eval{
-    Task.fromFuture(db.deleteTemplateIndexDef("*", request.indexId)).map { _ ⇒
-      NoContent(EmptyBody)
-    }
-  }.flatten
+  def onTemplateIndexDelete(implicit request: TemplateIndexDelete) = db.deleteTemplateIndexDef("*", request.indexId).map { _ ⇒
+    NoContent(EmptyBody)
+  }
+
 
   def onContentFeedPut(event: ContentFeedPut): Ack = notifyWaitTask(event)
   def onContentFeedPatch(event: ContentFeedPatch): Ack = notifyWaitTask(event)
@@ -177,14 +176,14 @@ class HyperbusAdapter(hyperbus: Hyperbus,
     }
   }
 
-  private def queryCollection(resourcePath: ResourcePath, request: ContentGet): Future[ResponseBase] = {
+  private def queryCollection(resourcePath: ResourcePath, request: ContentGet): Task[ResponseBase] = {
     implicit val mcx = request
     val notFound = NotFound(ErrorBody(ErrorCode.NOT_FOUND, Some(s"Hyperstorage resource '${request.path}' is not found")))
 
     val sortBy = Sort.parseQueryParam(request.sortBy)
 
-    val indexDefsFuture = if (request.filter.isEmpty && sortBy.isEmpty) {
-      Future.successful(Iterator.empty)
+    val indexDefsTask = if (request.filter.isEmpty && sortBy.isEmpty) {
+      Task.now(Iterator.empty)
     } else {
       db.selectIndexDefs(resourcePath.documentUri)
     }
@@ -193,17 +192,19 @@ class HyperbusAdapter(hyperbus: Hyperbus,
     val skipMax = request.skipMax.getOrElse(DEFAULT_MAX_SKIPPED_ROWS)
     val idFieldName = ContentLogic.getIdFieldName(resourcePath.documentUri)
 
-    for {
-      contentStatic ← db.selectContentStatic(resourcePath.documentUri)
-      indexDefs ← indexDefsFuture
-      (collectionStream, revisionOpt, countOpt, nextPageFieldFilter) ←
+
+    Task.zip2(
+      db.selectContentStatic(resourcePath.documentUri),
+      indexDefsTask.flatMap { indexDefs ⇒
         if (pageSize > 0) {
           selectCollection(resourcePath.documentUri, indexDefs, request.filter, sortBy, pageSize, skipMax, idFieldName)
         }
         else {
-          Future{(List.empty, None, None, None)}
+          Task.now{(List.empty, None, None, None)}
         }
-    } yield {
+      }
+    ).map {
+      case (contentStatic, (collectionStream, revisionOpt, countOpt, nextPageFieldFilter)) ⇒
       if (contentStatic.isDefined && contentStatic.forall(!_.isDeleted.contains(true))) {
         val result = Lst(collectionStream)
         val revision = if (pageSize == 0) Some(contentStatic.get.revision) else revisionOpt
@@ -246,7 +247,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
                                pageSize: Int,
                                skipMax: Int,
                                idFieldName: String)
-                              (implicit messagingContext: MessagingContext): Future[(List[Value], Option[Long], Option[Long], Option[Expression])] = {
+                              (implicit messagingContext: MessagingContext): Task[(List[Value], Option[Long], Option[Long], Option[Expression])] = {
 
     val queryFilterExpression = queryFilter.flatMap(Option.apply).map(HParser(_))
     val defIdSort = HyperStorageIndexSortItem(idFieldName, Some(HyperStorageIndexSortFieldType.TEXT), Some(HyperStorageIndexSortOrder.ASC))
@@ -314,9 +315,9 @@ class HyperbusAdapter(hyperbus: Hyperbus,
     }
   }
 
-  private def queryAndFilterRows(ops: CollectionQueryOptions): Future[(List[Value], Int, Int, Option[Obj], Option[Long], Option[Long])] = {
+  private def queryAndFilterRows(ops: CollectionQueryOptions): Task[(List[Value], Int, Int, Option[Obj], Option[Long], Option[Long])] = {
 
-    val f: Future[Iterator[CollectionContent]] = ops.indexDefOpt match {
+    val f: Task[Iterator[CollectionContent]] = ops.indexDefOpt match {
       case None ⇒
         db.selectContentCollection(ops.documentUri,
           ops.limit,
@@ -349,7 +350,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
 
         if (!indexDef.materialize) {
           si.flatMap { iterator ⇒
-            Future.sequence {
+            Task.sequence {
               iterator.map { c ⇒ // todo: optimize, we are fetching all page every time, when materialize is true
                 db.selectContent(c.documentUri, c.itemId).map {
                   cnt ⇒ cnt.map(_.copy(count=c.count))
@@ -420,17 +421,17 @@ class HyperbusAdapter(hyperbus: Hyperbus,
                                 skippedRows: Int,
                                 lastValueOpt: Option[Obj]
                                )
-                               (implicit messagingContext: MessagingContext): Future[(List[Value], Option[Long], Option[Long], Seq[FieldFilter])] = {
+                               (implicit messagingContext: MessagingContext): Task[(List[Value], Option[Long], Option[Long], Seq[FieldFilter])] = {
 
     //println(s"queryUntilFetched($ops,$leastFieldFilter,$recursionCounter,$skippedRows,$lastValueOpt)")
 
   //todo exception context
     if (recursionCounter >= MAX_COLLECTION_SELECTS)
-      Future.failed(GatewayTimeout(ErrorBody(ErrorCode.QUERY_COUNT_LIMITED, Some(s"Maximum query count is reached: $recursionCounter"))))
+      Task.raiseError(GatewayTimeout(ErrorBody(ErrorCode.QUERY_COUNT_LIMITED, Some(s"Maximum query count is reached: $recursionCounter"))))
     else if (ops.endTimeInMillis <= System.currentTimeMillis)
-      Future.failed(GatewayTimeout(ErrorBody(ErrorCode.QUERY_TIMEOUT, Some(s"Timed out performing query #$recursionCounter"))))
+      Task.raiseError(GatewayTimeout(ErrorBody(ErrorCode.QUERY_TIMEOUT, Some(s"Timed out performing query #$recursionCounter"))))
     else if (skippedRows >= ops.skipRowsLimit)
-      Future.failed(GatewayTimeout(ErrorBody(ErrorCode.QUERY_SKIPPED_ROWS_LIMITED, Some(s"Maximum skipped row limit is reached: $skippedRows"))))
+      Task.raiseError(GatewayTimeout(ErrorBody(ErrorCode.QUERY_SKIPPED_ROWS_LIMITED, Some(s"Maximum skipped row limit is reached: $skippedRows"))))
     else {
       val fetchLimit = ops.limit + Math.max((recursionCounter * (ops.skipRowsLimit - ops.limit)/(MAX_COLLECTION_SELECTS*1.0)).toInt, 0)
       queryAndFilterRows(ops.copy(filterFields=IndexLogic.mergeLeastQueryFilterFields(ops.filterFields, leastFieldFilter),limit=fetchLimit)) flatMap {
@@ -447,14 +448,14 @@ class HyperbusAdapter(hyperbus: Hyperbus,
               Seq.empty
             }
 
-            Future.successful((stream, revisionOpt, countOpt, nextLeastFieldFilter))
+            Task.now((stream, revisionOpt, countOpt, nextLeastFieldFilter))
           }
           else {
             val l = newLastValueOpt.orElse(lastValueOpt)
-            if (l.isEmpty) Future.successful((stream, revisionOpt, countOpt, Seq.empty))
+            if (l.isEmpty) Task.now((stream, revisionOpt, countOpt, Seq.empty))
             else {
               val nextLeastFieldFilter = IndexLogic.leastRowsFilterFields(ops.idFieldName, ops.indexSortBy, ops.filterFields, leastFieldFilter.size, totalFetched < fetchLimit, l.get, ops.reversed)
-              if (nextLeastFieldFilter.isEmpty) Future.successful((stream, revisionOpt, countOpt, nextLeastFieldFilter))
+              if (nextLeastFieldFilter.isEmpty) Task.now((stream, revisionOpt, countOpt, nextLeastFieldFilter))
               else {
                 queryUntilFetched(ops, nextLeastFieldFilter, recursionCounter + 1, skippedRows + totalFetched - totalAccepted, l) map {
                   case (newStream, newRevisionOpt, newCountOpt, recursiveNextLeastFieldFilter) ⇒
@@ -467,7 +468,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
     }
   }
 
-  private def queryDocument(resourcePath: ResourcePath, request: ContentGet): Future[ResponseBase] = {
+  private def queryDocument(resourcePath: ResourcePath, request: ContentGet): Task[ResponseBase] = {
     implicit val mcx = request
     val notFound = NotFound(ErrorBody(ErrorCode.NOT_FOUND, Some(s"Hyperstorage resource '${request.path}' is not found")))
     db.selectContent(resourcePath.documentUri, resourcePath.itemId) map {

@@ -45,7 +45,7 @@ class CollectionsSpec extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
 
     val collection = SeqGenerator.create() + "~"
     val item1 = SeqGenerator.create()
@@ -55,7 +55,7 @@ class CollectionsSpec extends FlatSpec
       DynamicBody(Obj.from("text" → "Test item value", "null" → Null))
     )
 
-    db.selectContent(collection, item1).futureValue shouldBe None
+    db.selectContent(collection, item1).runAsync.futureValue shouldBe None
 
     worker ! primaryTask(collection, task)
     val (bgTask, br) = tk.expectTaskR[BackgroundContentTasksPost]()
@@ -65,7 +65,7 @@ class CollectionsSpec extends FlatSpec
     r.headers.statusCode should equal(Status.CREATED)
     r.headers.correlationId should equal(task.correlationId)
 
-    val content = db.selectContent(collection, item1).futureValue
+    val content = db.selectContent(collection, item1).runAsync.futureValue
     content shouldNot equal(None)
     content.get.body should equal(Some(s"""{"text":"Test item value","id":"$item1"}"""))
     content.get.transactionList.size should equal(1)
@@ -86,7 +86,7 @@ class CollectionsSpec extends FlatSpec
     r2.headers.statusCode should equal(Status.CREATED)
     r2.headers.correlationId should equal(task2.correlationId)
 
-    val content2 = db.selectContent(collection, item2).futureValue
+    val content2 = db.selectContent(collection, item2).runAsync.futureValue
     content2 shouldNot equal(None)
     content2.get.body should equal(Some(s"""{"text":"Test item value 2","id":"$item2"}"""))
     content2.get.transactionList.size should equal(2)
@@ -109,7 +109,7 @@ class CollectionsSpec extends FlatSpec
     rc.body.transactions should equal(content2.get.transactionList.reverse.map(_.toString))
 
     eventually {
-      db.selectContentStatic(collection).futureValue.get.transactionList shouldBe empty
+      db.selectContentStatic(collection).runAsync.futureValue.get.transactionList shouldBe empty
     }
     selectTransactions(content2.get.transactionList, collection, db).foreach {
       _.completedAt shouldNot be(None)
@@ -121,7 +121,7 @@ class CollectionsSpec extends FlatSpec
     val tk = testKit()
     import tk._
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
 
     val collection = SeqGenerator.create() + "~"
     val path = s"$collection/${SeqGenerator.create()}"
@@ -147,7 +147,7 @@ class CollectionsSpec extends FlatSpec
         result.get.headers.correlationId == patch.correlationId ⇒ true
     }
 
-    whenReady(db.selectContent(documentUri, itemId)) { result =>
+    whenReady(db.selectContent(documentUri, itemId).runAsync) { result =>
       result.get.body should equal(Some(s"""{"text1":"efg","id":"$itemId","text3":"zzz"}"""))
       result.get.modifiedAt shouldNot be(None)
       result.get.documentUri should equal(documentUri)
@@ -170,7 +170,7 @@ class CollectionsSpec extends FlatSpec
         result.get.headers.correlationId == patch.correlationId ⇒ true
     }
 
-    whenReady(db.selectContent(documentUri, itemId)) { result =>
+    whenReady(db.selectContent(documentUri, itemId).runAsync) { result =>
       result.get.body should equal(Some(s"""{"id":"$itemId","text1":"efg","text3":"zzz"}"""))
       result.get.modifiedAt shouldBe None
       result.get.documentUri should equal(documentUri)
@@ -184,7 +184,7 @@ class CollectionsSpec extends FlatSpec
     val tk = testKit()
     import tk._
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
 
     val collection = SeqGenerator.create() + "~"
     val item1 = SeqGenerator.create()
@@ -208,8 +208,8 @@ class CollectionsSpec extends FlatSpec
         r.get.headers.correlationId == delete.headers.correlationId ⇒ true
     }
 
-    db.selectContent(documentUri, itemId).futureValue shouldBe None
-    db.selectContentStatic(collection).futureValue.get.count shouldBe Some(0)
+    db.selectContent(documentUri, itemId).runAsync.futureValue shouldBe None
+    db.selectContentStatic(collection).runAsync.futureValue.get.count shouldBe Some(0)
   }
 
   it should "Delete collection" in {
@@ -217,7 +217,7 @@ class CollectionsSpec extends FlatSpec
     val tk = testKit()
     import tk._
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
 
     val path = UUID.randomUUID().toString + "~/el1"
     val ResourcePath(documentUri, itemId) = ContentLogic.splitPath(path)
@@ -239,8 +239,8 @@ class CollectionsSpec extends FlatSpec
         r.get.headers.correlationId == delete.headers.correlationId ⇒ true
     }
 
-    db.selectContent(documentUri, itemId).futureValue.get.isDeleted shouldBe Some(true)
-    db.selectContent(documentUri, "").futureValue.get.isDeleted shouldBe Some(true)
+    db.selectContent(documentUri, itemId).runAsync.futureValue.get.isDeleted shouldBe Some(true)
+    db.selectContent(documentUri, "").runAsync.futureValue.get.isDeleted shouldBe Some(true)
 
     val itemId2 = "el2"
     val path2 = documentUri + "/" + itemId2
@@ -253,8 +253,8 @@ class CollectionsSpec extends FlatSpec
     tk.expectTaskR[BackgroundContentTasksPost]()
     expectMsgType[WorkerTaskResult]
 
-    db.selectContent(documentUri, itemId2).futureValue.get.isDeleted shouldBe None
-    db.selectContent(documentUri, itemId).futureValue shouldBe None
+    db.selectContent(documentUri, itemId2).runAsync.futureValue.get.isDeleted shouldBe None
+    db.selectContent(documentUri, itemId).runAsync.futureValue shouldBe None
   }
 
   it should "put empty collection" in {
@@ -262,7 +262,7 @@ class CollectionsSpec extends FlatSpec
     val tk = testKit()
     import tk._
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
 
     val collection = SeqGenerator.create() + "~"
 
@@ -279,7 +279,7 @@ class CollectionsSpec extends FlatSpec
         r.get.headers.correlationId == put.correlationId ⇒ true
     }
 
-    whenReady(db.selectContent(collection, "")) { result =>
+    whenReady(db.selectContent(collection, "").runAsync) { result =>
       result.get.body shouldBe None
       result.get.documentUri should equal(collection)
       result.get.count should equal(Some(0))
@@ -293,7 +293,7 @@ class CollectionsSpec extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
 
     val collection = SeqGenerator.create() + "/users~"
     val item1 = SeqGenerator.create()
@@ -303,7 +303,7 @@ class CollectionsSpec extends FlatSpec
       DynamicBody(Obj.from("text" → "Test item value", "null" → Null))
     )
 
-    db.selectContent(collection, item1).futureValue shouldBe None
+    db.selectContent(collection, item1).runAsync.futureValue shouldBe None
 
     worker ! primaryTask(collection, put)
     val (bgTask, br) = tk.expectTaskR[BackgroundContentTasksPost]()
@@ -313,7 +313,7 @@ class CollectionsSpec extends FlatSpec
     r.headers.statusCode should equal(Status.CREATED)
     r.headers.correlationId should equal(put.correlationId)
 
-    val content = db.selectContent(collection, item1).futureValue
+    val content = db.selectContent(collection, item1).runAsync.futureValue
     content shouldNot equal(None)
     content.get.body should equal(Some(s"""{"text":"Test item value","user_id":"$item1"}"""))
     content.get.transactionList.size should equal(1)
@@ -334,7 +334,7 @@ class CollectionsSpec extends FlatSpec
     r2.headers.statusCode should equal(Status.CREATED)
     r2.headers.correlationId should equal(put2.correlationId)
 
-    val content2 = db.selectContent(collection, item2).futureValue
+    val content2 = db.selectContent(collection, item2).runAsync.futureValue
     content2 shouldNot equal(None)
     content2.get.body should equal(Some(s"""{"text":"Test item value 2","user_id":"$item2"}"""))
     content2.get.transactionList.size should equal(2)
@@ -357,7 +357,7 @@ class CollectionsSpec extends FlatSpec
     rc.body.transactions should equal(content2.get.transactionList.reverse.map(_.toString))
 
     eventually {
-      db.selectContentStatic(collection).futureValue.get.transactionList shouldBe empty
+      db.selectContentStatic(collection).runAsync.futureValue.get.transactionList shouldBe empty
     }
     selectTransactions(content2.get.transactionList, collection, db).foreach {
       _.completedAt shouldNot be(None)

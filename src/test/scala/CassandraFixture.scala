@@ -58,8 +58,8 @@ trait CassandraFixture extends BeforeAndAfterAll with ScalaFutures with StrictLo
   }
 
   import com.hypertino.binders.cassandra._
-  def removeContent(documentUri: String) = cql"delete from content where document_uri=$documentUri".execute()
-  def removeContent(documentUri: String, itemId: String) = cql"delete from content where document_uri=$documentUri and item_id=$itemId".execute()
+  def removeContent(documentUri: String) = cql"delete from content where document_uri=$documentUri".task.runAsync
+  def removeContent(documentUri: String, itemId: String) = cql"delete from content where document_uri=$documentUri and item_id=$itemId".task.runAsync
 }
 
 object Cassandra extends CassandraCQLUnit(

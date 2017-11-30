@@ -29,7 +29,7 @@ class SecondaryWorker(val hyperbus: Hyperbus,
                       val db: Db,
                       val tracker: MetricsTracker,
                       val indexManager: ActorRef,
-                      implicit val scheduler: Scheduler) extends Actor with StrictLogging
+                      implicit val scheduler: monix.execution.Scheduler) extends Actor with StrictLogging
   with BackgroundContentTaskCompleter
   with IndexDefTaskWorker
   with IndexContentTaskWorker {

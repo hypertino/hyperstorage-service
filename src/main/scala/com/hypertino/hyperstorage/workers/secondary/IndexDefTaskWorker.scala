@@ -59,7 +59,7 @@ trait IndexDefTaskWorker extends SecondaryWorkerBase {
 
     post.body.filter.foreach(IndexLogic.validateFilterExpression(_).get)
 
-    Task.fromFuture(db.selectIndexDefs(post.path)).flatMap { indexDefs ⇒
+    db.selectIndexDefs(post.path).flatMap { indexDefs ⇒
       indexDefs.foreach { existingIndex ⇒
         if (existingIndex.indexId == indexId) {
           throw Conflict(ErrorBody(ErrorCode.ALREADY_EXISTS, Some(s"Index '$indexId' already exists")))
@@ -80,23 +80,23 @@ trait IndexDefTaskWorker extends SecondaryWorkerBase {
   protected def removeIndex(task: LocalTask, delete: IndexDelete): Task[ResponseBase] = {
     implicit val mcx = delete
 
-    Task.fromFuture(db.selectIndexDef(delete.path, delete.indexId) flatMap {
+    db.selectIndexDef(delete.path, delete.indexId) flatMap {
       case Some(indexDef) if indexDef.status != IndexDef.STATUS_DELETING ⇒
         val pendingIndex = PendingIndex(TransactionLogic.partitionFromUri(delete.path), delete.path, delete.indexId, None, UUIDs.timeBased())
         db.insertPendingIndex(pendingIndex) flatMap { _ ⇒
           db.updateIndexDefStatus(pendingIndex.documentUri, pendingIndex.indexId, IndexDef.STATUS_DELETING, pendingIndex.defTransactionId) flatMap { _ ⇒
             implicit val timeout = Timeout(60.seconds)
-            indexManager ? IndexManager.IndexCreatedOrDeleted(IndexDefTransaction(
+            Task.fromFuture(indexManager ? IndexManager.IndexCreatedOrDeleted(IndexDefTransaction(
               delete.path,
               delete.indexId,
               pendingIndex.defTransactionId.toString
-            )) map { _ ⇒ // IndexManager.IndexCommandAccepted
+            ))) map { _ ⇒ // IndexManager.IndexCommandAccepted
               NoContent(EmptyBody)
             }
           }
         }
 
-      case _ ⇒ Future.successful(NotFound(ErrorBody(ErrorCode.INDEX_NOT_FOUND, Some(s"Index ${delete.indexId} for ${delete.path} is not found"))))
-    })
+      case _ ⇒ Task.raiseError(NotFound(ErrorBody(ErrorCode.INDEX_NOT_FOUND, Some(s"Index ${delete.indexId} for ${delete.path} is not found"))))
+    }
   }
 }

@@ -45,13 +45,13 @@ trait IndexContentTaskWorker extends ItemIndexer with SecondaryWorkerBase {
     }.flatMap { idFieldName ⇒
       val transactionUuid = UUID.fromString(defTransactionId)
       // todo: cache indexDef?
-      Task.fromFuture(db.selectIndexDef(documentUri, indexId)) flatMap {
+      db.selectIndexDef(documentUri, indexId) flatMap {
         case Some(indexDef) if indexDef.defTransactionId.toString == defTransactionId ⇒ indexDef.status match {
           case IndexDef.STATUS_INDEXING ⇒
             val bucketSize = 256 // todo: move to config, or make adaptive, or per index
 
-            Task.fromFuture(db.selectContentCollection(documentUri, bucketSize, request.body.lastItemId.map((_, FilterGt)))) flatMap { collectionItems ⇒
-              Task.fromFuture(db.selectIndexContentStatic(indexDef.tableName, indexDef.documentUri, indexDef.indexId)) flatMap { indexContentStaticO ⇒
+            db.selectContentCollection(documentUri, bucketSize, request.body.lastItemId.map((_, FilterGt))) flatMap { collectionItems ⇒
+              db.selectIndexContentStatic(indexDef.tableName, indexDef.documentUri, indexDef.indexId) flatMap { indexContentStaticO ⇒
                 val countBefore = AtomicLong(indexContentStaticO.flatMap(_.count).getOrElse(0l))
                 Task.sequence {
                   collectionItems.toList.map { item ⇒
@@ -66,14 +66,14 @@ trait IndexContentTaskWorker extends ItemIndexer with SecondaryWorkerBase {
                   if (insertedItemIds.isEmpty) {
                     // indexing is finished
                     // todo: fix code format
-                    Task.fromFuture(db.updateIndexDefStatus(documentUri, indexId, IndexDef.STATUS_NORMAL, transactionUuid)) flatMap { _ ⇒
-                      Task.fromFuture(db.deletePendingIndex(TransactionLogic.partitionFromUri(documentUri), documentUri, indexId, transactionUuid)) map { _ ⇒
+                    db.updateIndexDefStatus(documentUri, indexId, IndexDef.STATUS_NORMAL, transactionUuid) flatMap { _ ⇒
+                      db.deletePendingIndex(TransactionLogic.partitionFromUri(documentUri), documentUri, indexId, transactionUuid) map { _ ⇒
                         Ok(IndexContentTaskResult(None, request.body.processId, isFailed = false, None))
                       }
                     }
                   } else {
                     val last = insertedItemIds.last._1
-                    Task.fromFuture(db.updatePendingIndexLastItemId(TransactionLogic.partitionFromUri(documentUri), documentUri, indexId, transactionUuid, last)) map { _ ⇒
+                    db.updatePendingIndexLastItemId(TransactionLogic.partitionFromUri(documentUri), documentUri, indexId, transactionUuid, last) map { _ ⇒
                       Ok(IndexContentTaskResult(Some(last), request.body.processId, isFailed = false, None))
                     }
                   }
@@ -98,13 +98,13 @@ trait IndexContentTaskWorker extends ItemIndexer with SecondaryWorkerBase {
     }
   }
 
-  def deleteIndexDefAndData(indexDef: IndexDef): Task[Unit] = {
-    Task.fromFuture(db.deleteIndex(indexDef.tableName, indexDef.documentUri, indexDef.indexId) flatMap { _ ⇒
+  def deleteIndexDefAndData(indexDef: IndexDef): Task[Any] = {
+    db.deleteIndex(indexDef.tableName, indexDef.documentUri, indexDef.indexId) flatMap { _ ⇒
       db.deleteIndexDef(indexDef.documentUri, indexDef.indexId) flatMap { _ ⇒
         db.deletePendingIndex(
           TransactionLogic.partitionFromUri(indexDef.documentUri), indexDef.documentUri, indexDef.indexId, indexDef.defTransactionId
         )
       }
-    })
+    }
   }
 }

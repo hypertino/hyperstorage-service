@@ -65,6 +65,14 @@ object CassandraConnector extends StrictLogging{
     def onDown(p1: Host) {
       logger.info("Cassandra host down: " + p1)
     }
+
+    override def onUnregister(cluster: Cluster): Unit = {
+      logger.info("Cassandra cluster unregistered " + cluster.getClusterName)
+    }
+
+    override def onRegister(cluster: Cluster): Unit = {
+      logger.info("Cassandra cluster registered " + cluster.getClusterName)
+    }
   }
 
 
@@ -96,9 +104,8 @@ object CassandraConnector extends StrictLogging{
       val cluster: Cluster = Option(datacenter).filter(_.nonEmpty)
         .foldLeft(Cluster.builder)((cluster, dcName) ⇒
           cluster.withLoadBalancingPolicy(
-            LatencyAwarePolicy.builder(new TokenAwarePolicy(new DCAwareRoundRobinPolicy(dcName)))
-              .withRetryPeriod(40, TimeUnit.SECONDS)
-              .withMininumMeasurements(30)
+            DCAwareRoundRobinPolicy.builder()
+              .withLocalDc(dcName)
               .build())
         )
         .addContactPoints(hosts: _*)

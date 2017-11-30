@@ -33,7 +33,7 @@ class ViewSpec extends FlatSpec
       .futureValue shouldBe a[Created[_]]
 
     eventually {
-      val h = db.selectViewDefs().futureValue.toSeq.head
+      val h = db.selectViewDefs().runAsync.futureValue.toSeq.head
       h.documentUri shouldBe "abcs~"
       h.templateUri shouldBe "abc/{*}"
     }
@@ -81,7 +81,7 @@ class ViewSpec extends FlatSpec
       .futureValue shouldBe a[Created[_]]
 
     eventually {
-      val h = db.selectViewDefs().futureValue.toSeq.head
+      val h = db.selectViewDefs().runAsync.futureValue.toSeq.head
       h.documentUri shouldBe "abcs~"
       h.templateUri shouldBe "abc/{*}"
     }
@@ -142,7 +142,7 @@ class ViewSpec extends FlatSpec
       .futureValue shouldBe a[Created[_]]
 
     eventually {
-      val h = db.selectViewDefs().futureValue.toSeq.head
+      val h = db.selectViewDefs().runAsync.futureValue.toSeq.head
       h.documentUri shouldBe "abcs~"
       h.templateUri shouldBe "collection~/{*}"
     }
@@ -190,7 +190,7 @@ class ViewSpec extends FlatSpec
       .futureValue shouldBe a[Created[_]]
 
     eventually {
-      val h = db.selectViewDefs().futureValue.toSeq.head
+      val h = db.selectViewDefs().runAsync.futureValue.toSeq.head
       h.documentUri shouldBe "abcs~"
       h.templateUri shouldBe "collection~/{*}"
     }
@@ -250,10 +250,10 @@ class ViewSpec extends FlatSpec
       .runAsync
       .futureValue shouldBe a[Created[_]]
 
-    db.selectContentStatic("abcs~").futureValue.head.isView should contain(true)
+    db.selectContentStatic("abcs~").runAsync.futureValue.head.isView should contain(true)
 
     eventually {
-      val h = db.selectViewDefs().futureValue.toSeq.head
+      val h = db.selectViewDefs().runAsync.futureValue.toSeq.head
       h.documentUri shouldBe "abcs~"
       h.templateUri shouldBe "abc/{*}"
     }

@@ -22,9 +22,8 @@ import com.hypertino.hyperstorage.sharding.LocalTask
 import com.hypertino.hyperstorage.workers.HyperstorageWorkerSettings
 import com.hypertino.metrics.MetricsTracker
 import com.typesafe.scalalogging.StrictLogging
-
-import scala.concurrent.duration.FiniteDuration
-import scala.concurrent.{ExecutionContext, Future}
+import monix.eval.Task
+import monix.execution.Scheduler
 
 case object StartPendingIndexWorker
 
@@ -37,7 +36,7 @@ case class WaitForIndexDef(pendingIndex: PendingIndex)
 case class IndexNextBatchTimeout(processId: Long)
 
 // todo: add indexing progress log
-class PendingIndexWorker(shardProcessor: ActorRef, indexKey: IndexDefTransaction, hyperbus: Hyperbus, db: Db, tracker: MetricsTracker)
+class PendingIndexWorker(shardProcessor: ActorRef, indexKey: IndexDefTransaction, hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, scheduler: monix.execution.Scheduler)
   extends Actor with StrictLogging {
 
   override def preStart(): Unit = {
@@ -47,15 +46,13 @@ class PendingIndexWorker(shardProcessor: ActorRef, indexKey: IndexDefTransaction
 
   override def receive = starOrStop orElse {
     case WaitForIndexDef ⇒
-      import context._
-      become(waitingForIndexDef)
-      IndexWorkerImpl.selectPendingIndex(context.self, indexKey, db)
+      context.become(waitingForIndexDef)
+      IndexWorkerImpl.selectPendingIndex(self, indexKey, db)(scheduler, context.system)
   }
 
   def starOrStop: Receive = {
     case StartPendingIndexWorker ⇒
-      import context._
-      IndexWorkerImpl.selectPendingIndex(context.self, indexKey, db)
+      IndexWorkerImpl.selectPendingIndex(self, indexKey, db)(scheduler, context.system)
 
     case CompletePendingIndex ⇒
       context.parent ! IndexManager.IndexingComplete(indexKey)
@@ -67,8 +64,7 @@ class PendingIndexWorker(shardProcessor: ActorRef, indexKey: IndexDefTransaction
 
   def waitingForIndexDef: Receive = starOrStop orElse {
     case WaitForIndexDef(pendingIndex) ⇒
-      import context._
-      IndexWorkerImpl.deletePendingIndex(context.self, pendingIndex, db)
+      IndexWorkerImpl.deletePendingIndex(self, pendingIndex, db)(scheduler, context.system)
   }
 
   def indexing(processId: Long, indexDef: IndexDef, lastItemId: Option[String]): Receive = {
@@ -85,13 +81,11 @@ class PendingIndexWorker(shardProcessor: ActorRef, indexKey: IndexDefTransaction
 
     case Ok(IndexContentTaskResult(_, p, true, failReason), _) if p == processId ⇒
       logger.error(s"Restarting index worker $self. Failed because of: $failReason")
-      import context._
-      become(waitingForIndexDef)
-      IndexWorkerImpl.selectPendingIndex(context.self, indexKey, db)
+      context.become(waitingForIndexDef)
+      IndexWorkerImpl.selectPendingIndex(context.self, indexKey, db)(scheduler, context.system)
   }
 
   def indexNextBatch(processId: Long, indexDef: IndexDef, lastItemId: Option[String]): Unit = {
-    import context.dispatcher
     context.become(indexing(processId, indexDef, lastItemId))
     implicit val mcx = MessagingContext.empty
     val indexTask = LocalTask(
@@ -107,14 +101,15 @@ class PendingIndexWorker(shardProcessor: ActorRef, indexKey: IndexDefTransaction
       extra = Null
     )
 
-    shardProcessor.ask(indexTask)(IndexWorkerImpl.RETRY_PERIOD * 3) pipeTo self
-    context.system.scheduler.scheduleOnce(IndexWorkerImpl.RETRY_PERIOD * 2, self, IndexNextBatchTimeout(processId))
+    import context._
+    shardProcessor.ask(indexTask)(IndexWorkerImpl.RETRY_PERIOD * 3) pipeTo context.self
+    system.scheduler.scheduleOnce(IndexWorkerImpl.RETRY_PERIOD * 2, context.self, IndexNextBatchTimeout(processId))
   }
 }
 
 object PendingIndexWorker {
-  def props(cluster: ActorRef, indexKey: IndexDefTransaction, hyperbus: Hyperbus, db: Db, tracker: MetricsTracker) = Props(
-    new PendingIndexWorker(cluster: ActorRef, indexKey, hyperbus, db, tracker)
+  def props(cluster: ActorRef, indexKey: IndexDefTransaction, hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, scheduler: Scheduler) = Props(
+    new PendingIndexWorker(cluster: ActorRef, indexKey, hyperbus, db, tracker, scheduler)
   )
 }
 
@@ -124,7 +119,7 @@ private[indexing] object IndexWorkerImpl extends StrictLogging {
   val RETRY_PERIOD = 60.seconds // todo: move to config
 
   def selectPendingIndex(notifyActor: ActorRef, indexKey: IndexDefTransaction, db: Db)
-                        (implicit ec: ExecutionContext, actorSystem: ActorSystem) = {
+                        (implicit scheduler: Scheduler, actorSystem: ActorSystem): Unit = {
     db.selectPendingIndex(TransactionLogic.partitionFromUri(indexKey.documentUri), indexKey.documentUri, indexKey.indexId, UUID.fromString(indexKey.defTransactionId)) flatMap {
       case Some(pendingIndex) ⇒
         db.selectIndexDef(indexKey.documentUri, indexKey.indexId) map {
@@ -138,25 +133,25 @@ private[indexing] object IndexWorkerImpl extends StrictLogging {
       case None ⇒
         logger.info(s"Can't find pending index for $indexKey, stopping actor")
         notifyActor ! CompletePendingIndex
-        Future.successful()
-    } recover {
+        Task.unit
+    } onErrorRecover {
       case e: Throwable ⇒
         logger.error(s"Can't fetch pending index for $indexKey", e)
         actorSystem.scheduler.scheduleOnce(RETRY_PERIOD, notifyActor, StartPendingIndexWorker)
-    }
+    } runAsync scheduler
   }
 
   def deletePendingIndex(notifyActor: ActorRef, pendingIndex: PendingIndex, db: Db)
-                        (implicit ec: ExecutionContext, actorSystem: ActorSystem) = {
+                        (implicit scheduler: Scheduler, actorSystem: ActorSystem): Unit = {
     db.deletePendingIndex(pendingIndex.partition, pendingIndex.documentUri, pendingIndex.indexId, pendingIndex.defTransactionId) map { _ ⇒
 
       logger.warn(s"Pending index deleted: $pendingIndex (no corresponding index definition was found)")
       notifyActor ! CompletePendingIndex
 
-    } recover {
+    } onErrorRecover {
       case e: Throwable ⇒
         logger.error(s"Can't delete pending index $pendingIndex", e)
         actorSystem.scheduler.scheduleOnce(RETRY_PERIOD, notifyActor, StartPendingIndexWorker)
-    }
+    } runAsync scheduler
   }
 }

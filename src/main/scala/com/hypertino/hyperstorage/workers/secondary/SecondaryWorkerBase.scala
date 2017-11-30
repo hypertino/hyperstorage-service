@@ -48,18 +48,18 @@ trait SecondaryWorkerBase extends StrictLogging {
     )
     val pendingIndex = PendingIndex(TransactionLogic.partitionFromUri(documentUri), documentUri, indexId, None, indexDef.defTransactionId)
     // validate: id, sort, expression, etc
-    Task.fromFuture(db.insertPendingIndex(pendingIndex) flatMap { _ ⇒
+    db.insertPendingIndex(pendingIndex) flatMap { _ ⇒
       db.insertIndexDef(indexDef) flatMap { _ ⇒
         implicit val timeout = Timeout(60.seconds)
-        indexManager ? IndexManager.IndexCreatedOrDeleted(IndexDefTransaction(
+        Task.fromFuture(indexManager ? IndexManager.IndexCreatedOrDeleted(IndexDefTransaction(
           documentUri,
           indexId,
           pendingIndex.defTransactionId.toString
-        )) map { _ ⇒
+        ))) map { _ ⇒
           indexDef
         }
       }
-    })
+    }
   }
 
 }

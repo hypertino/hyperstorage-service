@@ -56,26 +56,26 @@ libraryDependencies ++= Seq(
   "com.hypertino"               %% "hyperbus-t-zeromq"            % "0.4-SNAPSHOT",
   "com.hypertino"               %% "hyperbus-consul-resolver"     % "0.3-SNAPSHOT",
 
-  "com.hypertino"               %% "cassandra-binders"            % "0.3.0",
+  "com.hypertino"               %% "cassandra-binders"            % "0.5-SNAPSHOT",
   "com.hypertino"               %% "expression-parser"            % "0.2.1",
 
   "com.typesafe.akka"           %% "akka-cluster"                 % "2.4.20",
   "com.typesafe.akka"           %% "akka-slf4j"                   % "2.4.20",
 
-  "com.datastax.cassandra"      % "cassandra-driver-core"         % "2.1.10.3",
   "ch.qos.logback"              % "logback-classic"               % "1.2.3",
   "com.hypertino"               %% "hyperbus-t-inproc"            % "0.3-SNAPSHOT"  % "test",
   "org.scalamock"               %% "scalamock-scalatest-support"  % "3.5.0"         % "test",
   "org.mockito"                 % "mockito-all"                   % "1.10.19"       % "test",
   "com.typesafe.akka"           %% "akka-testkit"                 % "2.4.20"        % "test",
-  "org.cassandraunit"           % "cassandra-unit"                % "2.2.2.1"       % "test",
+  //"org.cassandraunit"           % "cassandra-unit"                % "2.2.2.1"       % "test",
+  "org.cassandraunit"           % "cassandra-unit"                % "3.3.0.2"       % "test",
   "junit"                       % "junit"                         % "4.12"          % "test",
   "org.pegdown"                 % "pegdown"                       % "1.6.0"         % "test"
 )
 
-dependencyOverrides ++= Set(
-  "com.google.guava"            % "guava"                         % "19.0"          % "test"
-)
+//dependencyOverrides ++= Set(
+//  "com.google.guava"            % "guava"                         % "19.0"          % "test"
+//)
 
 testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-h", "target/test-reports", "-oDS")
 

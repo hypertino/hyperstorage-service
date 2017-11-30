@@ -60,7 +60,7 @@ class QueryCollectionsSpec extends FlatSpec
       .futureValue.headers.statusCode should equal(Status.CREATED)
 
     eventually {
-      val indexDefUp1 = db.selectIndexDef("collection-1~", "index1").futureValue
+      val indexDefUp1 = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
       indexDefUp1 shouldBe defined
       indexDefUp1.get.status shouldBe IndexDef.STATUS_NORMAL
     }
@@ -71,7 +71,7 @@ class QueryCollectionsSpec extends FlatSpec
       .futureValue.statusCode should equal(Status.CREATED)
 
     eventually {
-      val indexDefUp2 = db.selectIndexDef("collection-1~", "index2").futureValue
+      val indexDefUp2 = db.selectIndexDef("collection-1~", "index2").runAsync.futureValue
       indexDefUp2 shouldBe defined
       indexDefUp2.get.status shouldBe IndexDef.STATUS_NORMAL
     }
@@ -82,7 +82,7 @@ class QueryCollectionsSpec extends FlatSpec
       .futureValue.headers.statusCode should equal(Status.CREATED)
 
     eventually {
-      val indexDefUp3 = db.selectIndexDef("collection-1~", "index3").futureValue
+      val indexDefUp3 = db.selectIndexDef("collection-1~", "index3").runAsync.futureValue
       indexDefUp3 shouldBe defined
       indexDefUp3.get.status shouldBe IndexDef.STATUS_NORMAL
     }

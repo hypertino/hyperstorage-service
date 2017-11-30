@@ -10,14 +10,14 @@ package com.hypertino.hyperstorage.workers.primary
 
 import java.util.Date
 
-import akka.actor.{Actor, ActorRef, Props}
+import akka.actor.{Actor, ActorRef, Props, Scheduler}
 import akka.pattern.pipe
 import com.codahale.metrics.Timer
 import com.datastax.driver.core.utils.UUIDs
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperbus.Hyperbus
-import com.hypertino.hyperbus.serialization.{MessageReader, SerializationOptions}
+import com.hypertino.hyperbus.serialization.SerializationOptions
 import com.hypertino.hyperbus.util.{IdGenerator, SeqGenerator}
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.api._
@@ -33,11 +33,10 @@ import com.hypertino.parser.HEval
 import com.hypertino.parser.ast.Identifier
 import com.hypertino.parser.eval.Context
 import com.typesafe.scalalogging.StrictLogging
+import monix.eval.Task
 
-import scala.concurrent.Future
 import scala.concurrent.duration.FiniteDuration
 import scala.util.Try
-import scala.util.control.NonFatal
 
 trait PrimaryWorkerRequest extends Request[DynamicBody] {
   def path: String
@@ -52,7 +51,9 @@ private [primary] case class PrimaryWorkerTaskFailed(task: ShardTask, inner: Thr
 private [primary] case class PrimaryWorkerTaskCompleted(task: ShardTask, transaction: Transaction, resourceCreated: Boolean)
 
 // todo: Protect from direct view items updates!!!
-class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgroundTaskTimeout: FiniteDuration) extends Actor with StrictLogging {
+class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker,
+                    backgroundTaskTimeout: FiniteDuration,
+                    scheduler: monix.execution.Scheduler) extends Actor with StrictLogging {
 
   import ContentLogic._
   import context._
@@ -172,34 +173,29 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
   }
 
   private def executeResourceUpdateTask(owner: ActorRef, documentUri: String, itemId: String, task: LocalTask, request: PrimaryWorkerRequest) = {
-    val futureExisting : Future[(Option[Content], Option[ContentBase], List[IndexDef])] =
+    val existingTask : Task[(Option[Content], Option[ContentBase], List[IndexDef])] =
       if (request.headers.method == Method.POST) {
-        Future.successful((None, None, List.empty))
+        Task.now((None, None, List.empty))
       } else {
-        val futureIndexDefs = if (ContentLogic.isCollectionUri(documentUri)) {
+        val indexDefsTask = if (ContentLogic.isCollectionUri(documentUri)) {
           db.selectIndexDefs(documentUri).map(_.toList)
         } else {
-          Future.successful(List.empty)
+          Task.now(List.empty)
         }
-        val futureContent = db.selectContent(documentUri, itemId)
+        val contentTask = db.selectContent(documentUri, itemId)
 
-        (for (
-          contentOption ← futureContent;
-          indexDefs ← futureIndexDefs
-        ) yield {
-          (contentOption, indexDefs)
-        }).flatMap { case (contentOption, indexDefs) ⇒
+        Task.zip2(contentTask,indexDefsTask).flatMap { case (contentOption, indexDefs) ⇒
           contentOption match {
-            case Some(_) ⇒ Future.successful((contentOption, contentOption, indexDefs))
+            case Some(_) ⇒ Task.now((contentOption, contentOption, indexDefs))
             case None if ContentLogic.isCollectionUri(documentUri) ⇒ db.selectContentStatic(documentUri).map(contentStatic ⇒
               (contentOption, contentStatic, indexDefs)
             )
-            case _ ⇒ Future.successful((contentOption, None, indexDefs))
+            case _ ⇒ Task.now((contentOption, None, indexDefs))
           }
         }
       }
 
-    futureExisting.flatMap { case (existingContent, existingContentStatic, indexDefs) ⇒
+    val updateTask = existingTask.flatMap { case (existingContent, existingContentStatic, indexDefs) ⇒
       updateResource(documentUri,
         itemId,
         request,
@@ -211,10 +207,12 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
           (existingContent.isEmpty || existingContent.exists(_.isDeleted.contains(true))) && request.headers.method != Method.DELETE
         )
       }
-    } recover {
+    } onErrorRecover {
       case e: Throwable ⇒
         PrimaryWorkerTaskFailed(task, e)
-    } pipeTo context.self
+    }
+
+    updateTask runAsync scheduler pipeTo self
   }
 
   private def updateResource(documentUri: String,
@@ -224,7 +222,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
                              existingContentStatic: Option[ContentBase],
                              indexDefs: Seq[IndexDef],
                              isInternalOperation: Boolean
-                            ): Future[Transaction] = {
+                            ): Task[Transaction] = {
     implicit val mcx = request
 
     if (existingContentStatic.exists(_.isView.contains(true))
@@ -232,14 +230,14 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
       && (request.headers.hrl.location != ViewPut.location ||
       request.headers.hrl.location != ViewDelete.location ||
       !request.headers.contains(TransactionLogic.HB_HEADER_VIEW_TEMPLATE_URI))
-    ) Future.failed {
+    ) Task.raiseError {
       Conflict(ErrorBody(ErrorCode.VIEW_MODIFICATION, Some(s"Can't modify view: $documentUri")))
     }
     else {
-      if (!ContentLogic.checkPrecondition(request, existingContent)) Future.failed {
+      if (!ContentLogic.checkPrecondition(request, existingContent)) Task.raiseError {
         PreconditionFailed(ErrorBody(ErrorCode.NOT_MATCHED, Some(s"ETag doesn't match")))
       } else {
-        val (newTransaction,newContent) = updateContent(documentUri, itemId, request, existingContent, existingContentStatic)
+        val (newTransaction, newContent) = updateContent(documentUri, itemId, request, existingContent, existingContentStatic)
         val obsoleteIndexItems = if (request.headers.method != Method.POST && ContentLogic.isCollectionUri(documentUri) && !itemId.isEmpty) {
           findObsoleteIndexItems(existingContent, newContent, indexDefs)
         }
@@ -651,8 +649,8 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgro
 }
 
 object PrimaryWorker {
-  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgroundTaskTimeout: FiniteDuration) =
-    Props(new PrimaryWorker(hyperbus, db, tracker, backgroundTaskTimeout))
+  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgroundTaskTimeout: FiniteDuration, scheduler: monix.execution.Scheduler) =
+    Props(new PrimaryWorker(hyperbus, db, tracker, backgroundTaskTimeout, scheduler))
 }
 
 case class ExpressionEvaluatorContext(request: PrimaryWorkerRequest, original: Value) extends Context{

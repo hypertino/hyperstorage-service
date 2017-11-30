@@ -19,6 +19,7 @@ import com.hypertino.hyperstorage.sharding.{ShardedClusterData, UpdateShardStatu
 import com.hypertino.hyperstorage.utils.AkkaNaming
 import com.hypertino.metrics.MetricsTracker
 import com.typesafe.scalalogging.StrictLogging
+import monix.execution.Scheduler
 
 import scala.collection.mutable
 import scala.concurrent.ExecutionContext
@@ -29,7 +30,7 @@ import scala.util.control.NonFatal
 //}
 
 // todo: handle child termination without IndexingComplete
-class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndexWorkers: Int)
+class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndexWorkers: Int, private implicit val scheduler: Scheduler)
   extends Actor with StrictLogging {
   import IndexManager._
 
@@ -150,7 +151,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
     nextPendingPartitions.flatMap(_._2).take(availableWorkers).foreach { key ⇒
       // createWorkingActor here
       val actorRef = context.actorOf(PendingIndexWorker.props(
-        clusterActor, key, hyperbus, db, tracker
+        clusterActor, key, hyperbus, db, tracker, scheduler
       ), AkkaNaming.next("idxw-"))
       indexWorkers += key → actorRef
       pendingPartitions(TransactionLogic.partitionFromUri(key.documentUri)) -= key
@@ -163,7 +164,6 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
       case _ ⇒ None
     }.headOption.foreach { nextPartitionToFetch ⇒
       // async fetch and send as a message next portion of indexes along with `rev`
-      import context.dispatcher
       IndexManagerImpl.fetchPendingIndexesFromDb(self, nextPartitionToFetch, rev, maxIndexWorkers, db)
     }
   }
@@ -192,24 +192,24 @@ object IndexManager {
   case class IndexingComplete(key: IndexDefTransaction)
   case object IndexCommandAccepted
 
-  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndexWorkers: Int) = Props(
-    new IndexManager(hyperbus, db, tracker, maxIndexWorkers)
+  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndexWorkers: Int, scheduler: Scheduler) = Props(
+    new IndexManager(hyperbus, db, tracker, maxIndexWorkers, scheduler)
   )
 }
 
 private[indexing] object IndexManagerImpl extends StrictLogging {
   import IndexManager._
   def fetchPendingIndexesFromDb(notifyActor: ActorRef, partition: Int, rev: Long, maxIndexWorkers: Int, db: Db)
-                               (implicit ec: ExecutionContext): Unit = {
+                               (implicit scheduler: Scheduler): Unit = {
     db.selectPendingIndexes(partition, maxIndexWorkers) map { indexesIterator ⇒
       notifyActor ! ProcessPartitionPendingIndexes(partition, rev,
         indexesIterator.map(ii ⇒ IndexDefTransaction(ii.documentUri, ii.indexId, ii.defTransactionId.toString)).toSeq
       )
-    } recover {
+    } onErrorRecover {
       case e: Throwable ⇒
         logger.error(s"Can't fetch pending indexes", e)
         notifyActor ! PartitionPendingFailed(rev)
-    }
+    } runAsync
   }
 }
 

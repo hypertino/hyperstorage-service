@@ -62,7 +62,7 @@ class TtlTest extends FlatSpec
       .futureValue shouldBe a[Created[_]]
 
     eventually {
-      val h = db.selectViewDefs().futureValue.toSeq.head
+      val h = db.selectViewDefs().runAsync.futureValue.toSeq.head
       h.documentUri shouldBe "abcs~"
       h.templateUri shouldBe "abc/{*}"
     }
@@ -123,7 +123,8 @@ class TtlTest extends FlatSpec
     itemCreated2 shouldBe a[Created[_]]
 
     eventually {
-      val indexContent = db.selectIndexCollection("index_content", "abc~", "index1", Seq(FieldFilter("item_id","",FilterGt)), Seq.empty, 10).futureValue.toSeq
+      val indexContent = db.selectIndexCollection("index_content", "abc~", "index1", Seq(FieldFilter("item_id","",FilterGt)), Seq.empty, 10)
+        .runAsync.futureValue.toSeq
       indexContent.size shouldBe 2
     }
 
@@ -143,7 +144,8 @@ class TtlTest extends FlatSpec
     itemOk2 shouldBe a[Ok[_]]
 
     eventually {
-      val indexContent = db.selectIndexCollection("index_content", "abc~", "index1", Seq(FieldFilter("item_id","",FilterGt)), Seq.empty, 10).futureValue.toSeq
+      val indexContent = db.selectIndexCollection("index_content", "abc~", "index1", Seq(FieldFilter("item_id","",FilterGt)), Seq.empty, 10)
+        .runAsync.futureValue.toSeq
       indexContent.size shouldBe 1
     }
   }

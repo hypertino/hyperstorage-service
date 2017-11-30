@@ -84,7 +84,7 @@ class HyperStorageService(implicit val scheduler: Scheduler,
       logger.error(s"Can't create C* session", e)
   }
 
-  private val indexManagerProps = IndexManager.props(hyperbus, db, tracker, maxWorkers)
+  private val indexManagerProps = IndexManager.props(hyperbus, db, tracker, maxWorkers, scheduler)
   private val indexManagerRef = actorSystem.actorOf(
     indexManagerProps, "index-manager"
   )
@@ -107,13 +107,13 @@ class HyperStorageService(implicit val scheduler: Scheduler,
   private val hotPeriod = (hotRecovery.toMillis, failTimeout.toMillis)
   logger.info(s"Launching hot recovery $hotRecovery-$failTimeout")
 
-  private val hotRecoveryRef = actorSystem.actorOf(HotRecoveryWorker.props(hotPeriod, db, shardProcessorRef, tracker, hotRecoveryRetry, backgroundTaskTimeout), "hot-recovery")
+  private val hotRecoveryRef = actorSystem.actorOf(HotRecoveryWorker.props(hotPeriod, db, shardProcessorRef, tracker, hotRecoveryRetry, backgroundTaskTimeout, scheduler), "hot-recovery")
   shardProcessorRef ! SubscribeToShardStatus(hotRecoveryRef)
 
   private val stalePeriod = (staleRecovery.toMillis, hotRecovery.toMillis)
   logger.info(s"Launching stale recovery $staleRecovery-$hotRecovery")
 
-  private val staleRecoveryRef = actorSystem.actorOf(StaleRecoveryWorker.props(stalePeriod, db, shardProcessorRef, tracker, staleRecoveryRetry, backgroundTaskTimeout), "stale-recovery")
+  private val staleRecoveryRef = actorSystem.actorOf(StaleRecoveryWorker.props(stalePeriod, db, shardProcessorRef, tracker, staleRecoveryRetry, backgroundTaskTimeout, scheduler), "stale-recovery")
   shardProcessorRef ! SubscribeToShardStatus(staleRecoveryRef)
 
   logger.info(s"Launching index manager")

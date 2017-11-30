@@ -40,6 +40,7 @@ import org.scalatest.{BeforeAndAfterEach, Matchers}
 import scaldi.{Injectable, Module}
 
 import scala.collection.concurrent.TrieMap
+import scala.collection.mutable
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.reflect.ClassTag
@@ -64,6 +65,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
   val reporter = inject[ScheduledReporter]
   val _actorSystems = TrieMap[Int, ActorSystem]()
   val _hyperbuses = TrieMap[Int, Hyperbus]()
+  val _zmqClusterTransports = mutable.ArrayBuffer[ZMQCClusterTransport]()
   def zmqDefault = true
 
   implicit def scheduler = inject [monix.execution.Scheduler]
@@ -71,16 +73,16 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
   def createShardProcessor(groupName: String,
                            workerCount: Int = 1,
                            waitWhileActivates: Boolean = true,
-                           zmq: Boolean = zmqDefault,
                            instance: Integer = 0
                           )(implicit actorSystem: ActorSystem) = {
-    val clusterTransport = if (zmq) {
+    val clusterTransport = if (zmqDefault) {
       val config = inject[Config]
-      new ZMQCClusterTransport(
+      val zmqc = new ZMQCClusterTransport(
         config.getConfig(s"hyperstorage.zmq-cluster-manager-$instance")
           .withFallback(config.getConfig("hyperstorage.zmq-cluster-manager"))
-          .resolve()
       )
+      _zmqClusterTransports += zmqc
+      zmqc
     } else {
       val clusterTransportRef = TestActorRef(AkkaClusterTransportActor.props("hyperstorage"))
       new AkkaClusterTransport(clusterTransportRef)
@@ -108,11 +110,22 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     val tk = testKit()
     import tk._
 
-    val indexManager = TestActorRef(IndexManager.props(hyperbus, db, tracker, 1))
+    val indexManager = TestActorRef(IndexManager.props(hyperbus, db, tracker, 1, scheduler))
     val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, indexManager, scheduler)
 
-    val clusterTransportRef = TestActorRef(AkkaClusterTransportActor.props("hyperstorage"))
-    val clusterTransport = new AkkaClusterTransport(clusterTransportRef)
+    val clusterTransport = if (zmqDefault) {
+      val config = inject[Config]
+      val zmqc = new ZMQCClusterTransport(
+        config.getConfig("hyperstorage.zmq-cluster-manager")
+      )
+      _zmqClusterTransports += zmqc
+      zmqc
+    }
+    else {
+      val clusterTransportRef = TestActorRef(AkkaClusterTransportActor.props("hyperstorage"))
+      new AkkaClusterTransport(clusterTransportRef)
+    }
+
     val processor = new TestFSMRef[String, ShardedClusterData, ShardProcessor](system,
       ShardProcessor.props(clusterTransport, workerSettings, tracker).withDispatcher("deque-dispatcher"),
       GuardianExtractor.guardian(system),
@@ -171,7 +184,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     uuids flatMap { uuid ⇒
       val partition = TransactionLogic.partitionFromUri(path)
       val qt = TransactionLogic.getDtQuantum(UUIDs.unixTimestamp(uuid))
-      whenReady(db.selectTransaction(qt, partition, path, uuid)) { mon ⇒
+      whenReady(db.selectTransaction(qt, partition, path, uuid).runAsync) { mon ⇒
         mon
       }
     }
@@ -197,6 +210,8 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     }
     _hyperbuses.clear()
     _actorSystems.clear()
+    _zmqClusterTransports.foreach(_.close())
+    _zmqClusterTransports.clear()
     Thread.sleep(500)
     logger.info("------- HYPERBUSES WERE SHUT DOWN -------- ")
     reporter.report()

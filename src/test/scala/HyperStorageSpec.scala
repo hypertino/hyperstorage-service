@@ -49,14 +49,14 @@ class HyperStorageSpecZMQ extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
 
     val task = ContentPut(
       path = "test-resource-1",
       DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
     )
 
-    whenReady(db.selectContent("test-resource-1", "")) { result =>
+    whenReady(db.selectContent("test-resource-1", "").runAsync) { result =>
       result shouldBe None
     }
 
@@ -69,7 +69,7 @@ class HyperStorageSpecZMQ extends FlatSpec
     r.headers.statusCode should equal(Status.CREATED)
     r.headers.correlationId should equal(task.correlationId)
 
-    val uuid = whenReady(db.selectContent("test-resource-1", "")) { result =>
+    val uuid = whenReady(db.selectContent("test-resource-1", "").runAsync) { result =>
       result.get.body should equal(Some("""{"text":"Test resource value"}"""))
       result.get.transactionList.size should equal(1)
 
@@ -90,7 +90,7 @@ class HyperStorageSpecZMQ extends FlatSpec
       transaction.completedAt shouldNot be(None)
       transaction.revision should equal(1)
     }
-    db.selectContent("test-resource-1", "").futureValue.get.transactionList shouldBe empty
+    db.selectContent("test-resource-1", "").runAsync.futureValue.get.transactionList shouldBe empty
   }
 
   it should "Patch resource that doesn't exists" in {
@@ -100,7 +100,7 @@ class HyperStorageSpecZMQ extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
 
     val patch = ContentPatch(
       path = "not-existing",
@@ -115,7 +115,7 @@ class HyperStorageSpecZMQ extends FlatSpec
     r.headers.statusCode should equal(Status.CREATED)
     r.headers.correlationId should equal(patch.correlationId)
 
-    val uuid = whenReady(db.selectContent("not-existing", "")) { result =>
+    val uuid = whenReady(db.selectContent("not-existing", "").runAsync) { result =>
       result.get.body should equal(Some("""{"text":"Test resource value"}"""))
       result.get.transactionList.size should equal(1)
 
@@ -136,7 +136,7 @@ class HyperStorageSpecZMQ extends FlatSpec
       transaction.completedAt shouldNot be(None)
       transaction.revision should equal(1)
     }
-    db.selectContent("not-existing", "").futureValue.get.transactionList shouldBe empty
+    db.selectContent("not-existing", "").runAsync.futureValue.get.transactionList shouldBe empty
   }
 
   it should "Patch existing and deleted resource" in {
@@ -144,7 +144,7 @@ class HyperStorageSpecZMQ extends FlatSpec
     val tk = testKit()
     import tk._
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
 
     val path = "test-resource-" + UUID.randomUUID().toString
     val put = ContentPut(path,
@@ -167,7 +167,7 @@ class HyperStorageSpecZMQ extends FlatSpec
         r.get.headers.correlationId == patch.correlationId ⇒ true
     }
 
-    whenReady(db.selectContent(path, "")) { result =>
+    whenReady(db.selectContent(path, "").runAsync) { result =>
       result.get.body should equal(Some("""{"text1":"efg","text3":"zzz"}"""))
     }
 
@@ -187,7 +187,7 @@ class HyperStorageSpecZMQ extends FlatSpec
     r.headers.statusCode should equal(Status.CREATED)
     r.headers.correlationId should equal(patch.correlationId)
 
-    val uuid = whenReady(db.selectContent(path, "")) { result =>
+    val uuid = whenReady(db.selectContent(path, "").runAsync) { result =>
       result.get.body should equal(Some("""{"text1":"efg","text3":"zzz"}"""))
       result.get.transactionList.size should equal(1)
 
@@ -208,7 +208,7 @@ class HyperStorageSpecZMQ extends FlatSpec
       transaction.completedAt shouldNot be(None)
       transaction.revision should equal(4)
     }
-    db.selectContent(path, "").futureValue.get.transactionList shouldBe empty
+    db.selectContent(path, "").runAsync.futureValue.get.transactionList shouldBe empty
   }
 
   it should "Delete resource that doesn't exists" in {
@@ -218,7 +218,7 @@ class HyperStorageSpecZMQ extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
 
     val delete = ContentDelete(path = "not-existing", body = EmptyBody)
 
@@ -228,7 +228,7 @@ class HyperStorageSpecZMQ extends FlatSpec
         r.headers.correlationId == delete.correlationId ⇒ true
     }
 
-    whenReady(db.selectContent("not-existing", "")) { result =>
+    whenReady(db.selectContent("not-existing", "").runAsync) { result =>
       result shouldBe None
     }
   }
@@ -240,7 +240,7 @@ class HyperStorageSpecZMQ extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
 
     val path = "test-resource-" + UUID.randomUUID().toString
     val put = ContentPut(path,
@@ -251,7 +251,7 @@ class HyperStorageSpecZMQ extends FlatSpec
     tk.expectTaskR[BackgroundContentTasksPost]()
     expectMsgType[WorkerTaskResult]
 
-    whenReady(db.selectContent(path, "")) { result =>
+    whenReady(db.selectContent(path, "").runAsync) { result =>
       result shouldNot be(None)
       result.get.isDeleted shouldBe None
     }
@@ -265,7 +265,7 @@ class HyperStorageSpecZMQ extends FlatSpec
         r.headers.correlationId == delete.headers.correlationId ⇒ true
     }
 
-    whenReady(db.selectContent(path, "")) { result =>
+    whenReady(db.selectContent(path, "").runAsync) { result =>
       result.get.isDeleted shouldBe Some(true)
     }
   }
@@ -277,7 +277,7 @@ class HyperStorageSpecZMQ extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
 
     val path = "test-resource-" + UUID.randomUUID().toString
     val put = ContentPut(path,
@@ -288,7 +288,7 @@ class HyperStorageSpecZMQ extends FlatSpec
     tk.expectTaskR[BackgroundContentTasksPost]()
     expectMsgType[WorkerTaskResult]
 
-    whenReady(db.selectContent(path, "")) { result =>
+    whenReady(db.selectContent(path, "").runAsync) { result =>
       result shouldNot be(None)
       result.get.isDeleted shouldBe None
     }
@@ -302,7 +302,7 @@ class HyperStorageSpecZMQ extends FlatSpec
         r.headers.correlationId == delete.headers.correlationId ⇒ true
     }
 
-    whenReady(db.selectContent(path, "")) { result =>
+    whenReady(db.selectContent(path, "").runAsync) { result =>
       result.get.isDeleted shouldBe Some(true)
     }
 
@@ -310,7 +310,7 @@ class HyperStorageSpecZMQ extends FlatSpec
     tk.expectTaskR[BackgroundContentTasksPost]()
     expectMsgType[WorkerTaskResult]
 
-    whenReady(db.selectContent(path, "")) { result =>
+    whenReady(db.selectContent(path, "").runAsync) { result =>
       result shouldNot be(None)
       result.get.isDeleted shouldBe Some(false)
     }
@@ -325,7 +325,7 @@ class HyperStorageSpecZMQ extends FlatSpec
 
     val transactionList = mutable.ListBuffer[String]()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
     val path = "abcde"
     val put = ContentPut(path,
       DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
@@ -352,7 +352,7 @@ class HyperStorageSpecZMQ extends FlatSpec
     transactionList += r.body.transactionId
     // todo: list of transactions!s
 
-    val transactionsC = whenReady(db.selectContent(path, "")) { result =>
+    val transactionsC = whenReady(db.selectContent(path, "").runAsync) { result =>
       result.get.isDeleted shouldBe Some(true)
       result.get.transactionList
     }
@@ -384,7 +384,7 @@ class HyperStorageSpecZMQ extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
     val path = "faulty"
     val put = ContentPut(path,
       DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
@@ -400,7 +400,7 @@ class HyperStorageSpecZMQ extends FlatSpec
     val (bgTask, br) = tk.expectTaskR[BackgroundContentTasksPost]()
     expectMsgType[WorkerTaskResult]
 
-    val transactionUuids = whenReady(db.selectContent(path, "")) { result =>
+    val transactionUuids = whenReady(db.selectContent(path, "").runAsync) { result =>
       result.get.transactionList
     }
 
@@ -450,7 +450,7 @@ class HyperStorageSpecZMQ extends FlatSpec
       _.completedAt shouldNot be(None)
     }
 
-    db.selectContent(path, "").futureValue.get.transactionList shouldBe empty
+    db.selectContent(path, "").runAsync.futureValue.get.transactionList shouldBe empty
   }
 
   it should "wait for full operation if requested" in {
@@ -460,7 +460,7 @@ class HyperStorageSpecZMQ extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 20.seconds))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 20.seconds, scheduler))
     val fakeProcessor = TestActorRef[FakeProcessor](Props(classOf[FakeProcessor], worker))
     val distributor = new HyperbusAdapter(hyperbus, fakeProcessor, db, tracker, 20.seconds)
 
@@ -472,7 +472,7 @@ class HyperStorageSpecZMQ extends FlatSpec
       .runAsync
 
     val r1: Content = eventually {
-      val r = db.selectContent(path, "").futureValue.head
+      val r = db.selectContent(path, "").runAsync.futureValue.head
       r.documentUri shouldBe path
       r
     }

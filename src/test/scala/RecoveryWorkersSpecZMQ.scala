@@ -49,7 +49,7 @@ class RecoveryWorkersSpecZMQ extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
     val path = "incomplete-" + UUID.randomUUID().toString
     val put = ContentPut(path,
       DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
@@ -58,13 +58,13 @@ class RecoveryWorkersSpecZMQ extends FlatSpec
     val (bgTask, br) = tk.expectTaskR[BackgroundContentTasksPost]()
     expectMsgType[WorkerTaskResult]
 
-    val transactionUuids = whenReady(db.selectContent(path, "")) { result =>
+    val transactionUuids = whenReady(db.selectContent(path, "").runAsync) { result =>
       result.get.transactionList
     }
 
     val processorProbe = TestProbe("processor")
     val hotWorkerProps = HotRecoveryWorker.props(
-      (60 * 1000l, -60 * 1000l), db, processorProbe.ref, tracker, 1.seconds, 10.seconds
+      (60 * 1000l, -60 * 1000l), db, processorProbe.ref, tracker, 1.seconds, 10.seconds, scheduler
     )
 
     val hotWorker = TestActorRef(hotWorkerProps)
@@ -92,7 +92,7 @@ class RecoveryWorkersSpecZMQ extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
     val path = "incomplete-" + UUID.randomUUID().toString
     val put = ContentPut(path,
       DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
@@ -102,7 +102,7 @@ class RecoveryWorkersSpecZMQ extends FlatSpec
     val (backgroundWorkerTask, br) = tk.expectTaskR[BackgroundContentTasksPost]()
     expectMsgType[WorkerTaskResult]
 
-    val content = db.selectContent(path, "").futureValue.get
+    val content = db.selectContent(path, "").runAsync.futureValue.get
     val newTransactionUuid = UUIDs.startOf(millis - 5 * 60 * 1000l)
     val newContent = content.copy(
       transactionList = List(newTransactionUuid) // original transaction becomes abandoned
@@ -112,14 +112,14 @@ class RecoveryWorkersSpecZMQ extends FlatSpec
       dtQuantum = TransactionLogic.getDtQuantum(UUIDs.unixTimestamp(newTransactionUuid)),
       uuid = newTransactionUuid
     )
-    db.insertContent(newContent).futureValue
-    db.insertTransaction(newTransaction).futureValue
+    db.insertContent(newContent).runAsync.futureValue
+    db.insertTransaction(newTransaction).runAsync.futureValue
 
     db.updateCheckpoint(transaction.partition, transaction.dtQuantum - 10) // checkpoint to - 10 minutes
 
     val processorProbe = TestProbe("processor")
     val staleWorkerProps = StaleRecoveryWorker.props(
-      (60 * 1000l, -60 * 1000l), db, processorProbe.ref, tracker, 1.seconds, 2.seconds
+      (60 * 1000l, -60 * 1000l), db, processorProbe.ref, tracker, 1.seconds, 2.seconds, scheduler
     )
 
     val hotWorker = TestActorRef(staleWorkerProps)
@@ -136,14 +136,14 @@ class RecoveryWorkersSpecZMQ extends FlatSpec
     processorProbe.reply(Conflict(ErrorBody("test",Some("Testing worker behavior"))))
 
     eventually {
-      db.selectCheckpoint(transaction.partition).futureValue shouldBe Some(newTransaction.dtQuantum - 1)
+      db.selectCheckpoint(transaction.partition).runAsync.futureValue shouldBe Some(newTransaction.dtQuantum - 1)
     }
 
     val (backgroundWorkerTask3, br3) = processorProbe.expectTaskR[BackgroundContentTasksPost](max = 30.seconds)
     hotWorker ! processorProbe.reply(Ok(BackgroundContentTaskResult(br2.body.documentUri, newContent.transactionList.map(_.toString))))
 
     eventually {
-      db.selectCheckpoint(transaction.partition).futureValue.get shouldBe >(newTransaction.dtQuantum)
+      db.selectCheckpoint(transaction.partition).runAsync.futureValue.get shouldBe >(newTransaction.dtQuantum)
     }
 
     val (backgroundWorkerTask4, br4) = processorProbe.expectTaskR[BackgroundContentTasksPost](max = 30.seconds) // this is abandoned

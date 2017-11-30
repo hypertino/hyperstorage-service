@@ -28,9 +28,10 @@ import com.hypertino.hyperstorage.{ResourcePath, _}
 import com.hypertino.metrics.MetricsTracker
 import monix.eval.Task
 import monix.execution.Scheduler
+import monix.execution.atomic.AtomicBoolean
 
+import scala.concurrent.duration
 import scala.concurrent.duration.Duration
-import scala.concurrent.{Future, duration}
 
 trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBase {
   def hyperbus: Hyperbus
@@ -38,7 +39,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
   def tracker: MetricsTracker
   implicit def scheduler: Scheduler
 
-  def deleteIndexDefAndData(indexDef: IndexDef): Task[Unit]
+  def deleteIndexDefAndData(indexDef: IndexDef): Task[Any]
 
   def executeBackgroundTask(owner: ActorRef, task: LocalTask, request: BackgroundContentTasksPost): Task[ResponseBase] = {
     implicit val mcx = request
@@ -47,21 +48,18 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
       Task.now(BadRequest(ErrorBody(ErrorCode.BACKGROUND_TASK_FAILED, Some(s"Background task path ${request.body.documentUri} doesn't correspond to $documentUri"))))
     }
     else {
-      val timer = tracker.timer(Metrics.SECONDARY_PROCESS_TIME).time()
-      val stopTimer = Task.eval{
-        timer.stop()
-        ()
-      }
-      Task.fromFuture(db.selectContentStatic(documentUri)).flatMap {
-        case None ⇒
-          logger.warn(s"Didn't found resource to background complete, dismissing task: $request")
-          Task.now(NotFound(ErrorBody(ErrorCode.NOT_FOUND, Some(s"$documentUri is not found"))))
+      import com.hypertino.hyperstorage.utils.TrackerUtils._
+      tracker.timeOfTask(Metrics.SECONDARY_PROCESS_TIME) {
+        db.selectContentStatic(documentUri).flatMap {
+          case None ⇒
+            logger.warn(s"Didn't found resource to background complete, dismissing task: $request")
+            Task.now(NotFound(ErrorBody(ErrorCode.NOT_FOUND, Some(s"$documentUri is not found"))))
 
-        case Some(content) ⇒
-          logger.debug(s"Background task for $content")
-          completeTransactions(task, request, content, owner)
-      } .doOnFinish(_ ⇒ stopTimer)
-        .doOnCancel(stopTimer)
+          case Some(content) ⇒
+            logger.debug(s"Background task for $content")
+            completeTransactions(task, request, content, owner)
+        }
+      }
     }
   }
 
@@ -74,23 +72,23 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
       Task.now(Ok(BackgroundContentTaskResult(request.body.documentUri, Seq.empty)))
     }
     else {
-      Task.fromFuture(selectIncompleteTransactions(content)).flatMap { incompleteTransactions ⇒
+      selectIncompleteTransactions(content).flatMap { incompleteTransactions ⇒
         val updateIndexTask: Task[Any] = updateIndexes(content, incompleteTransactions, owner, task.ttl)
 
         updateIndexTask.flatMap { _ ⇒
           Task.sequence{
             incompleteTransactions.map { it ⇒
               val event = it.unwrappedBody
-              val viewTask: Task[Unit] = {
+              val viewTask: Task[Any] = {
                 event.headers.get(TransactionLogic.HB_HEADER_VIEW_TEMPLATE_URI).map { templateUri ⇒
                   val filter = event.headers.getOrElse(TransactionLogic.HB_HEADER_FILTER, Null) match {
                     case Null ⇒ None
                     case other ⇒ Some(other.toString)
                   }
-                  Task.fromFuture(db.insertViewDef(ViewDef(key = "*", request.body.documentUri, templateUri.toString, filter)))
+                  db.insertViewDef(ViewDef(key = "*", request.body.documentUri, templateUri.toString, filter))
                 } getOrElse {
                   if (event.headers.hrl.location == ViewDelete.location) {
-                    Task.fromFuture(db.deleteViewDef(key = "*", request.body.documentUri))
+                    db.deleteViewDef(key = "*", request.body.documentUri)
                   }
                   else {
                     Task.unit
@@ -103,7 +101,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
                 .flatMap { publishResult ⇒
                   logger.debug(s"Event $event is published with result $publishResult")
 
-                  Task.fromFuture(db.completeTransaction(it.transaction)) map { _ ⇒
+                  db.completeTransaction(it.transaction) map { _ ⇒
                     logger.debug(s"${it.transaction} is complete")
 
                     it.transaction
@@ -113,10 +111,10 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
           }
         } map { updatedTransactions ⇒
           logger.debug(s"Removing completed transactions $updatedTransactions from ${request.body.documentUri}")
-          db.removeCompleteTransactionsFromList(request.body.documentUri, updatedTransactions.map(_.uuid).toList) recover {
+          db.removeCompleteTransactionsFromList(request.body.documentUri, updatedTransactions.map(_.uuid).toList) onErrorRecover {
             case e: Throwable ⇒
               logger.error(s"Can't remove complete transactions $updatedTransactions from ${request.body.documentUri}", e)
-          }
+          } runAsync
 
           Ok(BackgroundContentTaskResult(request.body.documentUri, updatedTransactions.map(_.uuid.toString)))
         }
@@ -124,15 +122,35 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
     }
   }
 
-  private def selectIncompleteTransactions(content: ContentStatic): Future[Seq[UnwrappedTransaction]] = {
+  private def selectIncompleteTransactions(content: ContentStatic): Task[Seq[UnwrappedTransaction]] = {
     import ContentLogic._
-    val transactionsFStream = content.transactionList.toStream.map { transactionUuid ⇒
-      val quantum = TransactionLogic.getDtQuantum(UUIDs.unixTimestamp(transactionUuid))
-      db.selectTransaction(quantum, content.partition, content.documentUri, transactionUuid)
+    val reachedCompleteTransaction = AtomicBoolean(false)
+    Task.sequence {
+      content.transactionList.map { transactionUuid ⇒
+        if (reachedCompleteTransaction.get) {
+          Task.now(None)
+        }
+        else {
+          val quantum = TransactionLogic.getDtQuantum(UUIDs.unixTimestamp(transactionUuid))
+          db.selectTransaction(quantum, content.partition, content.documentUri, transactionUuid) map {
+            case Some(transaction) ⇒ Some(UnwrappedTransaction(transaction))
+            case None ⇒
+              reachedCompleteTransaction.set(true)
+              None
+          }
+        }
+      }
+    } map {
+      _.flatten.reverse
     }
-    FutureUtils.collectWhile(transactionsFStream) {
-      case Some(transaction) ⇒ UnwrappedTransaction(transaction)
-    } map (_.reverse)
+//
+//    val transactionsFStream = content.transactionList.toStream.map { transactionUuid ⇒
+//      val quantum = TransactionLogic.getDtQuantum(UUIDs.unixTimestamp(transactionUuid))
+//      db.selectTransaction(quantum, content.partition, content.documentUri, transactionUuid)
+//    }
+//    FutureUtils.collectWhile(transactionsFStream) {
+//      case Some(transaction) ⇒ UnwrappedTransaction(transaction)
+//    } map (_.reverse)
   }
 
   private def updateIndexes(contentStatic: ContentStatic,
@@ -172,11 +190,10 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
 
         Task.traverse(itemIds.keys) { itemId ⇒
           // todo: cache content
-          val contentTask = Task.eval(Task.fromFuture{
+          val contentTask = Task.eval {
             logger.debug(s"Looking for content ${contentStatic.documentUri}/$itemId to index/update view")
-
             db.selectContent(contentStatic.documentUri, itemId)
-          }).flatten.memoize
+          }.flatten.memoize
           val lastTransaction = incompleteTransactions.filter(_.transaction.itemId == itemId).last
           logger.debug(s"Update view/index for ${contentStatic.documentUri}/$itemId, lastTransaction=$lastTransaction, contentTask=$contentTask")
 
@@ -187,14 +204,16 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
                   Task.traverse(indexDefs) { indexDef ⇒
                     logger.debug(s"Indexing content ${contentStatic.documentUri}/$itemId for $indexDef")
 
-                    Task.fromFuture(db.selectIndexContentStatic(indexDef.tableName, indexDef.documentUri, indexDef.indexId))
+                    db.selectIndexContentStatic(indexDef.tableName, indexDef.documentUri, indexDef.indexId)
                       .flatMap { indexContentStaticO ⇒
                         logger.debug(s"Index $indexDef static data: $indexContentStaticO")
                         val countBefore: Long = indexContentStaticO.flatMap(_.count).getOrElse(0l)
                         // todo: refactor, this is crazy
                         val seq: Seq[Seq[(String, Value)]] = itemIds(itemId).filter(_._1 == indexDef.indexId).map(_._2)
-                        val deleteObsoleteFuture = FutureUtils.serial(seq) { s ⇒
-                          db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, itemId, s)
+                        val deleteObsoleteTask = Task.sequence {
+                          seq.map { s ⇒
+                            db.deleteIndexItem(indexDef.tableName, indexDef.documentUri, indexDef.indexId, itemId, s)
+                          }
                         }.map { deleted: Seq[Long] ⇒
                           Math.max(countBefore - deleted.sum, 0)
                         }
@@ -202,7 +221,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
                         contentTask
                           .flatMap {
                             case Some(item) if !item.isDeleted.contains(true) ⇒
-                              Task.fromFuture(deleteObsoleteFuture).flatMap { countAfterDelete ⇒
+                              deleteObsoleteTask.flatMap { countAfterDelete ⇒
                                 val count = if (indexDef.status == IndexDef.STATUS_NORMAL) Some(countAfterDelete + 1) else None
                                 indexItem(indexDef, item, idFieldName, count).map(_._2)
                               }
@@ -216,11 +235,10 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
                               Task.now(Unit)
 
                             case false ⇒
-                              Task.fromFuture(
-                                deleteObsoleteFuture.flatMap { countAfterDelete ⇒
-                                  val revision = incompleteTransactions.map(t ⇒ t.transaction.revision).max
-                                  db.updateIndexRevisionAndCount(indexDef.tableName, indexDef.documentUri, indexDef.indexId, revision, countAfterDelete)
-                                })
+                              deleteObsoleteTask.flatMap { countAfterDelete ⇒
+                                val revision = incompleteTransactions.map(t ⇒ t.transaction.revision).max
+                                db.updateIndexRevisionAndCount(indexDef.tableName, indexDef.documentUri, indexDef.indexId, revision, countAfterDelete)
+                              }
                           }
                       }
                   }
@@ -229,15 +247,15 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
         }
       }
     } else {
-      val contentTask = Task.eval(Task.fromFuture(db.selectContent(contentStatic.documentUri, ""))).flatten.memoize
+      val contentTask = db.selectContent(contentStatic.documentUri, "").memoize
       updateView(contentStatic.documentUri,contentTask,incompleteTransactions.last, owner, ttl)
     }
   }
 
   private def createIndexFromTemplateOrLoad(documentUri: String): Task[List[IndexDef]] = {
     Task.zip2(
-      Task.eval(Task.fromFuture(db.selectIndexDefs(documentUri).map(_.toList))).flatten,
-      Task.eval(Task.fromFuture(db.selectTemplateIndexDefs().map(_.toList))).flatten
+      db.selectIndexDefs(documentUri).map(_.toList),
+      db.selectTemplateIndexDefs().map(_.toList)
     ).flatMap { case (existingIndexes, templateDefs) ⇒
       val newIndexTasks = templateDefs.filterNot(t ⇒ existingIndexes.exists(_.indexId == t.indexId)).map { templateDef ⇒
         ContentLogic.pathAndTemplateToId(documentUri, templateDef.templateUri).map { _ ⇒
@@ -258,7 +276,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
                          lastTransaction: UnwrappedTransaction,
                          owner: ActorRef,
                          ttl: Long): Task[Any] = {
-    val viewDefsTask = Task.eval(Task.fromFuture(db.selectViewDefs().map(_.toList))).flatten
+    val viewDefsTask = db.selectViewDefs().map(_.toList)
     viewDefsTask.flatMap { viewDefs ⇒
       Task.wander(viewDefs) { viewDef ⇒
         ContentLogic.pathAndTemplateToId(path, viewDef.templateUri).map { id ⇒

@@ -44,7 +44,7 @@ trait ItemIndexer extends StrictLogging {
         if (indexDef.materialize) item.body else None,
         item.createdAt, item.modifiedAt
       )
-      Task.fromFuture(db.insertIndexItem(indexDef.tableName, sortBy, indexContent, item.realTtl)) map { _ ⇒
+      db.insertIndexItem(indexDef.tableName, sortBy, indexContent, item.realTtl) map { _ ⇒
         (item.itemId, write)
       }
     }

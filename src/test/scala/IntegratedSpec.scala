@@ -380,7 +380,7 @@ class IntegratedSpec extends FlatSpec
       .futureValue shouldBe a[Created[_]]
 
     eventually {
-      val h = db.selectViewDefs().futureValue.toSeq.head
+      val h = db.selectViewDefs().runAsync.futureValue.toSeq.head
       h.documentUri shouldBe "abcs~"
       h.templateUri shouldBe "abc/{*}"
     }
@@ -428,7 +428,7 @@ class IntegratedSpec extends FlatSpec
       .futureValue shouldBe a[Created[_]]
 
     eventually {
-      val h = db.selectViewDefs().futureValue.toSeq.head
+      val h = db.selectViewDefs().runAsync.futureValue.toSeq.head
       h.documentUri shouldBe "abcs~"
       h.templateUri shouldBe "collection~/{*}"
     }

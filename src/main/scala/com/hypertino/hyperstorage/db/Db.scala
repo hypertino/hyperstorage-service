@@ -17,6 +17,8 @@ import com.hypertino.hyperstorage.{CassandraConnector, ContentLogic}
 import com.hypertino.hyperstorage.api.HyperStorageIndexSortItem
 import com.hypertino.inflector.naming.CamelCaseToSnakeCaseConverter
 import com.typesafe.scalalogging.StrictLogging
+import monix.eval.Task
+import monix.execution.Scheduler
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.NonFatal
@@ -213,7 +215,7 @@ private[db] case class CheckPoint(lastQuantum: Long)
 private[db] case class IndexItemId(itemId: String)
 private[db] case class ContentTtl(ttl: Int)
 
-class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) extends StrictLogging {
+class Db(connector: CassandraConnector)(implicit scheduler: Scheduler) extends StrictLogging {
   private[this] lazy val session: com.datastax.driver.core.Session = connector.connect()
   private[this] lazy implicit val sessionQueryCache = new GuavaSessionQueryCache[CamelCaseToSnakeCaseConverter.type](session)
 
@@ -233,12 +235,12 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) extends S
     }
   }
 
-  def selectContent(documentUri: String, itemId: String): Future[Option[Content]] = cql"""
+  def selectContent(documentUri: String, itemId: String): Task[Option[Content]] = cql"""
       select document_uri,item_id,revision,transaction_list,is_deleted,count,is_view,body,created_at,modified_at,ttl,ttl(body) as ttl_left from content
       where document_uri=$documentUri and item_id=$itemId
     """.oneOption[Content]
 
-  def selectContentCollection(documentUri: String, limit: Int, itemIdFilter: Option[(String, FilterOperator)], ascending: Boolean = true): Future[Iterator[Content]] = {
+  def selectContentCollection(documentUri: String, limit: Int, itemIdFilter: Option[(String, FilterOperator)], ascending: Boolean = true): Task[Iterator[Content]] = {
     //println(s"selectContentCollection($documentUri,$limit,$itemIdFilter,$ascending)")
     val orderClause = if(ascending) {
       Dynamic("order by item_id asc")
@@ -266,18 +268,18 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) extends S
     else {
       c.bindArgs(documentUri, limit)
     }
-    c.stmt.execute.map(rows => rows.iterator.flatMap{it ⇒
+    c.stmt.task.map(rows => rows.iterator.flatMap{it ⇒
       if(it.row.isNull("item_id")) None else Some(it.unbind[Content])
     })
   }
 
-  def selectContentStatic(documentUri: String): Future[Option[ContentStatic]] = cql"""
+  def selectContentStatic(documentUri: String): Task[Option[ContentStatic]] = cql"""
       select document_uri,revision,transaction_list,is_deleted,count,is_view from content
       where document_uri=$documentUri
       limit 1
     """.oneOption[ContentStatic]
 
-  def insertContent(content: Content): Future[Unit] = {
+  def insertContent(content: Content): Task[Any] = {
     logger.debug(s"Inserting: $content")
 
     val staticFields = Seq("revision", "transaction_list") ++
@@ -320,10 +322,10 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) extends S
         using ttl $ttlValue
       """
     }
-    cql.bindPartial(content).execute()
+    cql.bindPartial(content).task
   }
 
-  def deleteContentItem(content: ContentBase, itemId: String): Future[Unit] = {
+  def deleteContentItem(content: ContentBase, itemId: String): Task[Any] = {
     logger.debug(s"Deleting: $content")
     cql"""
       begin batch
@@ -333,70 +335,70 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) extends S
         delete from content
         where document_uri = ${content.documentUri} and item_id = $itemId;
       apply batch;
-    """.execute()
+    """.task
   }
 
-  def purgeCollection(documentUri: String): Future[Unit] = {
+  def purgeCollection(documentUri: String): Task[Any] = {
     logger.debug(s"Purging collection: $documentUri")
     cql"""
       delete from content
       where document_uri = $documentUri;
-    """.execute()
+    """.task
   }
 
-  def selectTransaction(dtQuantum: Long, partition: Int, documentUri: String, uuid: UUID): Future[Option[Transaction]] = cql"""
+  def selectTransaction(dtQuantum: Long, partition: Int, documentUri: String, uuid: UUID): Task[Option[Transaction]] = cql"""
       select dt_quantum,partition,document_uri,item_id,uuid,revision,body,obsolete_index_items,completed_at from transaction
       where dt_quantum=$dtQuantum and partition=$partition and document_uri=$documentUri and uuid=$uuid
     """.oneOption[Transaction]
 
-  def selectPartitionTransactions(dtQuantum: Long, partition: Int): Future[Iterator[Transaction]] = cql"""
+  def selectPartitionTransactions(dtQuantum: Long, partition: Int): Task[Iterator[Transaction]] = cql"""
       select dt_quantum,partition,document_uri,item_id,uuid,revision,body,obsolete_index_items,completed_at from transaction
       where dt_quantum=$dtQuantum and partition=$partition
     """.all[Transaction]
 
-  def insertTransaction(transaction: Transaction): Future[Unit] = cql"""
+  def insertTransaction(transaction: Transaction): Task[Any] = cql"""
       insert into transaction(dt_quantum,partition,document_uri,item_id,uuid,revision,body,obsolete_index_items,completed_at)
       values(?,?,?,?,?,?,?,?,?)
-    """.bind(transaction).execute()
+    """.bind(transaction).task
 
-  def completeTransaction(transaction: Transaction): Future[Unit] = cql"""
+  def completeTransaction(transaction: Transaction): Task[Any] = cql"""
       update transaction set completed_at=toTimestamp(now())
       where dt_quantum=${transaction.dtQuantum}
         and partition=${transaction.partition}
         and document_uri=${transaction.documentUri}
         and uuid=${transaction.uuid}
-    """.execute()
+    """.task
 
-  def deleteTransaction(transaction: Transaction): Future[Unit] = cql"""
+  def deleteTransaction(transaction: Transaction): Task[Any] = cql"""
       delete transaction
       where dt_quantum=${transaction.dtQuantum}
         and partition=${transaction.partition}
         and document_uri=${transaction.documentUri}
         and uuid=${transaction.uuid}
-    """.execute()
+    """.task
 
   def removeCompleteTransactionsFromList(documentUri: String, transactions: List[UUID]) = cql"""
       update content
         set transaction_list = transaction_list - $transactions
       where document_uri = $documentUri
-    """.execute()
+    """.task
 
-  def selectCheckpoint(partition: Int): Future[Option[Long]] = cql"""
+  def selectCheckpoint(partition: Int): Task[Option[Long]] = cql"""
       select last_quantum from checkpoint where partition = $partition
     """.oneOption[CheckPoint].map(_.map(_.lastQuantum))
 
-  def updateCheckpoint(partition: Int, lastQuantum: Long): Future[Unit] = cql"""
+  def updateCheckpoint(partition: Int, lastQuantum: Long): Task[Any] = cql"""
       insert into checkpoint(partition, last_quantum) values($partition, $lastQuantum)
-    """.execute()
+    """.task
 
-  def selectPendingIndexes(partition: Int, limit: Int): Future[Iterator[PendingIndex]] = cql"""
+  def selectPendingIndexes(partition: Int, limit: Int): Task[Iterator[PendingIndex]] = cql"""
       select partition, document_uri, index_id, last_item_id, def_transaction_id
       from pending_index
       where partition=$partition
       limit $limit
     """.all[PendingIndex]
 
-  def selectPendingIndex(partition: Int, documentId: String, indexId: String, defTransactionId: UUID): Future[Option[PendingIndex]] = cql"""
+  def selectPendingIndex(partition: Int, documentId: String, indexId: String, defTransactionId: UUID): Task[Option[PendingIndex]] = cql"""
       select partition, document_uri, index_id, last_item_id, def_transaction_id
       from pending_index
       where partition=$partition and document_uri=$documentId and index_id=$indexId and def_transaction_id=$defTransactionId
@@ -406,48 +408,48 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) extends S
       delete
       from pending_index
       where partition=$partition and document_uri=$documentId and index_id=$indexId and def_transaction_id=$defTransactionId
-    """.execute()
+    """.task
 
   def updatePendingIndexLastItemId(partition: Int, documentId: String, indexId: String, defTransactionId: UUID, lastItemId: String) = cql"""
       update pending_index
       set last_item_id = $lastItemId
       where partition=$partition and document_uri=$documentId and index_id=$indexId and def_transaction_id=$defTransactionId
-    """.execute()
+    """.task
 
-  def insertPendingIndex(pendingIndex: PendingIndex): Future[Unit] = cql"""
+  def insertPendingIndex(pendingIndex: PendingIndex): Task[Any] = cql"""
       insert into pending_index(partition, document_uri, index_id, last_item_id, def_transaction_id)
       values (?,?,?,?,?)
-    """.bind(pendingIndex).execute()
+    """.bind(pendingIndex).task
 
-  def selectIndexDef(documentUri: String, indexId: String): Future[Option[IndexDef]] = cql"""
+  def selectIndexDef(documentUri: String, indexId: String): Task[Option[IndexDef]] = cql"""
       select document_uri, index_id, status, sort_by, filter, table_name, def_transaction_id, materialize
       from index_def
       where document_uri = $documentUri and index_id=$indexId
     """.oneOption[IndexDef]
 
-  def selectIndexDefs(documentUri: String): Future[Iterator[IndexDef]] = cql"""
+  def selectIndexDefs(documentUri: String): Task[Iterator[IndexDef]] = cql"""
       select document_uri, index_id, status, sort_by, filter, table_name, def_transaction_id, materialize
       from index_def
       where document_uri = $documentUri
     """.all[IndexDef]
 
-  def insertIndexDef(indexDef: IndexDef): Future[Unit] = cql"""
+  def insertIndexDef(indexDef: IndexDef): Task[Any] = cql"""
       insert into index_def(document_uri, index_id, status, sort_by, filter, table_name, def_transaction_id, materialize)
       values (?,?,?,?,?,?,?,?)
-    """.bind(indexDef).execute()
+    """.bind(indexDef).task
 
-  def updateIndexDefStatus(documentUri: String, indexId: String, newStatus: Int, defTransactionId: UUID): Future[Unit] = cql"""
+  def updateIndexDefStatus(documentUri: String, indexId: String, newStatus: Int, defTransactionId: UUID): Task[Any] = cql"""
       update index_def
       set status = $newStatus, def_transaction_id = $defTransactionId
       where document_uri = $documentUri and index_id = $indexId
-    """.execute()
+    """.task
 
-  def deleteIndexDef(documentUri: String, indexId: String): Future[Unit] = cql"""
+  def deleteIndexDef(documentUri: String, indexId: String): Task[Any] = cql"""
       delete from index_def
       where document_uri = $documentUri and index_id = $indexId
-    """.execute()
+    """.task
 
-  def selectIndexContentStatic(indexTable: String, documentUri: String, indexId: String): Future[Option[IndexContentStatic]] = {
+  def selectIndexContentStatic(indexTable: String, documentUri: String, indexId: String): Task[Option[IndexContentStatic]] = {
     val tableName = Dynamic(indexTable)
     cql"""
       select document_uri,revision,count from $tableName
@@ -455,7 +457,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) extends S
     """.oneOption[IndexContentStatic]
   }
 
-  def insertIndexItem(indexTable: String, sortFields: Seq[(String, Value)], indexContent: IndexContent, ttl: Int): Future[Unit] = {
+  def insertIndexItem(indexTable: String, sortFields: Seq[(String, Value)], indexContent: IndexContent, ttl: Int): Task[Any] = {
     logger.debug(s"Inserting indexed: $indexTable, $sortFields, $ttl, $indexContent")
     val tableName = Dynamic(indexTable)
     val sortFieldNames = if (sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_._1).mkString(",", ",", ""))
@@ -483,13 +485,13 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) extends S
     }
 
     bindSortFields(cql, sortFields)
-    cql.execute()
+    cql.task
   }
 
   def selectIndexCollection(indexTable: String, documentUri: String, indexId: String,
                             filter: Seq[FieldFilter],
                             orderByFields: Seq[CkField],
-                            limit: Int): Future[Iterator[IndexContent]] = {
+                            limit: Int): Task[Iterator[IndexContent]] = {
     val tableName = Dynamic(indexTable)
     val filterEqualFields = if (filter.isEmpty)
       Dynamic("")
@@ -534,7 +536,7 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) extends S
                       documentUri: String,
                       indexId: String,
                       itemId: String,
-                      sortFields: Seq[(String,Value)]): Future[Long] = {
+                      sortFields: Seq[(String,Value)]): Task[Long] = {
     logger.debug(s"Deleting indexed: $indexTable, $sortFields, $indexId, $documentUri, $itemId")
 
     val tableName = Dynamic(indexTable)
@@ -556,57 +558,57 @@ class Db(connector: CassandraConnector)(implicit ec: ExecutionContext) extends S
         where document_uri=$documentUri and index_id=$indexId and item_id = $itemId$sortFieldsFilter
       """
       bindSortFields(cql, sortFields)
-      cql.execute().map { _ ⇒
+      cql.task.map { _ ⇒
         deletedCount
       }
     }
   }
 
-  def deleteIndex(indexTable: String, documentUri: String, indexId: String): Future[Unit] = {
+  def deleteIndex(indexTable: String, documentUri: String, indexId: String): Task[Any] = {
     val tableName = Dynamic(indexTable)
     cql"""
       delete from $tableName
       where document_uri = $documentUri and index_id=$indexId
-    """.execute()
+    """.task
   }
 
-  def updateIndexRevisionAndCount(indexTable: String, documentUri: String, indexId: String, revision: Long, count: Long): Future[Unit] = {
+  def updateIndexRevisionAndCount(indexTable: String, documentUri: String, indexId: String, revision: Long, count: Long): Task[Any] = {
     logger.debug(s"Update index revision: $indexTable, $indexId, $documentUri, rev $revision, count $count")
     val tableName = Dynamic(indexTable)
     cql"""
       update $tableName
       set revision = $revision, count = $count
       where document_uri = $documentUri and index_id = $indexId
-    """.execute()
+    """.task
   }
 
-  def selectViewDefs(key: String = "*"): Future[Iterator[ViewDef]] = cql"""
+  def selectViewDefs(key: String = "*"): Task[Iterator[ViewDef]] = cql"""
       select key, document_uri, template_uri, filter
       from view_def
       where key = $key
     """.all[ViewDef]
 
-  def insertViewDef(viewDef: ViewDef): Future[Unit] = cql"""
+  def insertViewDef(viewDef: ViewDef): Task[Any] = cql"""
       insert into view_def(key, document_uri, template_uri, filter) values (?,?,?,?)
-    """.bind(viewDef).execute()
+    """.bind(viewDef).task
 
-  def deleteViewDef(key: String, documentUri: String): Future[Unit] = cql"""
+  def deleteViewDef(key: String, documentUri: String): Task[Any] = cql"""
       delete from view_def where key=$key and document_uri=$documentUri
-    """.execute()
+    """.task
 
-  def selectTemplateIndexDefs(key: String = "*"): Future[Iterator[TemplateIndexDef]] = cql"""
+  def selectTemplateIndexDefs(key: String = "*"): Task[Iterator[TemplateIndexDef]] = cql"""
       select key, index_id, template_uri, sort_by, filter, materialize
       from template_index_def
       where key = $key
     """.all[TemplateIndexDef]
 
-  def insertTemplateIndexDef(templateIndexDef: TemplateIndexDef): Future[Unit] = cql"""
+  def insertTemplateIndexDef(templateIndexDef: TemplateIndexDef): Task[Any] = cql"""
       insert into template_index_def(key, index_id, template_uri, sort_by, filter, materialize) values (?,?,?,?,?,?)
-    """.bind(templateIndexDef).execute()
+    """.bind(templateIndexDef).task
 
-  def deleteTemplateIndexDef(key: String, indexId: String): Future[Unit] = cql"""
+  def deleteTemplateIndexDef(key: String, indexId: String): Task[Any] = cql"""
       delete from template_index_def where key=$key and index_id=$indexId
-    """.execute()
+    """.task
 
   private def bindSortFields(cql: Statement[CamelCaseToSnakeCaseConverter.type], sortFields: Seq[(String, Value)]) = {
     sortFields.foreach {
