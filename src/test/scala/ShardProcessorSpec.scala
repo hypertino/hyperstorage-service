@@ -14,28 +14,25 @@ import org.scalatest.{FlatSpec, Matchers}
 
 import scala.concurrent.duration._
 
-class ShardProcessorSpec extends FlatSpec
+class ShardProcessorSpecZMQ extends FlatSpec
   with Matchers
   with ScalaFutures
   with TestHelpers
   with Eventually {
 
+  def zmq: Boolean = true
+
   override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(10000, Millis)))
 
-  "ShardProcessor" should "become Active" in {
+  "ShardProcessor" should "become Active and shutdown gracefully" in {
     implicit val as = testActorSystem()
-    createShardProcessor("test-group")
-  }
-
-  it should "shutdown gracefully" in {
-    implicit val as = testActorSystem()
-    val fsm = createShardProcessor("test-group")
+    val fsm = createShardProcessor("test-group", zmq=zmq)
     shutdownShardProcessor(fsm)
   }
 
   it should "process task" in {
     implicit val as = testActorSystem()
-    val fsm = createShardProcessor("test-group")
+    val fsm = createShardProcessor("test-group", zmq=zmq)
     val (task, r) = testTask("abc", "t1")
     fsm ! task
     testKit().awaitCond(r.isProcessed)
@@ -44,7 +41,7 @@ class ShardProcessorSpec extends FlatSpec
 
   it should "stash task while Activating and process it later" in {
     implicit val as = testActorSystem()
-    val fsm = createShardProcessor("test-group", waitWhileActivates = false)
+    val fsm = createShardProcessor("test-group", waitWhileActivates = false, zmq=zmq)
     val (task, r) = testTask("abc", "t1")
     fsm ! task
     fsm.stateName should equal(NodeStatus.ACTIVATING)
@@ -57,7 +54,7 @@ class ShardProcessorSpec extends FlatSpec
   it should "stash task when workers are busy and process later" in {
     implicit val as = testActorSystem()
     val tk = testKit()
-    val fsm = createShardProcessor("test-group")
+    val fsm = createShardProcessor("test-group", zmq=zmq)
     val (task1, r1) = testTask("abc", "t1")
     val (task2, r2) = testTask("abc2", "t2")
     fsm ! task1
@@ -70,7 +67,7 @@ class ShardProcessorSpec extends FlatSpec
   it should "stash task when URL is 'locked' and it process later" in {
     implicit val as = testActorSystem()
     val tk = testKit()
-    val fsm = createShardProcessor("test-group", 2)
+    val fsm = createShardProcessor("test-group", 2, zmq=zmq)
     val (task1, r1) = testTask("abc1", "t1", 500)
     val (task1x, r1x) = testTask("abc1", "t1x", 500)
     val (task2, r2) = testTask("abc2", "t2", 500)
@@ -88,4 +85,8 @@ class ShardProcessorSpec extends FlatSpec
     }, 2.second)
     shutdownShardProcessor(fsm)
   }
+}
+
+class ShardProcessorSpecAkkaCluster extends ShardProcessorSpecZMQ{
+  override def zmq: Boolean = false
 }

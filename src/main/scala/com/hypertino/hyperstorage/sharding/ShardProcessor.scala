@@ -149,8 +149,9 @@ class ShardProcessor(clusterTransport: ClusterTransport,
   when(NodeStatus.DEACTIVATING) {
     case Event(ShardSyncTimer, data) ⇒
       if (confirmStatus(data, NodeStatus.DEACTIVATING, isFirst = false)) {
+        confirmStatus(data, NodeStatus.PASSIVE, isFirst = false)
+        Thread.sleep(5000) // give time to send shutdown messages, unreliable
         clusterTransport.unsubscribe(self)
-        confirmStatus(data, NodeStatus.PASSIVE, isFirst = false) // not reliable
         stop()
       }
       else {

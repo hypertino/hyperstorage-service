@@ -11,6 +11,7 @@ package com.hypertino.hyperstorage.indexing
 import java.util.UUID
 
 import akka.actor.{Actor, ActorRef, ActorSystem, Props}
+import akka.pattern.{ask, pipe}
 import com.hypertino.binders.value.Null
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model.{MessagingContext, Ok}
@@ -22,6 +23,7 @@ import com.hypertino.hyperstorage.workers.HyperstorageWorkerSettings
 import com.hypertino.metrics.MetricsTracker
 import com.typesafe.scalalogging.StrictLogging
 
+import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{ExecutionContext, Future}
 
 case object StartPendingIndexWorker
@@ -105,7 +107,7 @@ class PendingIndexWorker(shardProcessor: ActorRef, indexKey: IndexDefTransaction
       extra = Null
     )
 
-    shardProcessor ! indexTask
+    shardProcessor.ask(indexTask)(IndexWorkerImpl.RETRY_PERIOD * 3) pipeTo self
     context.system.scheduler.scheduleOnce(IndexWorkerImpl.RETRY_PERIOD * 2, self, IndexNextBatchTimeout(processId))
   }
 }

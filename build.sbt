@@ -54,6 +54,7 @@ libraryDependencies ++= Seq(
   "com.hypertino"               %% "hyperbus"                     % "0.5-SNAPSHOT",
 //  "com.hypertino"               %% "hyperbus-t-kafka"             % "0.2-SNAPSHOT",
   "com.hypertino"               %% "hyperbus-t-zeromq"            % "0.4-SNAPSHOT",
+  "com.hypertino"               %% "hyperbus-consul-resolver"     % "0.3-SNAPSHOT",
 
   "com.hypertino"               %% "cassandra-binders"            % "0.3.0",
   "com.hypertino"               %% "expression-parser"            % "0.2.1",

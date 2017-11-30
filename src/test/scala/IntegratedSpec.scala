@@ -16,7 +16,7 @@ import com.hypertino.hyperbus.serialization.SerializationOptions
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.api._
 import com.hypertino.hyperstorage.sharding._
-import com.hypertino.hyperstorage.sharding.akkacluster.{AkkaClusterShardingTransport, AkkaClusterShardingTransportActor}
+import com.hypertino.hyperstorage.sharding.akkacluster.{AkkaClusterTransport, AkkaClusterTransportActor}
 import com.hypertino.hyperstorage.utils.SortBy
 import com.hypertino.hyperstorage.workers.HyperstorageWorkerSettings
 import monix.execution.Ack.Continue
@@ -458,8 +458,8 @@ class IntegratedSpec extends FlatSpec
   }
 
   def shardProcessor(workerSettings: Map[String, WorkerGroupSettings])(implicit as: ActorSystem) = {
-    val clusterTransportRef = TestActorRef(AkkaClusterShardingTransportActor.props("hyperstorage"))
-    val clusterTransport = new AkkaClusterShardingTransport(clusterTransportRef)
+    val clusterTransportRef = TestActorRef(AkkaClusterTransportActor.props("hyperstorage"))
+    val clusterTransport = new AkkaClusterTransport(clusterTransportRef)
     TestActorRef(ShardProcessor.props(clusterTransport, workerSettings, tracker))
   }
 }

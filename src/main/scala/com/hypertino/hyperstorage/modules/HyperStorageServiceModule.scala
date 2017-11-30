@@ -9,8 +9,12 @@
 package com.hypertino.hyperstorage.modules
 
 import com.datastax.driver.core.Session
+import com.hypertino.hyperbus.transport.api.{ServiceRegistrator, ServiceResolver}
 import com.hypertino.hyperstorage.{CassandraConnector, HyperStorageService}
+import com.hypertino.transport.registrators.consul.ConsulServiceRegistrator
+import com.hypertino.transport.resolvers.consul.ConsulServiceResolver
 import com.typesafe.config.Config
+import monix.execution.Scheduler
 import scaldi.Module
 
 class HyperStorageServiceModule extends Module {
@@ -20,4 +24,10 @@ class HyperStorageServiceModule extends Module {
     }
   }
   bind[HyperStorageService] to injected[HyperStorageService]
+  bind[ServiceResolver] identifiedBy "hyperstorage-cluster-resolver" to new ConsulServiceResolver(
+    inject[Config].getConfig("hyperstorage.zmq-cluster-manager.consul")
+  )(inject [Scheduler])
+  bind[ServiceRegistrator] identifiedBy "hyperstorage-cluster-registrator" to new ConsulServiceRegistrator(
+    inject[Config].getConfig("hyperstorage.zmq-cluster-manager.consul")
+  )(inject [Scheduler])
 }

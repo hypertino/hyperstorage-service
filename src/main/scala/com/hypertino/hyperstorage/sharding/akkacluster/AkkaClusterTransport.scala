@@ -19,7 +19,7 @@ private[akkacluster] case object SubscribeToEvents
 private[akkacluster] case object UnsubscribeFromEvents
 private[akkacluster] case class AKMessage(nodeId: String, message: RequestBase)
 
-class AkkaClusterShardingTransportActor(roleName: String) extends Actor with StrictLogging {
+class AkkaClusterTransportActor(roleName: String) extends Actor with StrictLogging {
   private val cluster = Cluster(context.system)
   if (!cluster.selfRoles.contains(roleName)) {
     logger.error(s"Cluster doesn't contains '$roleName' role. Please configure.")
@@ -51,13 +51,13 @@ class AkkaClusterShardingTransportActor(roleName: String) extends Actor with Str
   }
 }
 
-object AkkaClusterShardingTransportActor {
+object AkkaClusterTransportActor {
   def props(
              roleName: String
-           ) = Props(new AkkaClusterShardingTransportActor(roleName))
+           ) = Props(new AkkaClusterTransportActor(roleName))
 }
 
-class AkkaClusterShardingTransport(transportActor: ActorRef) extends ClusterTransport {
+class AkkaClusterTransport(transportActor: ActorRef) extends ClusterTransport {
   override def subscribe(actor: ActorRef): Unit = {
     transportActor.!(SubscribeToEvents)(actor)
   }

@@ -15,22 +15,14 @@ import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.time.{Millis, Span}
 import org.scalatest.{FlatSpec, FreeSpec, Matchers}
 
-class IndexingSpecNonMaterialized extends IndexingSpec {
-  override def materialize: Boolean = false
-}
-
-class IndexingSpecMaterialized extends IndexingSpec {
-  override def materialize: Boolean = true
-}
-
-abstract class IndexingSpec extends FlatSpec
+class IndexingSpecMaterialized extends FlatSpec
   with Matchers
   with ScalaFutures
   with CassandraFixture
   with TestHelpers
   with Eventually {
 
-  def materialize: Boolean
+  def materialize: Boolean = true
 
   override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(30000, Millis)))
 
@@ -962,4 +954,8 @@ abstract class IndexingSpec extends FlatSpec
 
     db.selectIndexDef("b-1~", "t1").futureValue.toList shouldBe empty
   }
+}
+
+class IndexingSpecNonMaterialized extends IndexingSpecMaterialized {
+  override def materialize: Boolean = false
 }

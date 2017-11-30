@@ -17,6 +17,7 @@ import com.hypertino.binders.value.{Null, Obj, Value}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model.annotations.{body, request}
 import com.hypertino.hyperbus.model.{Body, DefinedResponse, MessagingContext, Method, Ok, Request, RequestBase, ServiceUnavailable}
+import com.hypertino.hyperbus.transport.api.ServiceRegistrator
 import com.hypertino.hyperbus.util.IdGenerator
 import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.db.{Db, Transaction}
@@ -24,27 +25,39 @@ import com.hypertino.hyperstorage.indexing.IndexManager
 import com.hypertino.hyperstorage.internal.api.NodeStatus
 import com.hypertino.hyperstorage.modules.{HyperStorageServiceModule, SystemServicesModule}
 import com.hypertino.hyperstorage.sharding._
-import com.hypertino.hyperstorage.sharding.akkacluster.{AkkaClusterShardingTransport, AkkaClusterShardingTransportActor}
+import com.hypertino.hyperstorage.sharding.akkacluster.{AkkaClusterTransport, AkkaClusterTransportActor}
+import com.hypertino.hyperstorage.sharding.consulzmq.ZMQCClusterTransport
 import com.hypertino.hyperstorage.workers.HyperstorageWorkerSettings
 import com.hypertino.hyperstorage.workers.primary.PrimaryExtra
 import com.hypertino.metrics.MetricsTracker
 import com.hypertino.metrics.modules.{ConsoleReporterModule, MetricsModule}
 import com.hypertino.service.config.ConfigModule
-import com.typesafe.config.ConfigFactory
+import com.hypertino.transport.registrators.consul.ConsulServiceRegistrator
+import com.typesafe.config.{Config, ConfigFactory}
 import com.typesafe.scalalogging.StrictLogging
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.{BeforeAndAfterEach, Matchers}
-import scaldi.Injectable
+import scaldi.{Injectable, Module}
 
 import scala.collection.concurrent.TrieMap
 import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.reflect.ClassTag
 
+
+class TestConsulModule extends Module {
+  bind[ServiceRegistrator] identifiedBy "hyperstorage-cluster-registrator-1" to new ConsulServiceRegistrator(
+    inject[Config].getConfig("hyperstorage.zmq-cluster-manager-1.consul")
+  )(inject [monix.execution.Scheduler])
+  bind[ServiceRegistrator] identifiedBy "hyperstorage-cluster-registrator-2" to new ConsulServiceRegistrator(
+    inject[Config].getConfig("hyperstorage.zmq-cluster-manager-2.consul")
+  )(inject [monix.execution.Scheduler])
+}
+
 trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures with Injectable with StrictLogging{
   this: org.scalatest.BeforeAndAfterEach with org.scalatest.Suite =>
 
-  implicit val injector = new SystemServicesModule :: new HyperStorageServiceModule :: new MetricsModule ::
+  implicit val injector = new TestConsulModule :: new SystemServicesModule :: new HyperStorageServiceModule :: new MetricsModule ::
     new ConsoleReporterModule(Duration.Inf).injector :: ConfigModule()
 
   val tracker = inject[MetricsTracker]
@@ -54,9 +67,23 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
 
   implicit def scheduler = inject [monix.execution.Scheduler]
 
-  def createShardProcessor(groupName: String, workerCount: Int = 1, waitWhileActivates: Boolean = true)(implicit actorSystem: ActorSystem) = {
-    val clusterTransportRef = TestActorRef(AkkaClusterShardingTransportActor.props("hyperstorage"))
-    val clusterTransport = new AkkaClusterShardingTransport(clusterTransportRef)
+  def createShardProcessor(groupName: String,
+                           workerCount: Int = 1,
+                           waitWhileActivates: Boolean = true,
+                           zmq: Boolean = false,
+                           instance: Integer = 0
+                          )(implicit actorSystem: ActorSystem) = {
+    val clusterTransport = if (zmq) {
+      val config = inject[Config]
+      new ZMQCClusterTransport(
+        config.getConfig(s"hyperstorage.zmq-cluster-manager-$instance")
+          .withFallback(config.getConfig("hyperstorage.zmq-cluster-manager"))
+          .resolve()
+      )
+    } else {
+      val clusterTransportRef = TestActorRef(AkkaClusterTransportActor.props("hyperstorage"))
+      new AkkaClusterTransport(clusterTransportRef)
+    }
     val workerSettings = Map(
       groupName → WorkerGroupSettings(Props[TestWorker], workerCount, "test-worker", Seq(TestShardTaskPost))
     )
@@ -83,8 +110,8 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     val indexManager = TestActorRef(IndexManager.props(hyperbus, db, tracker, 1))
     val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, indexManager, scheduler)
 
-    val clusterTransportRef = TestActorRef(AkkaClusterShardingTransportActor.props("hyperstorage"))
-    val clusterTransport = new AkkaClusterShardingTransport(clusterTransportRef)
+    val clusterTransportRef = TestActorRef(AkkaClusterTransportActor.props("hyperstorage"))
+    val clusterTransport = new AkkaClusterTransport(clusterTransportRef)
     val processor = new TestFSMRef[String, ShardedClusterData, ShardProcessor](system,
       ShardProcessor.props(clusterTransport, workerSettings, tracker).withDispatcher("deque-dispatcher"),
       GuardianExtractor.guardian(system),
