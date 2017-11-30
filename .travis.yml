@@ -21,6 +21,7 @@ git:
 before_install:
   - sed -i 's/git@github.com:/https:\/\/github.com\//' .gitmodules
   - git submodule update --init --recursive
+  - docker run -d -p 127.0.0.1:8500:8500 consul:1.0.0
 
 env:
   global:
