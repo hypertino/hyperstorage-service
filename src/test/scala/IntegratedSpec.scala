@@ -17,10 +17,11 @@ import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.api._
 import com.hypertino.hyperstorage.sharding._
 import com.hypertino.hyperstorage.sharding.akkacluster.{AkkaClusterTransport, AkkaClusterTransportActor}
+import com.hypertino.hyperstorage.sharding.consulzmq.ZMQCClusterTransport
 import com.hypertino.hyperstorage.utils.SortBy
 import com.hypertino.hyperstorage.workers.HyperstorageWorkerSettings
+import com.typesafe.config.Config
 import monix.execution.Ack.Continue
-import org.scalatest.concurrent.PatienceConfiguration.{Timeout ⇒ TestTimeout}
 import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.time.{Millis, Span}
 import org.scalatest.{FlatSpec, Matchers}
@@ -458,8 +459,16 @@ class IntegratedSpec extends FlatSpec
   }
 
   def shardProcessor(workerSettings: Map[String, WorkerGroupSettings])(implicit as: ActorSystem) = {
-    val clusterTransportRef = TestActorRef(AkkaClusterTransportActor.props("hyperstorage"))
-    val clusterTransport = new AkkaClusterTransport(clusterTransportRef)
+    val clusterTransport = if (zmqDefault) {
+      val config = inject[Config]
+      new ZMQCClusterTransport(
+        config.getConfig(s"hyperstorage.zmq-cluster-manager")
+      )
+    } else {
+      val clusterTransportRef = TestActorRef(AkkaClusterTransportActor.props("hyperstorage"))
+      new AkkaClusterTransport(clusterTransportRef)
+    }
+
     TestActorRef(ShardProcessor.props(clusterTransport, workerSettings, tracker))
   }
 }

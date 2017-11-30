@@ -29,7 +29,7 @@ import org.scalatest.{FlatSpec, Matchers}
 import scala.collection.mutable
 import scala.concurrent.duration._
 
-class HyperStorageSpec extends FlatSpec
+class HyperStorageSpecZMQ extends FlatSpec
   with Matchers
   with ScalaFutures
   with CassandraFixture
@@ -38,6 +38,7 @@ class HyperStorageSpec extends FlatSpec
 
   import ContentLogic._
 
+  override def zmqDefault: Boolean = true
   override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(10000, Millis)))
   implicit val emptyContext = MessagingContext.empty
 
@@ -520,3 +521,9 @@ class FakeProcessor(primaryWorker: ActorRef) extends Actor {
       otherMessages.add(r)
   }
 }
+
+
+class HyperStorageSpecAkkaCluster extends HyperStorageSpecZMQ {
+  override def zmqDefault: Boolean = false
+}
+

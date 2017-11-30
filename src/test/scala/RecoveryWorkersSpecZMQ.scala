@@ -27,12 +27,14 @@ import org.scalatest.{FlatSpec, FreeSpec, Matchers}
 
 import scala.concurrent.duration._
 
-class RecoveryWorkersSpec extends FlatSpec
+class RecoveryWorkersSpecZMQ extends FlatSpec
   with Matchers
   with ScalaFutures
   with CassandraFixture
   with TestHelpers
   with Eventually {
+
+  override def zmqDefault: Boolean = true
 
   import ContentLogic._
 
@@ -151,3 +153,6 @@ class RecoveryWorkersSpec extends FlatSpec
   }
 }
 
+class RecoveryWorkersSpecAkkaCluster extends RecoveryWorkersSpecZMQ {
+  override def zmqDefault: Boolean = false
+}

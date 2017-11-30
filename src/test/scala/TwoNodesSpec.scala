@@ -17,17 +17,17 @@ import org.scalatest.concurrent.ScalaFutures
 import scala.concurrent.duration._
 
 class TwoNodesSpecZMQ extends FlatSpec with ScalaFutures with TestHelpers {
-  def zmq: Boolean = true
+  override def zmqDefault: Boolean = true
 
   "ShardProcessor" should "become Active" in {
     val (fsm1, actorSystem1, testKit1) = {
       implicit val actorSystem1 = testActorSystem(1)
-      (createShardProcessor("test-group", waitWhileActivates = false, zmq=zmq, instance=1), actorSystem1, testKit(1))
+      (createShardProcessor("test-group", waitWhileActivates = false, instance=1), actorSystem1, testKit(1))
     }
 
     val (fsm2, actorSystem2, testKit2) = {
       implicit val actorSystem2 = testActorSystem(2)
-      (createShardProcessor("test-group", waitWhileActivates = false, zmq=zmq, instance=2), actorSystem2, testKit(2))
+      (createShardProcessor("test-group", waitWhileActivates = false, instance=2), actorSystem2, testKit(2))
     }
 
     testKit1.awaitCond(fsm1.stateName == NodeStatus.ACTIVE && fsm1.stateData.nodes.nonEmpty)
@@ -42,14 +42,14 @@ class TwoNodesSpecZMQ extends FlatSpec with ScalaFutures with TestHelpers {
   it should "become Active sequentially" in {
     val (fsm1, actorSystem1, testKit1) = {
       implicit val actorSystem1 = testActorSystem(1)
-      (createShardProcessor("test-group", waitWhileActivates = false, zmq=zmq, instance=1), actorSystem1, testKit(1))
+      (createShardProcessor("test-group", waitWhileActivates = false, instance=1), actorSystem1, testKit(1))
     }
 
     testKit1.awaitCond(fsm1.stateName == NodeStatus.ACTIVE && fsm1.stateData.nodes.isEmpty)
 
     val (fsm2, actorSystem2, testKit2) = {
       implicit val actorSystem2 = testActorSystem(2)
-      (createShardProcessor("test-group", waitWhileActivates = false, zmq=zmq, instance=2), actorSystem2, testKit(2))
+      (createShardProcessor("test-group", waitWhileActivates = false, instance=2), actorSystem2, testKit(2))
     }
 
     testKit2.awaitCond(fsm2.stateName == NodeStatus.ACTIVE && fsm2.stateData.nodes.nonEmpty, 5 second)
@@ -65,12 +65,12 @@ class TwoNodesSpecZMQ extends FlatSpec with ScalaFutures with TestHelpers {
   "Tasks "should "distribute to corresponding actors" in {
     val (fsm1, actorSystem1, testKit1, address1) = {
       implicit val actorSystem1 = testActorSystem(1)
-      (createShardProcessor("test-group", waitWhileActivates = false, zmq=zmq, instance=2), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
+      (createShardProcessor("test-group", waitWhileActivates = false, instance=2), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
     }
 
     val (fsm2, actorSystem2, testKit2, address2) = {
       implicit val actorSystem2 = testActorSystem(2)
-      (createShardProcessor("test-group", waitWhileActivates = false, zmq=zmq, instance=1), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
+      (createShardProcessor("test-group", waitWhileActivates = false, instance=1), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
     }
 
     testKit1.awaitCond(fsm1.stateName == NodeStatus.ACTIVE && fsm1.stateData.nodes.nonEmpty, 5 second)
@@ -90,12 +90,12 @@ class TwoNodesSpecZMQ extends FlatSpec with ScalaFutures with TestHelpers {
   it should "be forwarded to corresponding actors and results are forwarded back" in {
     val (fsm1, actorSystem1, testKit1, address1) = {
       implicit val actorSystem1 = testActorSystem(1)
-      (createShardProcessor("test-group", waitWhileActivates = false, zmq=zmq, instance=2), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
+      (createShardProcessor("test-group", waitWhileActivates = false, instance=2), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
     }
 
     val (fsm2, actorSystem2, testKit2, address2) = {
       implicit val actorSystem2 = testActorSystem(2)
-      (createShardProcessor("test-group", waitWhileActivates = false, zmq=zmq, instance=1), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
+      (createShardProcessor("test-group", waitWhileActivates = false, instance=1), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
     }
 
     testKit1.awaitCond(fsm1.stateName == NodeStatus.ACTIVE && fsm1.stateData.nodes.nonEmpty, 5 second)
@@ -131,12 +131,12 @@ class TwoNodesSpecZMQ extends FlatSpec with ScalaFutures with TestHelpers {
   it should "not be processed for deactivating actor before deactivation is complete" in {
     val (fsm1, actorSystem1, testKit1, address1) = {
       implicit val actorSystem1 = testActorSystem(1)
-      (createShardProcessor("test-group", waitWhileActivates = false, zmq=zmq, instance=1), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
+      (createShardProcessor("test-group", waitWhileActivates = false, instance=1), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
     }
 
     val (fsm2, actorSystem2, testKit2, address2) = {
       implicit val actorSystem2 = testActorSystem(2)
-      (createShardProcessor("test-group", waitWhileActivates = false, zmq=zmq, instance=2), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
+      (createShardProcessor("test-group", waitWhileActivates = false, instance=2), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
     }
 
     testKit1.awaitCond(fsm1.stateName == NodeStatus.ACTIVE && fsm1.stateData.nodes.nonEmpty)
@@ -174,7 +174,7 @@ class TwoNodesSpecZMQ extends FlatSpec with ScalaFutures with TestHelpers {
   "Processor" should "not confirm sync/activation until completes processing corresponding task" in {
     val (fsm1, actorSystem1, testKit1, address1) = {
       implicit val actorSystem1 = testActorSystem(1)
-      (createShardProcessor("test-group", zmq=zmq, instance=1), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
+      (createShardProcessor("test-group", instance=1), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
     }
 
     val (task1, r1) = testTask("klx1", "t7", sleep = 6000)
@@ -185,7 +185,7 @@ class TwoNodesSpecZMQ extends FlatSpec with ScalaFutures with TestHelpers {
 
     val (fsm2, actorSystem2, testKit2, address2) = {
       implicit val actorSystem2 = testActorSystem(2)
-      (createShardProcessor("test-group", waitWhileActivates = false, zmq=zmq, instance=2), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
+      (createShardProcessor("test-group", waitWhileActivates = false, instance=2), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
     }
 
     testKit1.awaitCond({
@@ -200,5 +200,5 @@ class TwoNodesSpecZMQ extends FlatSpec with ScalaFutures with TestHelpers {
 }
 
 class TwoNodesSpecAkkaCluster extends TwoNodesSpecZMQ {
-  override def zmq: Boolean = false
+  override def zmqDefault: Boolean = false
 }

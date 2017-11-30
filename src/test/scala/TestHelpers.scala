@@ -64,13 +64,14 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
   val reporter = inject[ScheduledReporter]
   val _actorSystems = TrieMap[Int, ActorSystem]()
   val _hyperbuses = TrieMap[Int, Hyperbus]()
+  def zmqDefault = true
 
   implicit def scheduler = inject [monix.execution.Scheduler]
 
   def createShardProcessor(groupName: String,
                            workerCount: Int = 1,
                            waitWhileActivates: Boolean = true,
-                           zmq: Boolean = false,
+                           zmq: Boolean = zmqDefault,
                            instance: Integer = 0
                           )(implicit actorSystem: ActorSystem) = {
     val clusterTransport = if (zmq) {

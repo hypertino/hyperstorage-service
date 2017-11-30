@@ -73,6 +73,10 @@ libraryDependencies ++= Seq(
   "org.pegdown"                 % "pegdown"                       % "1.6.0"         % "test"
 )
 
+dependencyOverrides ++= Set(
+  "com.google.guava"            % "guava"                         % "19.0"          % "test"
+)
+
 testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-h", "target/test-reports", "-oDS")
 
 parallelExecution in Test := false
