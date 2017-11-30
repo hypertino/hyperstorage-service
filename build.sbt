@@ -77,11 +77,12 @@ libraryDependencies ++= Seq(
 //  "com.google.guava"            % "guava"                         % "19.0"          % "test"
 //)
 
-testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-h", "target/test-reports", "-oDS")
+testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-h", "target/test-reports", "-oDSI")
 
 parallelExecution in Test := false
 
 fork in Test := true
+logBuffered in Test := false
 
 resolvers ++= Seq(
   Resolver.sonatypeRepo("public")

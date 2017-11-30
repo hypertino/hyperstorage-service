@@ -109,14 +109,14 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
                 }
             }
           }
-        } map { updatedTransactions ⇒
+        } flatMap { updatedTransactions ⇒
           logger.debug(s"Removing completed transactions $updatedTransactions from ${request.body.documentUri}")
           db.removeCompleteTransactionsFromList(request.body.documentUri, updatedTransactions.map(_.uuid).toList) onErrorRecover {
             case e: Throwable ⇒
               logger.error(s"Can't remove complete transactions $updatedTransactions from ${request.body.documentUri}", e)
-          } runAsync
-
-          Ok(BackgroundContentTaskResult(request.body.documentUri, updatedTransactions.map(_.uuid.toString)))
+          } map { _ ⇒
+            Ok(BackgroundContentTaskResult(request.body.documentUri, updatedTransactions.map(_.uuid.toString)))
+          }
         }
       }
     }

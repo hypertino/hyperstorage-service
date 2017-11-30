@@ -459,17 +459,19 @@ class IntegratedSpec extends FlatSpec
   }
 
   def shardProcessor(workerSettings: Map[String, WorkerGroupSettings])(implicit as: ActorSystem) = {
-    val clusterTransport = if (zmqDefault) {
+    val clusterTransport = if (defaultClusterTransportIsZMQ) {
       val config = inject[Config]
-      new ZMQCClusterTransport(
+      val zmqc = new ZMQCClusterTransport(
         config.getConfig(s"hyperstorage.zmq-cluster-manager")
       )
+      _zmqClusterTransports += zmqc
+      zmqc
     } else {
       val clusterTransportRef = TestActorRef(AkkaClusterTransportActor.props("hyperstorage"))
       new AkkaClusterTransport(clusterTransportRef)
     }
 
-    TestActorRef(ShardProcessor.props(clusterTransport, workerSettings, tracker))
+    TestActorRef(ShardProcessor.props(clusterTransport, workerSettings, tracker).withDispatcher("deque-dispatcher"))
   }
 }
 

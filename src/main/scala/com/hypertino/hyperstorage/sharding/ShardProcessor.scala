@@ -500,7 +500,7 @@ class ShardProcessor(clusterTransport: ClusterTransport,
   }
 
   private def safeUnstashAll(): Unit = try {
-    logger.debug("Unstashing tasks")
+    logger.debug(s"Unstashing tasks, active workers: $activeWorkers")
     unstashAll()
   } catch {
     case e: Throwable ⇒

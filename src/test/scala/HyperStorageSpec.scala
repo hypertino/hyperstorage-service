@@ -38,7 +38,7 @@ class HyperStorageSpecZMQ extends FlatSpec
 
   import ContentLogic._
 
-  override def zmqDefault: Boolean = true
+  override def defaultClusterTransportIsZMQ: Boolean = true
   override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(10000, Millis)))
   implicit val emptyContext = MessagingContext.empty
 
@@ -524,6 +524,6 @@ class FakeProcessor(primaryWorker: ActorRef) extends Actor {
 
 
 class HyperStorageSpecAkkaCluster extends HyperStorageSpecZMQ {
-  override def zmqDefault: Boolean = false
+  override def defaultClusterTransportIsZMQ: Boolean = false
 }
 

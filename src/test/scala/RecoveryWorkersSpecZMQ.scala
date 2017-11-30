@@ -34,7 +34,7 @@ class RecoveryWorkersSpecZMQ extends FlatSpec
   with TestHelpers
   with Eventually {
 
-  override def zmqDefault: Boolean = true
+  override def defaultClusterTransportIsZMQ: Boolean = true
 
   import ContentLogic._
 
@@ -115,7 +115,7 @@ class RecoveryWorkersSpecZMQ extends FlatSpec
     db.insertContent(newContent).runAsync.futureValue
     db.insertTransaction(newTransaction).runAsync.futureValue
 
-    db.updateCheckpoint(transaction.partition, transaction.dtQuantum - 10) // checkpoint to - 10 minutes
+    db.updateCheckpoint(transaction.partition, transaction.dtQuantum - 10).runAsync.futureValue // checkpoint to - 10 minutes
 
     val processorProbe = TestProbe("processor")
     val staleWorkerProps = StaleRecoveryWorker.props(
@@ -154,5 +154,5 @@ class RecoveryWorkersSpecZMQ extends FlatSpec
 }
 
 class RecoveryWorkersSpecAkkaCluster extends RecoveryWorkersSpecZMQ {
-  override def zmqDefault: Boolean = false
+  override def defaultClusterTransportIsZMQ: Boolean = false
 }

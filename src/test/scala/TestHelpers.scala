@@ -66,7 +66,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
   val _actorSystems = TrieMap[Int, ActorSystem]()
   val _hyperbuses = TrieMap[Int, Hyperbus]()
   val _zmqClusterTransports = mutable.ArrayBuffer[ZMQCClusterTransport]()
-  def zmqDefault = true
+  def defaultClusterTransportIsZMQ = true
 
   implicit def scheduler = inject [monix.execution.Scheduler]
 
@@ -75,7 +75,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
                            waitWhileActivates: Boolean = true,
                            instance: Integer = 0
                           )(implicit actorSystem: ActorSystem) = {
-    val clusterTransport = if (zmqDefault) {
+    val clusterTransport = if (defaultClusterTransportIsZMQ) {
       val config = inject[Config]
       val zmqc = new ZMQCClusterTransport(
         config.getConfig(s"hyperstorage.zmq-cluster-manager-$instance")
@@ -113,7 +113,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     val indexManager = TestActorRef(IndexManager.props(hyperbus, db, tracker, 1, scheduler))
     val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, indexManager, scheduler)
 
-    val clusterTransport = if (zmqDefault) {
+    val clusterTransport = if (defaultClusterTransportIsZMQ) {
       val config = inject[Config]
       val zmqc = new ZMQCClusterTransport(
         config.getConfig("hyperstorage.zmq-cluster-manager")

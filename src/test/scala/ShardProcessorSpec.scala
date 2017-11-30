@@ -20,7 +20,7 @@ class ShardProcessorSpecZMQ extends FlatSpec
   with TestHelpers
   with Eventually {
 
-  override def zmqDefault: Boolean = true
+  override def defaultClusterTransportIsZMQ: Boolean = true
 
   override implicit val patienceConfig = PatienceConfig(timeout = scaled(Span(10000, Millis)))
 
@@ -88,5 +88,5 @@ class ShardProcessorSpecZMQ extends FlatSpec
 }
 
 class ShardProcessorSpecAkkaCluster extends ShardProcessorSpecZMQ{
-  override def zmqDefault: Boolean = false
+  override def defaultClusterTransportIsZMQ: Boolean = false
 }
