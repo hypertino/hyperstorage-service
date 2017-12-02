@@ -20,7 +20,7 @@
     <logger name="com.datastax.driver">
         <level value="warn" />
     </logger>
-    <root level="info">
+    <root level="warn">
         <appender-ref ref="stdout"/>
     </root>
 </configuration>
