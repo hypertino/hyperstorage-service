@@ -78,7 +78,7 @@ class HyperStorageService(implicit val scheduler: Scheduler,
   }
   else {
     val as = ActorSystem("hyperstorage", config.getConfig("hyperstorage.cluster-actor-system"))
-    Cluster(actorSystem)
+    Cluster(as)
     as
   }
 
