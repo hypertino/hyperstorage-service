@@ -452,15 +452,8 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker,
         }
       }
 
-    val patch = if (request.headers.contentType.contains(HyperStoragePatchType.HYPERSTORAGE_CONTENT_INCREMENT)) {
-      incrementBodyPatch(existingBody, request.body.content)
-    }
-    else if (request.headers.contentType.contains(HyperStoragePatchType.HYPERSTORAGE_CONTENT_EVALUATE)) {
-      evaluateBodyPatch(existingBody, request)
-    }
-    else {
-      request.body.content
-    }
+    val patch = ContentLogic.applyPatch(existingBody, request)
+
     if (isCollection) {
       val idFieldName = ContentLogic.getIdFieldName(documentUri)
       val newIdField = patch(idFieldName)
@@ -509,47 +502,6 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker,
     newBodyContent match {
       case Null ⇒ None
       case other ⇒ Some(other.toJson)
-    }
-  }
-
-  private def incrementBodyPatch(existing: Value, patch: Value): Value = {
-    patch match {
-      case Obj(items) ⇒
-        existing match {
-          case Obj(existingItems) ⇒ Obj(
-            items.map { case (field, increment) ⇒
-              field → existingItems
-                .get(field)
-                .map(_ + increment)
-                .getOrElse(increment)
-            }
-          )
-
-          case _ ⇒
-            Obj(items)
-        }
-      case _ ⇒
-        existing + patch
-    }
-  }
-
-  private def evaluateBodyPatch(existingBody: Value, request: PrimaryWorkerRequest): Value = {
-    val context = ExpressionEvaluatorContext(request, existingBody)
-    evaluateField(request.body.content, context)
-  }
-
-  private def evaluateField(field: Value, context: ExpressionEvaluatorContext): Value = {
-    field match {
-      case Text(s) ⇒
-        HEval(s, context)
-
-      case Lst(items) ⇒
-        items.map(evaluateField(_, context))
-
-      case Obj(items) ⇒
-        Obj(items.map(kv ⇒ kv._1 → evaluateField(kv._2, context)))
-
-      case _ ⇒ field
     }
   }
 

@@ -10,9 +10,10 @@ package com.hypertino.mock.hyperstorage
 
 import com.hypertino.binders.value.{Obj, Text, Value}
 import com.hypertino.hyperbus.Hyperbus
-import com.hypertino.hyperbus.model.{Created, DynamicBody, EmptyBody, ErrorBody, Headers, MessagingContext, NotFound, Ok, PreconditionFailed, RequestBase, ResponseBase}
+import com.hypertino.hyperbus.model.{Created, DynamicBody, ErrorBody, Headers, MessagingContext, NotFound, Ok, PreconditionFailed, RequestBase, ResponseBase}
 import com.hypertino.hyperbus.subscribe.Subscribable
 import com.hypertino.hyperbus.util.IdGenerator
+import com.hypertino.hyperstorage.ContentLogic
 import com.hypertino.hyperstorage.api._
 import monix.eval.Task
 import monix.execution.Scheduler
@@ -52,7 +53,9 @@ class HyperStorageMock(protected val hyperbus: Hyperbus, protected implicit val 
       val newRev = rev + 1
       hyperStorageContent.get(request.path) match {
         case Some(v) ⇒
-          hyperStorageContent.put(request.path, (v._1 % request.body.content, newRev))
+
+          val newContent = ContentLogic.applyPatch(v._1, request)
+          hyperStorageContent.put(request.path, (newContent, newRev))
           Ok(HyperStorageTransaction(IdGenerator.create(),request.path, newRev))
 
         case None ⇒

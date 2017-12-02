@@ -8,18 +8,72 @@
 
 package com.hypertino.hyperstorage
 
-import com.hypertino.binders.value.{Lst, Value}
+import com.hypertino.binders.value.{Lst, Obj, Text, Value}
 import com.hypertino.hyperbus.model.{DynamicRequest, RequestBase}
 import com.hypertino.hyperbus.utils.uri._
-import com.hypertino.hyperstorage.api.HyperStorageHeader
+import com.hypertino.hyperstorage.api.{HyperStorageHeader, HyperStoragePatchType}
 import com.hypertino.hyperstorage.db.{Content, ContentBase, ContentStatic}
+import com.hypertino.hyperstorage.workers.primary.{ExpressionEvaluatorContext, PrimaryWorkerRequest}
 import com.hypertino.inflector.English
+import com.hypertino.parser.HEval
 
 import scala.collection.mutable
 
 case class ResourcePath(documentUri: String, itemId: String)
 
 object ContentLogic {
+  def applyPatch(existingBody: Value, request: PrimaryWorkerRequest): Value = {
+    if (request.headers.contentType.contains(HyperStoragePatchType.HYPERSTORAGE_CONTENT_INCREMENT)) {
+      incrementBodyPatch(existingBody, request.body.content)
+    }
+    else if (request.headers.contentType.contains(HyperStoragePatchType.HYPERSTORAGE_CONTENT_EVALUATE)) {
+      evaluateBodyPatch(existingBody, request)
+    }
+    else {
+      request.body.content
+    }
+  }
+
+  private def incrementBodyPatch(existing: Value, patch: Value): Value = {
+    patch match {
+      case Obj(items) ⇒
+        existing match {
+          case Obj(existingItems) ⇒ Obj(
+            items.map { case (field, increment) ⇒
+              field → existingItems
+                .get(field)
+                .map(_ + increment)
+                .getOrElse(increment)
+            }
+          )
+
+          case _ ⇒
+            Obj(items)
+        }
+      case _ ⇒
+        existing + patch
+    }
+  }
+
+  private def evaluateBodyPatch(existingBody: Value, request: PrimaryWorkerRequest): Value = {
+    val context = ExpressionEvaluatorContext(request, existingBody)
+    evaluateField(request.body.content, context)
+  }
+
+  private def evaluateField(field: Value, context: ExpressionEvaluatorContext): Value = {
+    field match {
+      case Text(s) ⇒
+        HEval(s, context)
+
+      case Lst(items) ⇒
+        items.map(evaluateField(_, context))
+
+      case Obj(items) ⇒
+        Obj(items.map(kv ⇒ kv._1 → evaluateField(kv._2, context)))
+
+      case _ ⇒ field
+    }
+  }
 
   // ? & # is not allowed, it means that query have been sent
   val allowedCharSet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/[]@!$&'()*+,;=".toSet
