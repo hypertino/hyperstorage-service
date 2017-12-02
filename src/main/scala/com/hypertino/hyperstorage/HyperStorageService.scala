@@ -29,7 +29,6 @@ import scaldi.{Injectable, Injector}
 
 import scala.concurrent.Future
 import scala.concurrent.duration.FiniteDuration
-import scala.util.control.NonFatal
 
 case class HyperStorageConfig(
                                shutdownTimeout: FiniteDuration,
@@ -78,11 +77,10 @@ class HyperStorageService(implicit val scheduler: Scheduler,
     ActorSystem("hyperstorage", config.getConfig("hyperstorage.regular-actor-system"))
   }
   else {
-    ActorSystem("hyperstorage", config.getConfig("hyperstorage.cluster-actor-system"))
+    val as = ActorSystem("hyperstorage", config.getConfig("hyperstorage.cluster-actor-system"))
+    Cluster(actorSystem)
+    as
   }
-
-  // ActorSystemRegistry.get("eu-inn").get
-  private val cluster = Cluster(actorSystem)
 
   //
   private val db = new Db(connector)
