@@ -66,8 +66,6 @@ class HyperStorageService(implicit val scheduler: Scheduler,
   private val tracker = inject[MetricsTracker]
   MetricsReporter.startReporter(tracker)
 
-  import serviceConfig._
-
   // initialize
   logger.info(s"Initializing hyperbus...")
   private val hyperbus = inject[Hyperbus]
@@ -93,14 +91,14 @@ class HyperStorageService(implicit val scheduler: Scheduler,
       logger.error(s"Can't create C* session", e)
   }
 
-  private val indexManagerProps = IndexManager.props(hyperbus, db, tracker, maxWorkers, scheduler)
+  private val indexManagerProps = IndexManager.props(hyperbus, db, tracker, serviceConfig.maxWorkers, scheduler)
   private val indexManagerRef = actorSystem.actorOf(
     indexManagerProps, "index-manager"
   )
 
   // worker actor todo: recovery job
-  private val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, maxWorkers, maxWorkers,
-    backgroundTaskTimeout, indexManagerRef, scheduler)
+  private val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, serviceConfig.maxWorkers,
+    serviceConfig.maxWorkers, serviceConfig.backgroundTaskTimeout, indexManagerRef, scheduler)
 
   // shard shard cluster transport
   private val shardTransport = if (zmqClusterManager) {
@@ -114,21 +112,23 @@ class HyperStorageService(implicit val scheduler: Scheduler,
 
   // shard processor actor
   private val shardProcessorRef = actorSystem.actorOf(
-    ShardProcessor.props(shardTransport, workerSettings, tracker, shardSyncTimeout), "hyperstorage"
+    ShardProcessor.props(shardTransport, workerSettings, tracker, serviceConfig.shardSyncTimeout), "hyperstorage"
   )
 
-  private val hyperbusAdapter = new HyperbusAdapter(hyperbus, shardProcessorRef, db, tracker, requestTimeout)
+  private val hyperbusAdapter = new HyperbusAdapter(hyperbus, shardProcessorRef, db, tracker, serviceConfig.requestTimeout)
 
-  private val hotPeriod = (hotRecovery.toMillis, failTimeout.toMillis)
-  logger.info(s"Launching hot recovery $hotRecovery-$failTimeout")
+  private val hotPeriod = (serviceConfig.hotRecovery.toMillis, serviceConfig.failTimeout.toMillis)
+  logger.info(s"Launching hot recovery ${serviceConfig.hotRecovery}-${serviceConfig.failTimeout}")
 
-  private val hotRecoveryRef = actorSystem.actorOf(HotRecoveryWorker.props(hotPeriod, db, shardProcessorRef, tracker, hotRecoveryRetry, backgroundTaskTimeout, scheduler), "hot-recovery")
+  private val hotRecoveryRef = actorSystem.actorOf(HotRecoveryWorker.props(hotPeriod, db, shardProcessorRef, tracker,
+    serviceConfig.hotRecoveryRetry, serviceConfig.backgroundTaskTimeout, scheduler), "hot-recovery")
   shardProcessorRef ! SubscribeToShardStatus(hotRecoveryRef)
 
-  private val stalePeriod = (staleRecovery.toMillis, hotRecovery.toMillis)
-  logger.info(s"Launching stale recovery $staleRecovery-$hotRecovery")
+  private val stalePeriod = (serviceConfig.staleRecovery.toMillis, serviceConfig.hotRecovery.toMillis)
+  logger.info(s"Launching stale recovery ${serviceConfig.staleRecovery}-${serviceConfig.hotRecovery}")
 
-  private val staleRecoveryRef = actorSystem.actorOf(StaleRecoveryWorker.props(stalePeriod, db, shardProcessorRef, tracker, staleRecoveryRetry, backgroundTaskTimeout, scheduler), "stale-recovery")
+  private val staleRecoveryRef = actorSystem.actorOf(StaleRecoveryWorker.props(stalePeriod, db, shardProcessorRef, tracker,
+    serviceConfig.staleRecoveryRetry, serviceConfig.backgroundTaskTimeout, scheduler), "stale-recovery")
   shardProcessorRef ! SubscribeToShardStatus(staleRecoveryRef)
 
   logger.info(s"Launching index manager")
@@ -149,7 +149,7 @@ class HyperStorageService(implicit val scheduler: Scheduler,
       .recover(logException("Service didn't stopped gracefully"))
       .flatMap { _ ⇒
         logger.info("Stopping processor actor...")
-        gracefulStop(shardProcessorRef, shutdownTimeout * 4 / 5, ShutdownProcessor)
+        gracefulStop(shardProcessorRef, serviceConfig.shutdownTimeout * 4 / 5, ShutdownProcessor)
       }
       .recover(logException("ProcessorActor didn't stopped gracefully"))
       .flatMap { _ ⇒
@@ -164,7 +164,7 @@ class HyperStorageService(implicit val scheduler: Scheduler,
       .map { _ ⇒
         if (zmqClusterManager) {
           logger.info(s"Stopping ZMQCClusterTransport...")
-          clusterManager.asInstanceOf[ZMQCClusterTransport].close()
+          shardTransport.asInstanceOf[ZMQCClusterTransport].close()
         }
       }
       .recover(logException("ZMQCClusterTransport didn't stopped gracefully"))
