@@ -48,7 +48,7 @@ case class StartCheck(processId: Long)
 
 case object ShutdownRecoveryWorker
 
-case class CheckQuantum[T <: WorkerState](processId: Long, dtQuantum: Long, partitions: Seq[Int], state: T)
+case class CheckQuantum[T <: WorkerState](processId: Long, dtQuantum: Long, partitions: Seq[Int], state: T, step: Long)
 
 trait WorkerState {
   def startedAt: Long
@@ -88,8 +88,9 @@ abstract class RecoveryWorker[T <: WorkerState](
 
   import context._
 
-  var currentProcessId: Long = 0
+  private var currentProcessId: Long = 0
 
+  def jobName: String
   def checkQuantumTimerName: String
 
   def trackIncompleteMeter: Meter
@@ -114,16 +115,16 @@ abstract class RecoveryWorker[T <: WorkerState](
 
     case StartCheck(processId) if processId == currentProcessId ⇒
       currentProcessId = currentProcessId + 1 // this protects from parallel duplicate checks when rebalancing
-      runNewRecoveryCheck(workerPartitions)
+      runNewRecoveryCheck(currentProcessId, workerPartitions)
 
-    case CheckQuantum(processId, dtQuantum, partitionsForQuantum, state) if processId == currentProcessId ⇒
+    case q @ CheckQuantum(processId, dtQuantum, partitionsForQuantum, state, step) if processId == currentProcessId ⇒
       tracker.timeOfTask(checkQuantumTimerName) {
-        checkQuantum(dtQuantum, partitionsForQuantum) map { _ ⇒
-          runNextRecoveryCheck(CheckQuantum(processId, dtQuantum, partitionsForQuantum, state.asInstanceOf[T]))
+        checkQuantum(dtQuantum, partitionsForQuantum, step) map { _ ⇒
+          runNextRecoveryCheck(processId, q.asInstanceOf[CheckQuantum[T]])
         } onErrorRecover {
           case e: Throwable ⇒
-            logger.error(s"Quantum check for $dtQuantum is failed. Will retry in $retryPeriod", e)
-            system.scheduler.scheduleOnce(retryPeriod, self, CheckQuantum(processId, dtQuantum, partitionsForQuantum, state))(dispatcher)
+            logger.error(s"Quantum check for $jobName/$dtQuantum is failed. Will retry in $retryPeriod", e)
+            system.scheduler.scheduleOnce(retryPeriod, self, CheckQuantum(processId, dtQuantum, partitionsForQuantum, state, step))(dispatcher)
         }
       } runAsync scheduler
 
@@ -138,18 +139,23 @@ abstract class RecoveryWorker[T <: WorkerState](
   }
 
   def clusterActivated(stateData: ShardedClusterData, partitions: Seq[Int]): Unit = {
-    logger.info(s"Cluster is active $getClass is running. Current data: $stateData.")
+    logger.info(s"Cluster is active $jobName is running. Current data: $stateData.")
     currentProcessId += 1
     context.become(running(stateData, partitions))
     self ! StartCheck(currentProcessId)
   }
 
-  def runNewRecoveryCheck(partitions: Seq[Int]): Unit
+  def runNewRecoveryCheck(processId: Long, partitions: Seq[Int]): Unit
 
-  def runNextRecoveryCheck(previous: CheckQuantum[T]): Unit
+  def runNextRecoveryCheck(processId: Long, previous: CheckQuantum[T]): Unit
 
-  def checkQuantum(dtQuantum: Long, partitions: Seq[Int]): Task[Any] = {
-    logger.debug(s"Running partition check for ${qts(dtQuantum)}")
+  def checkQuantum(dtQuantum: Long, partitions: Seq[Int], step: Long): Task[Any] = {
+    if (step == 0) {
+      logger.info(s"Running $jobName recovery check starting from ${qts(dtQuantum)}. Partitions to process: ${partitions.size}")
+    }
+    else {
+      logger.debug(s"Running $jobName partition check for ${qts(dtQuantum)}. Partitions to process: ${partitions.size}. Step #$step")
+    }
     Task.sequence {
       val tasks: Seq[Task[Any]] = partitions.map { partition ⇒
           // todo: selectPartitionTransactions selects body which isn't eficient
@@ -168,15 +174,15 @@ abstract class RecoveryWorker[T <: WorkerState](
                     BackgroundContentTasksPost(BackgroundContentTask(documentUri)),
                     extra = Null
                   )
-                  logger.debug(s"Incomplete resource at $documentUri. Sending recovery task")
+                  logger.debug(s"Incomplete resource at $documentUri. Sending $jobName task")
                   Task.fromFuture(shardProcessor.ask(task)(backgroundTaskTimeout)) flatMap {
                     case Ok(BackgroundContentTaskResult(completePath, completedTransactions), _) ⇒
-                      logger.debug(s"Recovery of '$completePath' completed successfully: $completedTransactions")
+                      logger.debug(s"$jobName of '$completePath' completed successfully: $completedTransactions")
                       if (documentUri == completePath) {
                         val set = completedTransactions.toSet
                         val abandonedTransactions = transactions.filterNot(m ⇒ set.contains(m.uuid.toString))
                         if (abandonedTransactions.nonEmpty) {
-                          logger.warn(s"Abandoned transactions for '$completePath' were found: '${abandonedTransactions.map(_.uuid).mkString(",")}'. Deleting...")
+                          logger.warn(s"$jobName: Abandoned transactions for '$completePath' were found: '${abandonedTransactions.map(_.uuid).mkString(",")}'. Deleting...")
                           Task.sequence {
                             abandonedTransactions.map { abandonedTransaction ⇒
                               db.completeTransaction(abandonedTransaction)
@@ -187,17 +193,17 @@ abstract class RecoveryWorker[T <: WorkerState](
                         }
                       }
                       else {
-                        logger.error(s"Recovery result received for '$completePath' while expecting for the '$documentUri'")
+                        logger.error(s"$jobName result received for '$completePath' while expecting for the '$documentUri'")
                         Task.unit
                       }
                     // todo: do we need this here?
                     case NotFound(errorBody, _) ⇒
-                      logger.warn(s"Tried to recover not existing resource: '$errorBody'. Exception is ignored")
+                      logger.warn(s"$jobName: Tried to recover not existing resource: '$errorBody'. Exception is ignored")
                       Task.unit
                     case e: Throwable ⇒
                       Task.raiseError(e)
                     case other ⇒
-                      Task.raiseError(throw new RuntimeException(s"Unexpected result from recovery task: $other"))
+                      Task.raiseError(throw new RuntimeException(s"$jobName: Unexpected result from recovery task: $other"))
                   }
               }
             }
@@ -237,29 +243,30 @@ class HotRecoveryWorker(
 
   import context._
 
-  def runNewRecoveryCheck(partitions: Seq[Int]): Unit = {
+  def runNewRecoveryCheck(processId: Long, partitions: Seq[Int]): Unit = {
     val millis = System.currentTimeMillis()
     val lowerBound = TransactionLogic.getDtQuantum(millis - hotPeriod._1)
-    logger.info(s"Running hot recovery check starting from ${qts(lowerBound)}. Partitions to process: ${partitions.size}")
-    self ! CheckQuantum(currentProcessId, lowerBound, partitions, HotWorkerState(partitions, lowerBound))
+    self ! CheckQuantum(processId, lowerBound, partitions, HotWorkerState(partitions, lowerBound), 0)
   }
 
   // todo: detect if lag is increasing and print warning
-  def runNextRecoveryCheck(previous: CheckQuantum[HotWorkerState]): Unit = {
+  def runNextRecoveryCheck(processId: Long, previous: CheckQuantum[HotWorkerState]): Unit = {
     val millis = System.currentTimeMillis()
     val upperBound = TransactionLogic.getDtQuantum(millis - hotPeriod._2)
     val nextQuantum = previous.dtQuantum + 1
     if (nextQuantum < upperBound) {
-      scheduleNext(CheckQuantum(currentProcessId, nextQuantum, previous.state.workerPartitions, previous.state))
+      scheduleNext(CheckQuantum(processId, nextQuantum, previous.state.workerPartitions, previous.state, previous.step+1))
     } else {
-      logger.info(s"Hot recovery complete on ${qts(previous.dtQuantum)}. Will start new in $retryPeriod")
-      system.scheduler.scheduleOnce(retryPeriod, self, StartCheck(currentProcessId))
+      logger.info(s"$jobName complete on ${qts(previous.dtQuantum)}. Will start new in $retryPeriod")
+      system.scheduler.scheduleOnce(retryPeriod, self, StartCheck(processId))
     }
   }
 
   override def checkQuantumTimerName: String = Metrics.HOT_QUANTUM_TIMER
 
   override def trackIncompleteMeter: Meter = tracker.meter(Metrics.HOT_INCOMPLETE_METER)
+
+  override def jobName: String = "HOT Recovery"
 }
 
 case class StaleWorkerState(workerPartitions: Seq[Int],
@@ -282,7 +289,7 @@ class StaleRecoveryWorker(
 
   import context._
 
-  def runNewRecoveryCheck(partitions: Seq[Int]): Unit = {
+  def runNewRecoveryCheck(processId: Long, partitions: Seq[Int]): Unit = {
     val lowerBound = TransactionLogic.getDtQuantum(System.currentTimeMillis() - stalePeriod._1)
 
     Task.sequence {
@@ -296,7 +303,7 @@ class StaleRecoveryWorker(
       }
     } map { partitionQuantums ⇒
 
-      val stalest = partitionQuantums.sortBy(_._1).head._1
+      val stalest = partitionQuantums.minBy(_._1)._1
       val partitionsPerQuantum: Map[Long, Seq[Int]] = partitionQuantums.groupBy(_._1).map(kv ⇒ kv._1 → kv._2.map(_._2))
       val (startFrom, partitionsToProcess) = if (stalest < lowerBound) {
         (stalest, partitionsPerQuantum(stalest))
@@ -305,17 +312,16 @@ class StaleRecoveryWorker(
       }
       val state = StaleWorkerState(partitions, partitionsPerQuantum, startFrom)
 
-      logger.info(s"Running stale recovery check starting from ${qts(startFrom)}. Partitions to process: ${partitions.size}")
-      self ! CheckQuantum(currentProcessId, startFrom, partitionsToProcess, state)
+      self ! CheckQuantum(processId, startFrom, partitionsToProcess, state, 0)
     } onErrorRecover {
       case e: Throwable ⇒
         logger.error(s"Can't fetch checkpoints. Will retry in $retryPeriod", e)
-        system.scheduler.scheduleOnce(retryPeriod, self, StartCheck(currentProcessId))(dispatcher)
+        system.scheduler.scheduleOnce(retryPeriod, self, StartCheck(processId))(dispatcher)
     } runAsync scheduler
   }
 
   // todo: detect if lag is increasing and print warning
-  def runNextRecoveryCheck(previous: CheckQuantum[StaleWorkerState]): Unit = {
+  def runNextRecoveryCheck(processId: Long, previous: CheckQuantum[StaleWorkerState]): Unit = {
     val millis = System.currentTimeMillis()
     val lowerBound = TransactionLogic.getDtQuantum(millis - stalePeriod._1)
     val upperBound = TransactionLogic.getDtQuantum(millis - stalePeriod._2)
@@ -334,27 +340,29 @@ class StaleRecoveryWorker(
     updateCheckpoints map { _ ⇒
       if (nextQuantum < upperBound) {
         if (nextQuantum >= lowerBound || previous.partitions == previous.state.workerPartitions) {
-          scheduleNext(CheckQuantum(currentProcessId, nextQuantum, previous.state.workerPartitions, previous.state))
+          scheduleNext(CheckQuantum(processId, nextQuantum, previous.state.workerPartitions, previous.state, previous.step+1))
         } else {
           val nextQuantumPartitions = previous.state.partitionsPerQuantum.getOrElse(nextQuantum, Seq.empty)
           val partitions = (previous.partitions.toSet ++ nextQuantumPartitions).toSeq
-          scheduleNext(CheckQuantum(currentProcessId, nextQuantum, partitions, previous.state))
+          scheduleNext(CheckQuantum(processId, nextQuantum, partitions, previous.state, previous.step+1))
         }
       }
       else {
-        logger.info(s"Stale recovery complete on ${qts(previous.dtQuantum)}. Will start new in $retryPeriod")
-        system.scheduler.scheduleOnce(retryPeriod, self, StartCheck(currentProcessId))
+        logger.info(s"$jobName complete on ${qts(previous.dtQuantum)}. Will start new in $retryPeriod")
+        system.scheduler.scheduleOnce(retryPeriod, self, StartCheck(processId))
       }
     } onErrorRecover {
       case e: Throwable ⇒
         logger.error(s"Can't update checkpoints. Will restart in $retryPeriod", e)
-        system.scheduler.scheduleOnce(retryPeriod, self, StartCheck(currentProcessId))
+        system.scheduler.scheduleOnce(retryPeriod, self, StartCheck(processId))
     } runAsync scheduler
   }
 
   override def checkQuantumTimerName: String = Metrics.STALE_QUANTUM_TIMER
 
   override def trackIncompleteMeter: Meter = tracker.meter(Metrics.STALE_INCOMPLETE_METER)
+
+  override def jobName: String = "STALE Recovery"
 }
 
 object HotRecoveryWorker {
