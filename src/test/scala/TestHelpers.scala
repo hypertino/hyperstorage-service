@@ -48,10 +48,10 @@ import scala.reflect.ClassTag
 
 class TestConsulModule extends Module {
   bind[ServiceRegistrator] identifiedBy "hyperstorage-cluster-registrator-1" to new ConsulServiceRegistrator(
-    inject[Config].getConfig("hyperstorage.zmq-cluster-manager-1.consul")
+    inject[Config].getConfig("hyperstorage.zmq-cluster-manager-1.service-registrator")
   )(inject [monix.execution.Scheduler])
   bind[ServiceRegistrator] identifiedBy "hyperstorage-cluster-registrator-2" to new ConsulServiceRegistrator(
-    inject[Config].getConfig("hyperstorage.zmq-cluster-manager-2.consul")
+    inject[Config].getConfig("hyperstorage.zmq-cluster-manager-2.service-registrator")
   )(inject [monix.execution.Scheduler])
 }
 

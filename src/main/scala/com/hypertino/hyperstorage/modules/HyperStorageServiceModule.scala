@@ -25,9 +25,9 @@ class HyperStorageServiceModule extends Module {
   }
   bind[HyperStorageService] to injected[HyperStorageService]
   bind[ServiceResolver] identifiedBy "hyperstorage-cluster-resolver" to new ConsulServiceResolver(
-    inject[Config].getConfig("hyperstorage.zmq-cluster-manager.consul")
+    inject[Config].getConfig("hyperstorage.zmq-cluster-manager.service-registrator")
   )(inject [Scheduler])
   bind[ServiceRegistrator] identifiedBy "hyperstorage-cluster-registrator" to new ConsulServiceRegistrator(
-    inject[Config].getConfig("hyperstorage.zmq-cluster-manager.consul")
+    inject[Config].getConfig("hyperstorage.zmq-cluster-manager.service-registrator")
   )(inject [Scheduler])
 }
