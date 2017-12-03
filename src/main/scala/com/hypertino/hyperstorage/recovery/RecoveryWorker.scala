@@ -61,7 +61,6 @@ trait WorkerState {
       0
     }
     else {
-      val periodChecked = TransactionLogic.getUnixTimeFromQuantum(currentQuantum - startQuantum)
       val quantumTime = TransactionLogic.getUnixTimeFromQuantum(1)
       val millisNow = System.currentTimeMillis()
       val tookTime = millisNow - startedAt
@@ -140,6 +139,7 @@ abstract class RecoveryWorker[T <: WorkerState](
 
   def clusterActivated(stateData: ShardedClusterData, partitions: Seq[Int]): Unit = {
     logger.info(s"Cluster is active $getClass is running. Current data: $stateData.")
+    currentProcessId += 1
     context.become(running(stateData, partitions))
     self ! StartCheck(currentProcessId)
   }
@@ -242,32 +242,6 @@ class HotRecoveryWorker(
     val lowerBound = TransactionLogic.getDtQuantum(millis - hotPeriod._1)
     logger.info(s"Running hot recovery check starting from ${qts(lowerBound)}. Partitions to process: ${partitions.size}")
     self ! CheckQuantum(currentProcessId, lowerBound, partitions, HotWorkerState(partitions, lowerBound))
-
-/*
-    val random = new Random(System.currentTimeMillis)
-
-    logger.warn("Inserting test data...")
-
-    0 to 10000 foreach { i ⇒
-      val batch = 1000
-      val futures = 0 to batch map { _ ⇒
-        val itemId = IdGenerator.create()
-        val a = random.nextInt()
-        val b = random.alphanumeric.take(16).mkString
-        val c = random.alphanumeric.take(32).mkString
-        val d = random.nextDouble()
-        val body = s"""
-      {"a":$a,"id":"$itemId","b":"$b","c":"$c","d":$d}
-    """
-        val content = Content(documentUri = "bench-test~", itemId, 1, List.empty, Some(body), false, new Date, None)
-        db.insertContent(content)
-      }
-      logger.warn(s"batch $i...")
-      Await.result(Future.sequence(futures), 60.seconds)
-    }
-
-    logger.warn("Completed")
-    */
   }
 
   // todo: detect if lag is increasing and print warning
