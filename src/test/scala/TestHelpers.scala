@@ -47,11 +47,16 @@ import scala.reflect.ClassTag
 
 
 class TestConsulModule extends Module {
+  lazy val config = inject[Config]
   bind[ServiceRegistrator] identifiedBy "hyperstorage-cluster-registrator-1" to new ConsulServiceRegistrator(
-    inject[Config].getConfig("hyperstorage.zmq-cluster-manager-1.service-registrator")
+    config
+      .getConfig("hyperstorage.zmq-cluster-manager-1.service-registrator")
+      .withFallback(config.getConfig("hyperstorage.zmq-cluster-manager.service-registrator"))
   )(inject [monix.execution.Scheduler])
   bind[ServiceRegistrator] identifiedBy "hyperstorage-cluster-registrator-2" to new ConsulServiceRegistrator(
-    inject[Config].getConfig("hyperstorage.zmq-cluster-manager-2.service-registrator")
+    config
+      .getConfig("hyperstorage.zmq-cluster-manager-2.service-registrator")
+      .withFallback(config.getConfig("hyperstorage.zmq-cluster-manager.service-registrator"))
   )(inject [monix.execution.Scheduler])
 }
 
