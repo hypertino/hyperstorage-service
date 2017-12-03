@@ -120,7 +120,7 @@ class ShardProcessor(clusterTransport: ClusterTransport,
 
     case Event(ShardSyncTimer, data) ⇒
       if (isActivationAllowed(data)) {
-        goto(NodeStatus.ACTIVE)
+        goto(NodeStatus.ACTIVE) using data.copy(selfStatus=NodeStatus.ACTIVE)
       }
       else {
         stay
