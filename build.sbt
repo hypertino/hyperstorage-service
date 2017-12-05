@@ -63,7 +63,7 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka"           %% "akka-slf4j"                   % "2.4.20",
 
   "ch.qos.logback"              % "logback-classic"               % "1.2.3",
-  "com.hypertino"               %% "hyperbus-t-inproc"            % "0.3-SNAPSHOT"  % "test",
+  "com.hypertino"               %% "hyperbus-t-inproc"            % "0.5-SNAPSHOT"  % "test",
   "org.scalamock"               %% "scalamock-scalatest-support"  % "3.5.0"         % "test",
   "org.mockito"                 % "mockito-all"                   % "1.10.19"       % "test",
   "com.typesafe.akka"           %% "akka-testkit"                 % "2.4.20"        % "test",
