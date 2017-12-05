@@ -114,7 +114,7 @@ object CassandraConnector extends StrictLogging{
           .setReadTimeoutMillis(readTimeoutMillis)
       )
       hosts.foreach { host ⇒
-        val i = host.indexOf(':)
+        val i = host.indexOf(':')
         if (i>0) {
           val hostname = host.substring(0,i)
           val port = host.substring(i+1).toInt

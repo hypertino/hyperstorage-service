@@ -2,7 +2,7 @@ name := "hyperstorage"
 
 organization := "com.hypertino"
 
-version := "0.6.2-SNAPSHOT"
+version := "0.6.3-SNAPSHOT"
 
 crossScalaVersions := Seq("2.12.3", "2.11.11")
 
