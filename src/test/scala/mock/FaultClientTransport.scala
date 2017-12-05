@@ -32,8 +32,7 @@ class FaultClientTransport(config: Config, implicit val injector: Injector) exte
     else {
       Task.eval {
         new PublishResult {
-          override def sent: Option[Boolean] = None
-
+          override def committed: Option[Boolean] = None
           override def offset: Option[String] = None
         }
       }
