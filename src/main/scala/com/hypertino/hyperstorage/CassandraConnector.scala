@@ -8,6 +8,7 @@
 
 package com.hypertino.hyperstorage
 
+import java.net.InetSocketAddress
 import java.util.concurrent.{CountDownLatch, TimeUnit}
 
 import com.datastax.driver.core._
@@ -93,7 +94,7 @@ object CassandraConnector extends StrictLogging{
     (Cluster, HostListener) = {
       logger.info(s"Create cassandra cluster: $hosts, dc=$datacenter, $connectTimeoutMillis, $readTimeoutMillis")
 
-      val cluster: Cluster = Option(datacenter).filter(_.nonEmpty)
+      val builder = Option(datacenter).filter(_.nonEmpty)
         .foldLeft(Cluster.builder)((cluster, dcName) ⇒
           cluster.withLoadBalancingPolicy(
             LatencyAwarePolicy.builder(new TokenAwarePolicy(new DCAwareRoundRobinPolicy(dcName)))
@@ -101,7 +102,6 @@ object CassandraConnector extends StrictLogging{
               .withMininumMeasurements(30)
               .build())
         )
-        .addContactPoints(hosts: _*)
         .withQueryOptions(
           new QueryOptions()
             .setConsistencyLevel(ConsistencyLevel.LOCAL_QUORUM)
@@ -112,8 +112,21 @@ object CassandraConnector extends StrictLogging{
           .setKeepAlive(true)
           .setConnectTimeoutMillis(connectTimeoutMillis)
           .setReadTimeoutMillis(readTimeoutMillis)
-      ).build()
+      )
+      hosts.foreach { host ⇒
+        val i = host.indexOf(':)
+        if (i>0) {
+          val hostname = host.substring(0,i)
+          val port = host.substring(i+1).toInt
+          val ia = new InetSocketAddress(hostname, port)
+          builder.addContactPointsWithPorts(ia)
+        }
+        else {
+          builder.addContactPoint(host)
+        }
+      }
 
+      val cluster: Cluster = builder.build()
       val listener = new HostListener(connectTimeoutMillis)
       cluster.register(listener)
 
