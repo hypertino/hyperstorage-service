@@ -40,7 +40,8 @@ class ZMQCClusterTransport(
 
   import com.hypertino.binders.config.ConfigBinders._
   private val shardingConfig = config.read[ZMQCCLusterTransportConfig]("node")
-  private val selfNodeId = shardingConfig.advertisedAddress + ":" + shardingConfig.advertisedPort
+  private val selfNode = ZCNode(shardingConfig.advertisedAddress, + shardingConfig.advertisedPort)
+  private val selfNodeId = selfNode.nodeId
   private val internalHyperbus = new Hyperbus(config)
   private val resolver = inject[ServiceResolver] (identified by "hyperstorage-cluster-resolver")
   private val dummyTask = TasksPost(RemoteTask(selfNodeId,1,"","",0,false,Null,"",Null))(MessagingContext.empty)
@@ -49,6 +50,7 @@ class ZMQCClusterTransport(
   private val stateLock = new Object
   @volatile private var subscriber: ActorRef = null
   @volatile private var nodes = Set.empty[ZCNode]
+  @volatile private var transportStarted = false
   private val nodeMap = TrieMap[String, ZCNode]()
   private val resolverSubscription = resolver.serviceObservable(dummyTask).subscribe(onNodesUpdate _)
 
@@ -62,13 +64,19 @@ class ZMQCClusterTransport(
       val removedNodes = nodes.diff(updatedNodes)
 
       nodes = updatedNodes
-      if (subscriber != null) {
-        newNodes.foreach{ n ⇒
-          subscriber ! TransportNodeUp(n.nodeId)
+
+      if (transportStarted) {
+        if (subscriber != null) {
+          newNodes.foreach { n ⇒
+            subscriber ! TransportNodeUp(n.nodeId)
+          }
+          removedNodes.foreach { n ⇒
+            subscriber ! TransportNodeDown(n.nodeId)
+          }
         }
-        removedNodes.foreach{ n ⇒
-          subscriber ! TransportNodeDown(n.nodeId)
-        }
+      }
+      else {
+        checkIfTransportStarted()
       }
     }
     Continue
@@ -99,12 +107,21 @@ class ZMQCClusterTransport(
       .runAsync // todo: intelligent wait or make separate pool for this?
   }
 
+  private def checkIfTransportStarted(): Unit = {
+    if (nodes.contains(selfNode)) {
+      transportStarted = true
+      subscriber ! TransportStarted(selfNodeId)
+      nodes.foreach { n ⇒
+        subscriber ! TransportNodeUp(n.nodeId)
+      }
+    }
+  }
+
   override def subscribe(actor: ActorRef): Unit = {
     stateLock.synchronized {
-      subscriber = actor
-      subscriber ! TransportStarted(selfNodeId)
-      nodes.foreach{ n ⇒
-        subscriber ! TransportNodeUp(n.nodeId)
+      if (!transportStarted) {
+        subscriber = actor
+        checkIfTransportStarted()
       }
     }
   }

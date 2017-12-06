@@ -10,7 +10,7 @@ import akka.cluster.Cluster
 import com.hypertino.binders.value.Null
 import com.hypertino.hyperbus.model.{MessagingContext, Ok}
 import com.hypertino.hyperstorage.internal.api.NodeStatus
-import com.hypertino.hyperstorage.sharding.{LocalTask, ShutdownProcessor, WorkerTaskResult}
+import com.hypertino.hyperstorage.sharding._
 import org.scalatest._
 import org.scalatest.concurrent.ScalaFutures
 
@@ -18,7 +18,6 @@ import scala.concurrent.duration._
 
 class TwoNodesSpecZMQ extends FlatSpec with ScalaFutures with TestHelpers {
   override def defaultClusterTransportIsZMQ: Boolean = true
-
   "ShardProcessor" should "become Active" in {
     val (fsm1, actorSystem1, testKit1) = {
       implicit val actorSystem1 = testActorSystem(1)
