@@ -13,7 +13,7 @@ import java.io.StringReader
 import akka.actor._
 import akka.cluster.ClusterEvent._
 import com.hypertino.binders.value.{Null, Obj, Value}
-import com.hypertino.hyperbus.model.{Headers, MessagingContext, Ok, Request, RequestBase, RequestHeaders, RequestMeta, RequestMetaCompanion, ResponseBase}
+import com.hypertino.hyperbus.model.{Headers, HyperbusError, MessagingContext, Ok, Request, RequestBase, RequestHeaders, RequestMeta, RequestMetaCompanion, ResponseBase}
 import com.hypertino.hyperstorage.internal.api
 import com.hypertino.hyperstorage.internal.api._
 import com.hypertino.hyperstorage.metrics.Metrics
@@ -110,6 +110,7 @@ class ShardProcessor(clusterTransport: ClusterTransport,
   clusterTransport.subscribe(self)
 
   startWith(NodeStatus.ACTIVATING, ShardedClusterData(Map.empty, "", NodeStatus.ACTIVATING))
+  logger.info(s"New ShardProcessor ${this} is started (\"activating\")")
 
   when(NodeStatus.ACTIVATING) {
     case Event(TransportStarted(nodeId), data) ⇒
@@ -541,7 +542,13 @@ class ShardProcessor(clusterTransport: ClusterTransport,
   private def deserializeResponse(r: RemoteTaskResult, e: ExpectingRemoteResult): ResponseBase = {
     val stringReader = new StringReader(r.resultBody)
     val headers = Headers(r.resultHeaders.toMap.toSeq: _*)
-    e.requestMeta.responseDeserializer(stringReader, headers)
+    try {
+      e.requestMeta.responseDeserializer(stringReader, headers)
+    }
+    catch {
+      case t: HyperbusError[_] =>
+        t
+    }
   }
 
   private def updateAndStay(data: Option[ShardedClusterData]): State = {
