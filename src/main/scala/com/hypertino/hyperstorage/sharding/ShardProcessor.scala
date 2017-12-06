@@ -110,7 +110,8 @@ class ShardProcessor(clusterTransport: ClusterTransport,
   clusterTransport.subscribe(self)
 
   startWith(NodeStatus.ACTIVATING, ShardedClusterData(Map.empty, "", NodeStatus.ACTIVATING))
-  logger.info(s"New ShardProcessor ${this} is started (\"activating\")")
+
+  logger.info(s"New ShardProcessor $this is started ('activating')")
 
   when(NodeStatus.ACTIVATING) {
     case Event(TransportStarted(nodeId), data) ⇒
