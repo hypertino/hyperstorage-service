@@ -249,11 +249,11 @@ class ShardProcessor(clusterTransport: ClusterTransport,
       logger.info(s"ClusterHash for ${data.selfId} (${data.clusterHash}) is not matched for $syncReply. SyncReply is ignored")
       None
     } else {
-      data.nodes.get(syncReply.sourceNodeId) map { node ⇒
+      data.nodesExceptSelf.get(syncReply.sourceNodeId) map { node ⇒
         data + (syncReply.sourceNodeId →
           node.copy(status = syncReply.sourceStatus, confirmedStatus = syncReply.acceptedStatus))
       } orElse {
-        logger.warn(s"Got $syncReply from unknown node. Current nodes: ${data.nodes}")
+        logger.warn(s"Got $syncReply from unknown node. Current nodes: ${data.nodesExceptSelf}")
         None
       }
     }
@@ -261,7 +261,7 @@ class ShardProcessor(clusterTransport: ClusterTransport,
 
   private def isActivationAllowed(data: ShardedClusterData): Boolean = {
     if (confirmStatus(data, NodeStatus.ACTIVATING, isFirst = false)) {
-      logger.info(s"Synced with all members: ${data.nodes}. Activating")
+      logger.info(s"Synced with all members: ${data.nodesExceptSelf}. Activating")
       confirmStatus(data, NodeStatus.ACTIVE, isFirst = true)
       true
     }
@@ -272,7 +272,7 @@ class ShardProcessor(clusterTransport: ClusterTransport,
 
   private def confirmStatus(data: ShardedClusterData, status: String, isFirst: Boolean): Boolean = {
     var syncedWithAllMembers = true
-    data.nodes.foreach { case (address, node) ⇒
+    data.nodesExceptSelf.foreach { case (address, node) ⇒
       if (node.confirmedStatus != status) {
         syncedWithAllMembers = false
         val sync = NodesPost(Node(data.selfId, status, data.clusterHash))(MessagingContext.empty)
@@ -292,7 +292,7 @@ class ShardProcessor(clusterTransport: ClusterTransport,
       logger.info(s"ClusterHash for ${data.selfId} (${data.clusterHash}) is not matched for $sync")
       None
     } else {
-      data.nodes.get(sync.body.nodeId) map { member ⇒
+      data.nodesExceptSelf.get(sync.body.nodeId) map { member ⇒
         val newData: ShardedClusterData = data + (sync.body.nodeId → member.copy(status = sync.body.status))
         val allowSync = if (sync.body.status == NodeStatus.ACTIVATING) {
           activeWorkers.values.flatten.forall { case (key, aw) ⇒
@@ -314,7 +314,7 @@ class ShardProcessor(clusterTransport: ClusterTransport,
         }
         newData
       } orElse {
-        logger.error(s"Got $sync from unknown member. Current members: ${data.nodes}")
+        logger.error(s"Got $sync from unknown member. Current members: ${data.nodesExceptSelf}")
         val syncReply = NodeUpdatesPost(NodeUpdated(data.selfId, stateName, NodeStatus.PASSIVE, data.clusterHash))(MessagingContext.empty)
         clusterTransport.fireMessage(sync.body.nodeId, syncReply)
         None
@@ -423,7 +423,7 @@ class ShardProcessor(clusterTransport: ClusterTransport,
   private def forwardTask(task: ShardTask, data: ShardedClusterData): Unit = {
     trackForwardMeter.mark()
     val address = data.taskIsFor(task)
-    data.nodes.get(address) map { rvm ⇒
+    data.nodesExceptSelf.get(address) map { rvm ⇒
       logger.debug(s"Task is forwarded to $address: $task")
       clearExpiredRemoteTasks()
       val remoteTaskPost: TasksPost = task match {
@@ -472,7 +472,7 @@ class ShardProcessor(clusterTransport: ClusterTransport,
                   }
 
                 case Some(remoteData) ⇒
-                  data.nodes.get(remoteData.nodeId) match {
+                  data.nodesExceptSelf.get(remoteData.nodeId) match {
                     case Some(rvm) ⇒
                       logger.debug(s"Forwarding result $result to source node ${remoteData.nodeId}")
                       implicit val mcx = MessagingContext.empty

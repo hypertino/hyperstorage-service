@@ -30,8 +30,8 @@ class TwoNodesSpecZMQ extends FlatSpec with ScalaFutures with TestHelpers {
       (createShardProcessor("test-group", waitWhileActivates = false, instance=2), actorSystem2, testKit(2))
     }
 
-    testKit1.awaitCond(fsm1.stateName == NodeStatus.ACTIVE && fsm1.stateData.nodes.nonEmpty)
-    testKit2.awaitCond(fsm2.stateName == NodeStatus.ACTIVE && fsm2.stateData.nodes.nonEmpty)
+    testKit1.awaitCond(fsm1.stateName == NodeStatus.ACTIVE && fsm1.stateData.nodesExceptSelf.nonEmpty)
+    testKit2.awaitCond(fsm2.stateName == NodeStatus.ACTIVE && fsm2.stateData.nodesExceptSelf.nonEmpty)
 
     shutdownShardProcessor(fsm1)(actorSystem1)
     shutdownCluster(1)
@@ -45,20 +45,20 @@ class TwoNodesSpecZMQ extends FlatSpec with ScalaFutures with TestHelpers {
       (createShardProcessor("test-group", waitWhileActivates = false, instance=1), actorSystem1, testKit(1))
     }
 
-    testKit1.awaitCond(fsm1.stateName == NodeStatus.ACTIVE && fsm1.stateData.nodes.isEmpty)
+    testKit1.awaitCond(fsm1.stateName == NodeStatus.ACTIVE && fsm1.stateData.nodesExceptSelf.isEmpty)
 
     val (fsm2, actorSystem2, testKit2) = {
       implicit val actorSystem2 = testActorSystem(2)
       (createShardProcessor("test-group", waitWhileActivates = false, instance=2), actorSystem2, testKit(2))
     }
 
-    testKit2.awaitCond(fsm2.stateName == NodeStatus.ACTIVE && fsm2.stateData.nodes.nonEmpty, 5 second)
+    testKit2.awaitCond(fsm2.stateName == NodeStatus.ACTIVE && fsm2.stateData.nodesExceptSelf.nonEmpty, 5 second)
 
     shutdownShardProcessor(fsm1)(actorSystem1)
     shutdownCluster(1)
     //shutdownActorSystem(1)
 
-    testKit2.awaitCond(fsm2.stateName == NodeStatus.ACTIVE && fsm2.stateData.nodes.isEmpty, 10 second)
+    testKit2.awaitCond(fsm2.stateName == NodeStatus.ACTIVE && fsm2.stateData.nodesExceptSelf.isEmpty, 10 second)
     shutdownShardProcessor(fsm2)(actorSystem2)
   }
 
@@ -73,8 +73,8 @@ class TwoNodesSpecZMQ extends FlatSpec with ScalaFutures with TestHelpers {
       (createShardProcessor("test-group", waitWhileActivates = false, instance=1), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
     }
 
-    testKit1.awaitCond(fsm1.stateName == NodeStatus.ACTIVE && fsm1.stateData.nodes.nonEmpty, 5 second)
-    testKit2.awaitCond(fsm2.stateName == NodeStatus.ACTIVE && fsm2.stateData.nodes.nonEmpty, 5 second)
+    testKit1.awaitCond(fsm1.stateName == NodeStatus.ACTIVE && fsm1.stateData.nodesExceptSelf.nonEmpty, 5 second)
+    testKit2.awaitCond(fsm2.stateName == NodeStatus.ACTIVE && fsm2.stateData.nodesExceptSelf.nonEmpty, 5 second)
 
     val (task1, r1) = testTask("abc1", "t1")
     fsm1 ! task1
@@ -98,8 +98,8 @@ class TwoNodesSpecZMQ extends FlatSpec with ScalaFutures with TestHelpers {
       (createShardProcessor("test-group", waitWhileActivates = false, instance=1), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
     }
 
-    testKit1.awaitCond(fsm1.stateName == NodeStatus.ACTIVE && fsm1.stateData.nodes.nonEmpty, 5 second)
-    testKit2.awaitCond(fsm2.stateName == NodeStatus.ACTIVE && fsm2.stateData.nodes.nonEmpty, 5 second)
+    testKit1.awaitCond(fsm1.stateName == NodeStatus.ACTIVE && fsm1.stateData.nodesExceptSelf.nonEmpty, 5 second)
+    testKit2.awaitCond(fsm2.stateName == NodeStatus.ACTIVE && fsm2.stateData.nodesExceptSelf.nonEmpty, 5 second)
 
     val (task1, r1) = testTask("abc1", "t3")
 
@@ -139,8 +139,8 @@ class TwoNodesSpecZMQ extends FlatSpec with ScalaFutures with TestHelpers {
       (createShardProcessor("test-group", waitWhileActivates = false, instance=1), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
     }
 
-    testKit1.awaitCond(fsm1.stateName == NodeStatus.ACTIVE && fsm1.stateData.nodes.nonEmpty)
-    testKit2.awaitCond(fsm2.stateName == NodeStatus.ACTIVE && fsm2.stateData.nodes.nonEmpty)
+    testKit1.awaitCond(fsm1.stateName == NodeStatus.ACTIVE && fsm1.stateData.nodesExceptSelf.nonEmpty)
+    testKit2.awaitCond(fsm2.stateName == NodeStatus.ACTIVE && fsm2.stateData.nodesExceptSelf.nonEmpty)
 
     fsm1 ! ShutdownProcessor
 
@@ -159,11 +159,11 @@ class TwoNodesSpecZMQ extends FlatSpec with ScalaFutures with TestHelpers {
 
     testKit2.awaitCond({
       assert(!(
-          !fsm2.stateData.nodes.forall(_._2.status == NodeStatus.PASSIVE)
+          !fsm2.stateData.nodesExceptSelf.forall(_._2.status == NodeStatus.PASSIVE)
           &&
           (r2.isProcessed || r1.isProcessed)
         ))
-      fsm2.stateData.nodes.isEmpty
+      fsm2.stateData.nodesExceptSelf.isEmpty
     }, 10 second)
 
     testKit2.awaitCond(r1.isProcessed && r2.isProcessed)

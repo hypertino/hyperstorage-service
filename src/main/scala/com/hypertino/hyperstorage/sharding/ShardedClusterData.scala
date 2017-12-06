@@ -11,20 +11,19 @@ package com.hypertino.hyperstorage.sharding
 import akka.routing.{ConsistentHash, MurmurHash}
 import com.hypertino.hyperstorage.internal.api.NodeStatus
 
-case class ShardedClusterData(nodes: Map[String, ShardNode], selfId: String, selfStatus: String) {
-  lazy val clusterHash: Integer =  MurmurHash.stringHash(nodeStatuses.keys.toSeq.sorted.mkString("|"))
-
-  private final lazy val consistentHash = ConsistentHash(activeNodes, VirtualNodesSize)
-  private final lazy val consistentHashPrevious = ConsistentHash(previouslyActiveNodes, VirtualNodesSize)
-  private final lazy val nodeStatuses: Map[String, NodeStatus.StringEnum] = {
-    nodes.map {
+case class ShardedClusterData(nodesExceptSelf: Map[String, ShardNode], selfId: String, selfStatus: String) {
+  private final val allNodesStatuses: Map[String, NodeStatus.StringEnum] = {
+    nodesExceptSelf.map {
       case (nodeId, rvm) ⇒ nodeId → rvm.status
     } + (selfId → selfStatus)
   }
+  val clusterHash: Integer =  MurmurHash.stringHash(allNodesStatuses.keys.toSeq.sorted.mkString("|"))
+  private final val consistentHash = ConsistentHash(activeNodes, VirtualNodesSize)
+  private final val consistentHashPrevious = ConsistentHash(previouslyActiveNodes, VirtualNodesSize)
 
-  def +(elem: (String, ShardNode)) = ShardedClusterData(nodes + elem, selfId, selfStatus)
+  def +(elem: (String, ShardNode)) = ShardedClusterData(nodesExceptSelf + elem, selfId, selfStatus)
 
-  def -(key: String) = ShardedClusterData(nodes - key, selfId, selfStatus)
+  def -(key: String) = ShardedClusterData(nodesExceptSelf - key, selfId, selfStatus)
 
   def keyIsFor(key: String): String = consistentHash.nodeFor(key)
 
@@ -36,13 +35,13 @@ case class ShardedClusterData(nodes: Map[String, ShardNode], selfId: String, sel
 
   private def VirtualNodesSize = 128 // todo: find a better value, configurable? http://www.tom-e-white.com/2007/11/consistent-hashing.html
 
-  private def activeNodes: Iterable[String] = nodeStatuses.flatMap {
+  private def activeNodes: Iterable[String] = allNodesStatuses.flatMap {
     case (nodeId, NodeStatus.ACTIVE) ⇒ Some(nodeId)
     case (nodeId, NodeStatus.ACTIVATING) ⇒ Some(nodeId)
     case _ ⇒ None
   }
 
-  private def previouslyActiveNodes: Iterable[String] = nodeStatuses.flatMap {
+  private def previouslyActiveNodes: Iterable[String] = allNodesStatuses.flatMap {
     case (nodeId, NodeStatus.ACTIVE) ⇒ Some(nodeId)
     case (nodeId, NodeStatus.ACTIVATING) ⇒ Some(nodeId)
     case (nodeId, NodeStatus.DEACTIVATING) ⇒ Some(nodeId)
