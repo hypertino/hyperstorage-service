@@ -19,7 +19,7 @@ import com.hypertino.hyperstorage._
 import com.hypertino.hyperstorage.db.{Content, Db}
 import com.hypertino.hyperstorage.internal.api.{BackgroundContentTask, BackgroundContentTaskResult, BackgroundContentTasksPost, NodeStatus}
 import com.hypertino.hyperstorage.metrics.Metrics
-import com.hypertino.hyperstorage.sharding.{LocalTask, ShardedClusterData, UpdateShardStatus, WorkerGroupSettings}
+import com.hypertino.hyperstorage.sharding.{LocalTask, ShardedClusterData, UpdateShardStatus}
 import com.hypertino.hyperstorage.workers.HyperstorageWorkerSettings
 import com.hypertino.metrics.MetricsTracker
 import com.typesafe.scalalogging.StrictLogging

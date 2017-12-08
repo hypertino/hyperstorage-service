@@ -35,7 +35,7 @@ object HyperstorageWorkerSettings {
             indexManager: ActorRef,
             scheduler: Scheduler): Map[String, WorkerGroupSettings] = {
     val primaryWorkerProps = PrimaryWorker.props(hyperbus, db, metricsTracker, backgroundTaskTimeout, scheduler)
-    val primaryRequestMeta: Seq[RequestMetaCompanion[_ <: RequestBase]] = Seq(ContentPut, ContentPatch, ContentDelete, ViewPut, ViewDelete)
+    val primaryRequestMeta: Seq[RequestMetaCompanion[_ <: RequestBase]] = Seq(ContentPut, ContentPatch, ContentDelete, ContentPost, ViewPut, ViewDelete)
 
     val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, metricsTracker, indexManager, scheduler)
     val secondaryRequestMeta: Seq[RequestMetaCompanion[_ <: RequestBase]] = Seq(IndexPost, IndexDelete, BackgroundContentTasksPost, IndexContentTasksPost)
