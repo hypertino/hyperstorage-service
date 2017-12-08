@@ -169,12 +169,12 @@ abstract class RecoveryWorker[T <: WorkerState](
                   val task = LocalTask(
                     key = documentUri,
                     group = HyperstorageWorkerSettings.SECONDARY,
-                    ttl = backgroundTaskTimeout.toMillis + 1000,
+                    ttl = System.currentTimeMillis() + backgroundTaskTimeout.toMillis + 1000,
                     expectsResult = true,
                     BackgroundContentTasksPost(BackgroundContentTask(documentUri)),
                     extra = Null
                   )
-                  logger.debug(s"Incomplete resource at $documentUri. Sending $jobName task")
+                  logger.warn(s"Incomplete resource at $documentUri. Sending $jobName task i#${task.request.correlationId} to finish or remove transaction.")
                   Task.fromFuture(shardProcessor.ask(task)(backgroundTaskTimeout)) flatMap {
                     case Ok(BackgroundContentTaskResult(completePath, completedTransactions), _) ⇒
                       logger.debug(s"$jobName of '$completePath' completed successfully: $completedTransactions")
