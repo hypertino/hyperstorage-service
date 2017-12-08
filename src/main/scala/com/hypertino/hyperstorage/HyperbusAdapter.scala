@@ -11,7 +11,7 @@ package com.hypertino.hyperstorage
 import java.util.concurrent.ConcurrentHashMap
 
 import akka.actor.ActorRef
-import akka.pattern.ask
+import akka.pattern.{AskTimeoutException, ask}
 import com.hypertino.binders.value.{Lst, Null, Number, Obj, Text, Value}
 import com.hypertino.hyperbus.Hyperbus
 import com.hypertino.hyperbus.model._
@@ -120,7 +120,6 @@ class HyperbusAdapter(hyperbus: Hyperbus,
     val documentUri = ContentLogic.splitPath(uri).documentUri
     val task = LocalTask(documentUri, HyperstorageWorkerSettings.PRIMARY, ttl, expectsResult = true, request, Obj.from(PrimaryExtra.INTERNAL_OPERATION → false))
 
-    // todo: what happens when error is returned
     val primaryTask = Task.fromFuture {
       implicit val timeout: akka.util.Timeout = requestTimeout
       (hyperStorageProcessor ? task).asInstanceOf[Future[Response[HyperStorageTransactionBase]]]
@@ -135,7 +134,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
       else {
         Task.now(result)
       }
-    }
+    }.onErrorRecover(withHyperbusError)
   }
 
   private def notifyWaitTask(event: RequestBase): Ack = {
@@ -173,7 +172,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
         case r: ResponseBase ⇒
           r
       }
-    }
+    }.onErrorRecover(withHyperbusError)
   }
 
   private def queryCollection(resourcePath: ResourcePath, request: ContentGet): Task[ResponseBase] = {
@@ -491,6 +490,12 @@ class HyperbusAdapter(hyperbus: Hyperbus,
           notFound
         }
     }
+  }
+
+  private def withHyperbusError(implicit mcx: MessagingContext): PartialFunction[Throwable, ResponseBase] = {
+    case h: HyperbusError[ErrorBody]@unchecked ⇒ h
+    case t: AskTimeoutException ⇒ GatewayTimeout(ErrorBody(ErrorCode.REQUEST_TIMEOUT, Some(t.toString)))
+    case e ⇒ InternalServerError(ErrorBody(ErrorCode.UPDATE_FAILED, Some(e.toString)))
   }
 }
 

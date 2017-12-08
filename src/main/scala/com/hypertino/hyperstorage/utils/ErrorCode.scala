@@ -25,6 +25,7 @@ object ErrorCode {
   final val NOT_MATCHED = "not_matched"
 
   final val QUERY_TIMEOUT = "query_timeout"
+  final val REQUEST_TIMEOUT = "request_timeout"
   final val QUERY_COUNT_LIMITED = "query_count_limited"
   final val QUERY_SKIPPED_ROWS_LIMITED = "query_skipped_rows_limited"
   final val NOT_FOUND = "not_found"
