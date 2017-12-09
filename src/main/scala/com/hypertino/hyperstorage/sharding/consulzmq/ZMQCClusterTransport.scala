@@ -110,17 +110,19 @@ class ZMQCClusterTransport(
   private def checkIfTransportStarted(): Unit = {
     if (nodes.contains(selfNode)) {
       transportStarted = true
-      subscriber ! TransportStarted(selfNodeId)
-      nodes.foreach { n ⇒
-        subscriber ! TransportNodeUp(n.nodeId)
+      if (subscriber != null) {
+        subscriber ! TransportStarted(selfNodeId)
+        nodes.foreach { n ⇒
+          subscriber ! TransportNodeUp(n.nodeId)
+        }
       }
     }
   }
 
   override def subscribe(actor: ActorRef): Unit = {
     stateLock.synchronized {
+      subscriber = actor
       if (!transportStarted) {
-        subscriber = actor
         checkIfTransportStarted()
       }
     }
