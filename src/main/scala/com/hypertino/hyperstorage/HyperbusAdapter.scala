@@ -158,7 +158,7 @@ class HyperbusAdapter(hyperbus: Hyperbus,
     }
   }
 
-  private def executeIndexRequest(request: RequestBase): Task[ResponseBase] = {
+  private def executeIndexRequest(implicit request: RequestBase): Task[ResponseBase] = {
     val ttl = System.currentTimeMillis() + Math.max(requestTimeout.toMillis - 100, 100)
     val key = request match {
       case post: IndexPost ⇒ post.path
