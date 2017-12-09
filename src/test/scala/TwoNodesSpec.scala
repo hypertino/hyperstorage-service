@@ -7,7 +7,7 @@
  */
 
 import akka.cluster.Cluster
-import com.hypertino.binders.value.Null
+import com.hypertino.binders.value.{Null, Obj}
 import com.hypertino.hyperbus.model.{MessagingContext, Ok}
 import com.hypertino.hyperstorage.internal.api.NodeStatus
 import com.hypertino.hyperstorage.sharding._
@@ -61,7 +61,7 @@ class TwoNodesSpecZMQ extends FlatSpec with ScalaFutures with TestHelpers {
     shutdownShardProcessor(fsm2)(actorSystem2)
   }
 
-  "Tasks "should "distribute to corresponding actors" in {
+  "Tasks " should "distribute to corresponding actors" in {
     val (fsm1, actorSystem1, testKit1, address1) = {
       implicit val actorSystem1 = testActorSystem(1)
       (createShardProcessor("test-group", waitWhileActivates = false, instance=2), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
@@ -125,6 +125,49 @@ class TwoNodesSpecZMQ extends FlatSpec with ScalaFutures with TestHelpers {
     r2.processorPath should include(address2)
     val rs2 = testKit2.expectMsgType[Ok[TaskShardTaskResultBody]]
     rs2.body.id shouldBe r2.body.id
+  }
+
+  it should "preserve null fields when forwarded to corresponding actors and results are forwarded back" in {
+    val (fsm1, actorSystem1, testKit1, address1) = {
+      implicit val actorSystem1 = testActorSystem(1)
+      (createShardProcessor("test-group", waitWhileActivates = false, instance=2), actorSystem1, testKit(1), Cluster(actorSystem1).selfAddress.toString)
+    }
+
+    val (fsm2, actorSystem2, testKit2, address2) = {
+      implicit val actorSystem2 = testActorSystem(2)
+      (createShardProcessor("test-group", waitWhileActivates = false, instance=1), actorSystem2, testKit(2), Cluster(actorSystem2).selfAddress.toString)
+    }
+
+    testKit1.awaitCond(fsm1.stateName == NodeStatus.ACTIVE && fsm1.stateData.nodesExceptSelf.nonEmpty, 5 second)
+    testKit2.awaitCond(fsm2.stateName == NodeStatus.ACTIVE && fsm2.stateData.nodesExceptSelf.nonEmpty, 5 second)
+
+    val (task1, r1) = testTask("abc1", "t3", extra = Obj.from("a" → Null))
+
+    {
+      import testKit1._
+      fsm2 ! task1
+    }
+
+    testKit1.awaitCond(r1.isProcessed)
+    r1.processorPath should include(address1)
+
+    val rs1 = testKit1.expectMsgType[Ok[TaskShardTaskResultBody]]
+    rs1.body.id shouldBe r1.body.id
+    rs1.body.extra shouldBe Obj.from("a" → Null)
+
+    val (task2, r2) = testTask("klx1", "t4", extra = Obj.from("a" → Null))
+    //fsm1 ! task2
+
+    {
+      import testKit2._
+      fsm1 ! task2
+    }
+
+    testKit2.awaitCond(r2.isProcessed)
+    r2.processorPath should include(address2)
+    val rs2 = testKit2.expectMsgType[Ok[TaskShardTaskResultBody]]
+    rs2.body.id shouldBe r2.body.id
+    rs2.body.extra shouldBe Obj.from("a" → Null)
   }
 
   it should "not be processed for deactivating actor before deactivation is complete" in {

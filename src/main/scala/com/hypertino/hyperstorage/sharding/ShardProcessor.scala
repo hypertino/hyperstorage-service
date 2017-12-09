@@ -14,6 +14,7 @@ import akka.actor._
 import akka.cluster.ClusterEvent._
 import com.hypertino.binders.value.{Null, Obj, Value}
 import com.hypertino.hyperbus.model.{Headers, HyperbusError, MessagingContext, Ok, Request, RequestBase, RequestHeaders, RequestMeta, RequestMetaCompanion, ResponseBase}
+import com.hypertino.hyperbus.serialization.SerializationOptions
 import com.hypertino.hyperstorage.internal.api
 import com.hypertino.hyperstorage.internal.api._
 import com.hypertino.hyperstorage.metrics.Metrics
@@ -106,6 +107,8 @@ class ShardProcessor(clusterTransport: ClusterTransport,
   private val trackTaskMeter = tracker.meter(Metrics.SHARD_PROCESSOR_TASK_METER)
   private val trackForwardMeter = tracker.meter(Metrics.SHARD_PROCESSOR_FORWARD_METER)
   private var lastTaskId: Long = 0
+
+  private implicit val so = SerializationOptions.forceOptionalFields
 
   clusterTransport.subscribe(self)
 

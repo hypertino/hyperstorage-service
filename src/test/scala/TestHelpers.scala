@@ -245,10 +245,10 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
                   extra: Value = Obj.from(PrimaryExtra.INTERNAL_OPERATION → false),
                   expectsResult: Boolean = true) = LocalTask(key, HyperstorageWorkerSettings.PRIMARY, ttl, expectsResult, request, extra)
 
-  def testTask(key: String, value: String, sleep: Int = 0): (LocalTask, TestShardTaskPost) = {
+  def testTask(key: String, value: String, sleep: Int = 0, extra: Value = Null): (LocalTask, TestShardTaskPost) = {
     implicit val mcx = MessagingContext.empty
     val t = TestShardTaskPost(
-      TaskShardTaskBody(value, sleep)
+      TaskShardTaskBody(value, sleep, extra=extra)
     )
     (LocalTask(key, "test-group", System.currentTimeMillis() + 20000, true, t, Null), t)
   }
@@ -257,11 +257,14 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
 @body("test-shard-task-body")
 case class TaskShardTaskBody(value: String,
                              sleep: Int = 0,
-                             id: String = IdGenerator.create()) extends Body
+                             id: String = IdGenerator.create(),
+                             extra: Value
+                            ) extends Body
 
 @body("test-shard-task-result-body")
 case class TaskShardTaskResultBody(value: String,
-                                   id: String = IdGenerator.create()) extends Body
+                                   id: String = IdGenerator.create(),
+                                   extra: Value) extends Body
 
 @request(Method.POST, "hb://test-shard-tasks")
 case class TestShardTaskPost(body: TaskShardTaskBody) extends Request[TaskShardTaskBody]
@@ -300,7 +303,7 @@ class TestWorker extends Actor with StrictLogging {
         request.processed(path)
         logger.info(s"Task processed: $task")
         logger.info(s"Replying to ${sender()} that task $task is complete")
-        sender() ! WorkerTaskResult(task, Ok(TaskShardTaskResultBody(request.body.value, request.body.id)))
+        sender() ! WorkerTaskResult(task, Ok(TaskShardTaskResultBody(request.body.value, request.body.id, request.body.extra)))
       }
     }
   }
