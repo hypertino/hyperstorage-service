@@ -198,8 +198,19 @@ abstract class RecoveryWorker[T <: WorkerState](
                       }
                     // todo: do we need this here?
                     case NotFound(errorBody, _) ⇒
-                      logger.warn(s"$jobName: Tried to recover not existing resource: '$errorBody'. Exception is ignored")
-                      Task.unit
+                      logger.debug(s"$jobName: Tried to recover not existing resource. '$errorBody'")
+                      val olderThan5Min = System.currentTimeMillis() - 5 * 60 * 1000
+                      if (transactions.forall(t ⇒ TransactionLogic.getUnixTimeFromQuantum(t.dtQuantum) < olderThan5Min)) {
+                        logger.debug(s"$jobName: removing incomplete transactions without content older than 5 min: $transactions")
+                        Task.sequence {
+                          transactions.map { t ⇒
+                            db.deleteTransaction(t)
+                          }
+                        }
+                      }
+                      else {
+                        Task.unit
+                      }
                     case e: Throwable ⇒
                       Task.raiseError(e)
                     case other ⇒
