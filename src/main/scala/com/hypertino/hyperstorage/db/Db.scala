@@ -371,7 +371,7 @@ class Db(connector: CassandraConnector)(implicit scheduler: Scheduler) extends S
     """.task
 
   def deleteTransaction(transaction: Transaction): Task[Any] = cql"""
-      delete transaction
+      delete from transaction
       where dt_quantum=${transaction.dtQuantum}
         and partition=${transaction.partition}
         and document_uri=${transaction.documentUri}
