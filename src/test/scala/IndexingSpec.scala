@@ -408,6 +408,74 @@ class IndexingSpecMaterialized extends FlatSpec
     rc5.body.content shouldBe Lst.empty
   }
 
+  it should "update count when patching removes then adds item to index" in {
+    cleanUpCassandra()
+    val hyperbus = integratedHyperbus(db)
+
+    val c1 = Obj.from("a" → 10)
+    val c1x = c1 + Obj.from("id" → "item1")
+    val f1 = hyperbus.ask(ContentPut("collection-1~/item1", DynamicBody(c1))).runAsync
+    f1.futureValue.headers.statusCode should equal(Status.CREATED)
+
+    val path = "collection-1~"
+    val fi = hyperbus.ask(IndexPost(path, HyperStorageIndexNew(Some("index1"), Seq.empty, Some("a > 5"),materialize=Some(materialize)))).runAsync
+    fi.futureValue.headers.statusCode should equal(Status.CREATED)
+
+    eventually {
+      val indexDefUp = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
+      indexDefUp shouldBe defined
+      indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
+    }
+
+    eventually {
+      val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
+        "item_id", "", FilterGt
+      )), Seq.empty, 10).runAsync.futureValue.toSeq
+      indexContent.size shouldBe 1
+      indexContent.head.documentUri shouldBe "collection-1~"
+      indexContent.head.itemId shouldBe "item1"
+      indexContent.head.revision shouldBe 1
+      indexContent.head.count shouldBe Some(1l)
+
+      if (materialize)
+        indexContent.head.body.get should include("\"item1\"")
+      else
+        indexContent.head.body shouldBe None
+    }
+
+    val c2 = Obj.from("a" → 1)
+    val c2x = c2 + Obj.from("id" → "item1")
+    val f2 = hyperbus.ask(ContentPatch("collection-1~/item1", DynamicBody(c2))).runAsync
+    f2.futureValue.headers.statusCode should equal(Status.OK)
+
+    eventually {
+      val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
+        "item_id", "", FilterGt
+      )), Seq.empty, 10).runAsync.futureValue.toSeq
+      indexContent shouldBe empty
+    }
+
+    val c3 = Obj.from("a" → 10)
+    val f3 = hyperbus.ask(ContentPatch("collection-1~/item1", DynamicBody(c3))).runAsync
+    f3.futureValue.headers.statusCode should equal(Status.OK)
+
+    eventually {
+      val indexContent = db.selectIndexCollection("index_content", "collection-1~", "index1", Seq(FieldFilter(
+        "item_id", "", FilterGt
+      )), Seq.empty, 10).runAsync.futureValue.toSeq
+      indexContent.size shouldBe 1
+      indexContent.head.documentUri shouldBe "collection-1~"
+      indexContent.head.itemId shouldBe "item1"
+      indexContent.head.revision shouldBe 3
+      indexContent.head.count shouldBe Some(1l)
+
+      if (materialize)
+        indexContent.head.body.get should include("\"item1\"")
+      else
+        indexContent.head.body shouldBe None
+    }
+  }
+
   it should "Putting over existing item should update index" in {
     cleanUpCassandra()
     val hyperbus = integratedHyperbus(db)

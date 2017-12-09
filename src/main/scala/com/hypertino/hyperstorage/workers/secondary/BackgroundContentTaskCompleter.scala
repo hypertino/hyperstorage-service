@@ -216,7 +216,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
                           }
                         }.map { deleted: Seq[Long] ⇒
                           Math.max(countBefore - deleted.sum, 0)
-                        }
+                        }.memoize
 
                         contentTask
                           .flatMap {
