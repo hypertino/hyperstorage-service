@@ -47,7 +47,7 @@ class IntegratedSpec extends FlatSpec
 
     cleanUpCassandra()
 
-    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, self, scheduler)
+    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, 10, self, scheduler)
     val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
@@ -80,7 +80,7 @@ class IntegratedSpec extends FlatSpec
 
     cleanUpCassandra()
 
-    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, self, scheduler)
+    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, 10, self, scheduler)
     val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
@@ -110,7 +110,7 @@ class IntegratedSpec extends FlatSpec
 
     cleanUpCassandra()
 
-    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, self, scheduler)
+    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, 10, self, scheduler)
     val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
@@ -154,7 +154,7 @@ class IntegratedSpec extends FlatSpec
 
     cleanUpCassandra()
 
-    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, self, scheduler)
+    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, 10, self, scheduler)
     val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
@@ -203,7 +203,7 @@ class IntegratedSpec extends FlatSpec
 
     cleanUpCassandra()
 
-    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, self, scheduler)
+    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, 10, self, scheduler)
     val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
@@ -278,7 +278,7 @@ class IntegratedSpec extends FlatSpec
 
     cleanUpCassandra()
 
-    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, self, scheduler)
+    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, 10, self, scheduler)
     val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
@@ -369,7 +369,7 @@ class IntegratedSpec extends FlatSpec
 
     cleanUpCassandra()
 
-    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, self, scheduler)
+    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, 10, self, scheduler)
     val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes
@@ -417,7 +417,7 @@ class IntegratedSpec extends FlatSpec
 
     cleanUpCassandra()
 
-    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, self, scheduler)
+    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, 10, self, scheduler)
     val processor = shardProcessor(workerSettings)
     val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
     // wait while subscription is completes

@@ -460,7 +460,7 @@ class HyperStorageSpecZMQ extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 20.seconds, scheduler))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 20.seconds, 10, scheduler))
     val fakeProcessor = TestActorRef[FakeProcessor](Props(classOf[FakeProcessor], worker))
     val distributor = new HyperbusAdapter(hyperbus, fakeProcessor, db, tracker, 20.seconds)
 
@@ -499,6 +499,46 @@ class HyperStorageSpecZMQ extends FlatSpec
     }
 
     createTask.futureValue shouldBe a[Created[_]]
+  }
+
+  it should "return TOO_MANY_REQUESTS if incomplete transaction limit is reached" in {
+    val hyperbus = testHyperbus()
+    val tk = testKit()
+    import tk._
+
+    cleanUpCassandra()
+
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 3, scheduler))
+
+    val task = ContentPut(
+      path = "test-resource-1",
+      DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
+    )
+
+    db.selectContent("test-resource-1", "").runAsync.futureValue shouldBe None
+
+    val taskStr = task.serializeToString
+    worker ! primaryTask(task.path, task)
+    val (bgTask, br) = tk.expectTaskR[BackgroundContentTasksPost]()
+    br.body.documentUri should equal(task.path)
+    val workerResult = expectMsgType[WorkerTaskResult]
+    val r = workerResult.result.get
+    r.headers.statusCode should equal(Status.CREATED)
+    r.headers.correlationId should equal(task.correlationId)
+
+    worker ! primaryTask(task.path, task)
+    val (bgTask2, br2) = tk.expectTaskR[BackgroundContentTasksPost]()
+    br2.body.documentUri should equal(task.path)
+    val workerResult2 = expectMsgType[WorkerTaskResult]
+    val r2 = workerResult2.result.get
+    r2.headers.statusCode should equal(Status.CREATED)
+
+    worker ! primaryTask(task.path, task)
+    val (bgTask3, br3) = tk.expectTaskR[BackgroundContentTasksPost]()
+    br3.body.documentUri should equal(task.path)
+    val workerResult3 = expectMsgType[WorkerTaskResult]
+    val r3 = workerResult3.result.get
+    r3.headers.statusCode should equal(Status.TOO_MANY_REQUESTS)
   }
 }
 
