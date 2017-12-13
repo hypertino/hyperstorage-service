@@ -51,8 +51,11 @@ private [primary] case class PrimaryWorkerTaskFailed(task: ShardTask, inner: Thr
 private [primary] case class PrimaryWorkerTaskCompleted(task: ShardTask, transaction: Transaction, resourceCreated: Boolean)
 
 // todo: Protect from direct view items updates!!!
-class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker,
+class PrimaryWorker(hyperbus: Hyperbus,
+                    db: Db,
+                    tracker: MetricsTracker,
                     backgroundTaskTimeout: FiniteDuration,
+                    maxIncompleteTransaction: Int,
                     scheduler: monix.execution.Scheduler) extends Actor with StrictLogging {
 
   import ContentLogic._
@@ -196,16 +199,23 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker,
       }
 
     val updateTask = existingTask.flatMap { case (existingContent, existingContentStatic, indexDefs) ⇒
-      updateResource(documentUri,
-        itemId,
-        request,
-        existingContent,
-        existingContentStatic,
-        indexDefs,
-        task.extra.dynamic.internal_operation.toBoolean) map { newTransaction ⇒
-        PrimaryWorkerTaskCompleted(task, newTransaction,
-          (existingContent.isEmpty || existingContent.exists(_.isDeleted.contains(true))) && request.headers.method != Method.DELETE
-        )
+      if (existingContentStatic.isDefined && existingContentStatic.get.transactionList.size > maxIncompleteTransaction) {
+        Task.now(PrimaryWorkerTaskFailed(task, TooManyRequests(ErrorBody(
+          ErrorCode.TRANSACTION_LIMIT, Some(s"Transaction limit ($maxIncompleteTransaction) is reached for '$documentUri'")
+        ))))
+      }
+      else {
+        updateResource(documentUri,
+          itemId,
+          request,
+          existingContent,
+          existingContentStatic,
+          indexDefs,
+          task.extra.dynamic.internal_operation.toBoolean) map { newTransaction ⇒
+          PrimaryWorkerTaskCompleted(task, newTransaction,
+            (existingContent.isEmpty || existingContent.exists(_.isDeleted.contains(true))) && request.headers.method != Method.DELETE
+          )
+        }
       }
     } onErrorRecover {
       case e: Throwable ⇒
@@ -553,7 +563,7 @@ class PrimaryWorker(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker,
       val bgTask = LocalTask(
         key = documentUri,
         group = HyperstorageWorkerSettings.SECONDARY,
-        ttl = System.currentTimeMillis() + backgroundTaskTimeout.toMillis + 1000,
+        ttl = System.currentTimeMillis() + backgroundTaskTimeout.toMillis,
         expectsResult = false,
         BackgroundContentTasksPost(BackgroundContentTask(documentUri)),
         extra = Null

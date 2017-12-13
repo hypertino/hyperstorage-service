@@ -73,7 +73,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
     }
     else {
       selectIncompleteTransactions(content).flatMap { incompleteTransactions ⇒
-        val updateIndexTask: Task[Any] = updateIndexes(content, incompleteTransactions, owner, task.ttl)
+        val updateIndexTask: Task[Any] = updateIndexesAndViews(content, incompleteTransactions, owner, task.ttl)
 
         updateIndexTask.flatMap { _ ⇒
           Task.sequence{
@@ -143,17 +143,9 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
     } map {
       _.flatten.reverse
     }
-//
-//    val transactionsFStream = content.transactionList.toStream.map { transactionUuid ⇒
-//      val quantum = TransactionLogic.getDtQuantum(UUIDs.unixTimestamp(transactionUuid))
-//      db.selectTransaction(quantum, content.partition, content.documentUri, transactionUuid)
-//    }
-//    FutureUtils.collectWhile(transactionsFStream) {
-//      case Some(transaction) ⇒ UnwrappedTransaction(transaction)
-//    } map (_.reverse)
   }
 
-  private def updateIndexes(contentStatic: ContentStatic,
+  private def updateIndexesAndViews(contentStatic: ContentStatic,
                             incompleteTransactions: Seq[UnwrappedTransaction],
                             owner: ActorRef,
                             ttl: Long): Task[Any] = {

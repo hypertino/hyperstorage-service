@@ -51,7 +51,7 @@ libraryDependencies ++= Seq(
   "com.hypertino"               %% "service-metrics"              % "0.3.0",
   "com.hypertino"               %% "typesafe-config-binders"      % "0.2.0",
 
-  "com.hypertino"               %% "hyperbus"                     % "0.5-SNAPSHOT",
+  "com.hypertino"               %% "hyperbus"                     % "0.5.1-SNAPSHOT",
 //  "com.hypertino"               %% "hyperbus-t-kafka"             % "0.2-SNAPSHOT",
   "com.hypertino"               %% "hyperbus-t-zeromq"            % "0.4-SNAPSHOT",
   "com.hypertino"               %% "hyperbus-consul-resolver"     % "0.3-SNAPSHOT",
@@ -63,7 +63,7 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka"           %% "akka-slf4j"                   % "2.4.20",
 
   "ch.qos.logback"              % "logback-classic"               % "1.2.3",
-  "com.hypertino"               %% "hyperbus-t-inproc"            % "0.5-SNAPSHOT"  % "test",
+  "com.hypertino"               %% "hyperbus-t-inproc"            % "0.5.1-SNAPSHOT"  % "test",
   "org.scalamock"               %% "scalamock-scalatest-support"  % "3.5.0"         % "test",
   "org.mockito"                 % "mockito-all"                   % "1.10.19"       % "test",
   "com.typesafe.akka"           %% "akka-testkit"                 % "2.4.20"        % "test",

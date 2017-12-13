@@ -30,5 +30,6 @@ object ErrorCode {
   final val QUERY_SKIPPED_ROWS_LIMITED = "query_skipped_rows_limited"
   final val NOT_FOUND = "not_found"
 
-  val BACKGROUND_TASK_FAILED = "background_task_failed"
+  final val BACKGROUND_TASK_FAILED = "background_task_failed"
+  final val TRANSACTION_LIMIT = "transaction_limit"
 }
