@@ -508,7 +508,7 @@ class HyperStorageSpecZMQ extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 3, scheduler))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 2, scheduler))
 
     val task = ContentPut(
       path = "test-resource-1",
@@ -531,7 +531,7 @@ class HyperStorageSpecZMQ extends FlatSpec
     br2.body.documentUri should equal(task.path)
     val workerResult2 = expectMsgType[WorkerTaskResult]
     val r2 = workerResult2.result.get
-    r2.headers.statusCode should equal(Status.CREATED)
+    r2.headers.statusCode should equal(Status.OK)
 
     worker ! primaryTask(task.path, task)
     val (bgTask3, br3) = tk.expectTaskR[BackgroundContentTasksPost]()
