@@ -45,7 +45,7 @@ class CollectionsSpec extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, scheduler))
 
     val collection = SeqGenerator.create() + "~"
     val item1 = SeqGenerator.create()
@@ -121,7 +121,7 @@ class CollectionsSpec extends FlatSpec
     val tk = testKit()
     import tk._
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, scheduler))
 
     val collection = SeqGenerator.create() + "~"
     val path = s"$collection/${SeqGenerator.create()}"
@@ -184,7 +184,7 @@ class CollectionsSpec extends FlatSpec
     val tk = testKit()
     import tk._
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, scheduler))
 
     val collection = SeqGenerator.create() + "~"
     val item1 = SeqGenerator.create()
@@ -217,7 +217,7 @@ class CollectionsSpec extends FlatSpec
     val tk = testKit()
     import tk._
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, scheduler))
 
     val path = UUID.randomUUID().toString + "~/el1"
     val ResourcePath(documentUri, itemId) = ContentLogic.splitPath(path)
@@ -262,7 +262,7 @@ class CollectionsSpec extends FlatSpec
     val tk = testKit()
     import tk._
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, scheduler))
 
     val collection = SeqGenerator.create() + "~"
 
@@ -293,7 +293,7 @@ class CollectionsSpec extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, scheduler))
 
     val collection = SeqGenerator.create() + "/users~"
     val item1 = SeqGenerator.create()

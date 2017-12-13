@@ -49,7 +49,7 @@ class RecoveryWorkersSpecZMQ extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, scheduler))
     val path = "incomplete-" + UUID.randomUUID().toString
     val put = ContentPut(path,
       DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
@@ -92,7 +92,7 @@ class RecoveryWorkersSpecZMQ extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, scheduler))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, scheduler))
     val path = "incomplete-" + UUID.randomUUID().toString
     val put = ContentPut(path,
       DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))

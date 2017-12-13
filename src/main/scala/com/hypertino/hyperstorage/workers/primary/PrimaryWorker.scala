@@ -611,8 +611,8 @@ class PrimaryWorker(hyperbus: Hyperbus,
 }
 
 object PrimaryWorker {
-  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgroundTaskTimeout: FiniteDuration, scheduler: monix.execution.Scheduler) =
-    Props(new PrimaryWorker(hyperbus, db, tracker, backgroundTaskTimeout, scheduler))
+  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgroundTaskTimeout: FiniteDuration, maxIncompleteTransaction: Int, scheduler: monix.execution.Scheduler) =
+    Props(new PrimaryWorker(hyperbus, db, tracker, backgroundTaskTimeout, maxIncompleteTransaction, scheduler))
 }
 
 case class ExpressionEvaluatorContext(request: PrimaryWorkerRequest, original: Value) extends Context{
