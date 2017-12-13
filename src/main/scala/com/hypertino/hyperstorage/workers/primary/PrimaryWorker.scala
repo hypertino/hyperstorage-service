@@ -201,9 +201,9 @@ class PrimaryWorker(hyperbus: Hyperbus,
     val updateTask = existingTask.flatMap { case (existingContent, existingContentStatic, indexDefs) ⇒
       if (existingContentStatic.isDefined && existingContentStatic.get.transactionList.size >= maxIncompleteTransaction) {
         implicit val mcx = request
-        Task.now(PrimaryWorkerTaskFailed(task, TooManyRequests(ErrorBody(
+        Task.raiseError(TooManyRequests(ErrorBody(
           ErrorCode.TRANSACTION_LIMIT, Some(s"Transaction limit ($maxIncompleteTransaction) is reached for '$documentUri'")
-        ))))
+        )))
       }
       else {
         updateResource(documentUri,
