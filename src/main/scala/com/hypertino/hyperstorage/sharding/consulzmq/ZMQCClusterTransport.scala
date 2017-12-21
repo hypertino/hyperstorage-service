@@ -53,6 +53,7 @@ class ZMQCClusterTransport(
   @volatile private var transportStarted = false
   private val nodeMap = TrieMap[String, ZCNode]()
   private val resolverSubscription = resolver.serviceObservable(dummyTask).subscribe(onNodesUpdate _)
+  internalHyperbus.startServices()
 
   protected def onNodesUpdate(update: Seq[ServiceEndpoint]): Future[Ack] = {
     stateLock.synchronized {

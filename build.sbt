@@ -2,7 +2,7 @@ name := "hyperstorage"
 
 organization := "com.hypertino"
 
-version := "0.7.1-SNAPSHOT"
+version := "0.7.2-SNAPSHOT"
 
 crossScalaVersions := Seq("2.12.4", "2.11.12")
 
@@ -46,14 +46,14 @@ lazy val root = (project in file(".")).enablePlugins(BuildInfoPlugin, Raml2Hyper
 addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full)
 
 libraryDependencies ++= Seq(
-  "com.hypertino"               %% "service-control"              % "0.3.0",
+  "com.hypertino"               %% "service-control"              % "0.4.0",
   "com.hypertino"               %% "service-config"               % "0.2.0",
   "com.hypertino"               %% "service-metrics"              % "0.3.0",
   "com.hypertino"               %% "typesafe-config-binders"      % "0.2.0",
 
-  "com.hypertino"               %% "hyperbus"                     % "0.5.1-SNAPSHOT",
+  "com.hypertino"               %% "hyperbus"                     % "0.6-SNAPSHOT",
 //  "com.hypertino"               %% "hyperbus-t-kafka"             % "0.2-SNAPSHOT",
-  "com.hypertino"               %% "hyperbus-t-zeromq"            % "0.4-SNAPSHOT",
+  "com.hypertino"               %% "hyperbus-t-zeromq"            % "0.6-SNAPSHOT",
   "com.hypertino"               %% "hyperbus-consul-resolver"     % "0.3-SNAPSHOT",
 
   "com.hypertino"               %% "cassandra-binders"            % "0.5-SNAPSHOT",
@@ -63,7 +63,7 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka"           %% "akka-slf4j"                   % "2.4.20",
 
   "ch.qos.logback"              % "logback-classic"               % "1.2.3",
-  "com.hypertino"               %% "hyperbus-t-inproc"            % "0.5.1-SNAPSHOT"  % "test",
+  "com.hypertino"               %% "hyperbus-t-inproc"            % "0.6-SNAPSHOT"  % "test",
   "org.scalamock"               %% "scalamock-scalatest-support"  % "3.5.0"         % "test",
   "org.mockito"                 % "mockito-all"                   % "1.10.19"       % "test",
   "com.typesafe.akka"           %% "akka-testkit"                 % "2.4.20"        % "test",

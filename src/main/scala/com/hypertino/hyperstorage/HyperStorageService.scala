@@ -135,7 +135,11 @@ class HyperStorageService(implicit val scheduler: Scheduler,
   logger.info(s"Launching index manager")
   shardProcessorRef ! SubscribeToShardStatus(indexManagerRef)
 
-  logger.info("Hyperstorage started!")
+  logger.info("Hyperstorage is INTIALIZED")
+
+  override def startService(): Unit = {
+    logger.info("Hyperstorage is STARTED")
+  }
 
   // shutdown
   override def stopService(controlBreak: Boolean, timeout: FiniteDuration): Future[Unit] = {
@@ -170,7 +174,7 @@ class HyperStorageService(implicit val scheduler: Scheduler,
       }
       .recover(logException("ZMQCClusterTransport didn't stopped gracefully"))
       .map { _ ⇒
-        logger.info("Hyperstorage stopped.")
+        logger.info("Hyperstorage is STOPPED")
       }
   }
 

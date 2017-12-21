@@ -22,6 +22,8 @@ local.sbt
 .project
 .settings
 .cache
+ensime.sbt
+.ensime
 
 # BuildInfo plugin
 buildinfo.properties
