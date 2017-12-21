@@ -46,7 +46,7 @@ lazy val root = (project in file(".")).enablePlugins(BuildInfoPlugin, Raml2Hyper
 addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.full)
 
 libraryDependencies ++= Seq(
-  "com.hypertino"               %% "service-control"              % "0.4.0",
+  "com.hypertino"               %% "service-control"              % "0.4.1",
   "com.hypertino"               %% "service-config"               % "0.2.0",
   "com.hypertino"               %% "service-metrics"              % "0.3.0",
   "com.hypertino"               %% "typesafe-config-binders"      % "0.2.0",
