@@ -10,22 +10,27 @@ package com.hypertino.hyperstorage
 
 import akka.actor.ActorSystem
 import com.hypertino.hyperbus.Hyperbus
+import com.hypertino.hyperbus.transport.api.{ServiceRegistrator, ServiceResolver}
 import com.hypertino.hyperstorage.modules.{HyperStorageServiceModule, SystemServicesModule}
 import com.hypertino.metrics.modules.MetricsModule
 import com.hypertino.service.config.ConfigModule
 import com.hypertino.service.control.ConsoleModule
 import com.hypertino.service.control.api.{Service, ServiceController}
+import com.hypertino.transport.registrators.consul.ConsulServiceRegistrator
+import com.hypertino.transport.resolvers.consul.ConsulServiceResolver
+import com.typesafe.config.Config
 import com.typesafe.scalalogging.StrictLogging
 import monix.execution.Scheduler
 import scaldi.{Injectable, Module}
 
 import scala.concurrent.Await
 import scala.util.Try
-import scala.util.control.NonFatal
 import scala.concurrent.duration._
 
-class MainServiceModule extends Module {
-  bind [Service]          identifiedBy 'mainService        to inject[HyperStorageService]
+class EntryPointModule extends Module {
+  bind [Service] to inject[HyperStorageService]
+  bind [ServiceRegistrator] identifiedBy "consul-registrator" to new ConsulServiceRegistrator(inject[Config].getConfig("service-registrator"))(inject [monix.execution.Scheduler])
+  bind [ServiceResolver] identifiedBy "consul-resolver" to new ConsulServiceResolver(inject[Config].getConfig("service-resolver"))(inject [Scheduler])
 }
 
 object EntryPoint extends Injectable with StrictLogging {
@@ -36,8 +41,10 @@ object EntryPoint extends Injectable with StrictLogging {
       new MetricsModule ::
       new ConsoleModule ::
       new HyperStorageServiceModule ::
+      new EntryPointModule ::
       ConfigModule()
     implicit val scheduler = inject[Scheduler]
+    inject[Hyperbus].startServices()
     inject[ServiceController].run().andThen {
       case _ ⇒
         val timeout = 10.seconds

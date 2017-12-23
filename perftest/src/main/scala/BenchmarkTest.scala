@@ -12,12 +12,16 @@ import monix.execution.Scheduler
 import scaldi.{Injectable, Module}
 
 class BenchmarkModule extends Module {
-  bind[Scheduler] to monix.execution.Scheduler.Implicits.global
+  val scheduler = monix.execution.Scheduler.Implicits.global
+  bind[Scheduler] to scheduler
+  bind[Hyperbus] to injected[Hyperbus]
   bind[ServiceRegistrator] to DummyRegistrator
+}
+
+class ServiceResolverModule extends Module {
   bind[ServiceResolver] to new ConsulServiceResolver(
     inject[Config].getConfig("service-resolver")
-  )(inject [Scheduler])
-  bind[Hyperbus] to injected[Hyperbus]
+  )(inject[Scheduler])
 }
 
 object BenchmarkTest extends Injectable with StrictLogging {
@@ -33,16 +37,19 @@ object BenchmarkTest extends Injectable with StrictLogging {
   def main(args: Array[String]): Unit = {
     implicit val mcx = MessagingContext.Implicits.emptyContext
     implicit val injector =
+      new ServiceResolverModule ::
       new BenchmarkModule ::
         ConfigModule()
     implicit val scheduler = inject[Scheduler]
     val hyperbus = inject[Hyperbus]
+    hyperbus.startServices()
     hyperbus
       .ask(ContentGet("abc"))
       .materialize
       .map { result ⇒
         println(result)
       }
+      .runAsync
   }
 //    Thread.sleep(10000)
 //    println("Selecting...")
