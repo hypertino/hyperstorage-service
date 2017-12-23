@@ -314,3 +314,9 @@ TODO: path:* не актуален, изменить доку
 — тесты на отказ (+/- нода под нагрузкой, отказ касандры, отказ кафки, падение ноды);
 - для akka-cluster использовать protobuf: https://github.com/akka/akka/issues/18371
 
+# Разное
+
+Запуск из командной строки для теста
+```$
+sbt '; set connectInput in run := true; set javaOptions in "hyperstorage" += "-Dconfig-files=../nodes-test/nodes.conf:../nodes-test/node-1.conf" ; hyperstorage/runMain com.hypertino.hyperstorage.EntryPoint'
+```

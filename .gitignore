@@ -24,6 +24,7 @@ local.sbt
 .cache
 ensime.sbt
 .ensime
+.ensime_cache
 
 # BuildInfo plugin
 buildinfo.properties

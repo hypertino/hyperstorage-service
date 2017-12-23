@@ -35,7 +35,7 @@
         <level value="INFO"/>
     </logger>
 
-    <root level="INFO">
+    <root level="TRACE">
         <appender-ref ref="stdout"/>
     </root>
 </configuration>
