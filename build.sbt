@@ -53,7 +53,7 @@ lazy val hyperstorage = project in file("hyperstorage") enablePlugins(BuildInfoP
     "com.hypertino"               %% "hyperbus"                     % "0.6-SNAPSHOT",
   //  "com.hypertino"               %% "hyperbus-t-kafka"             % "0.2-SNAPSHOT",
     "com.hypertino"               %% "hyperbus-t-inproc"            % "0.6-SNAPSHOT",
-    "com.hypertino"               %% "hyperbus-t-zeromq"            % "0.6-SNAPSHOT",
+    "com.hypertino"               %% "hyperbus-t-zeromq"            % "0.6.1-SNAPSHOT",
     "com.hypertino"               %% "hyperbus-consul-resolver"     % "0.3-SNAPSHOT",
 
     "com.hypertino"               %% "cassandra-binders"            % "0.5-SNAPSHOT",
@@ -86,7 +86,7 @@ lazy val perftest = project in file("perftest") enablePlugins(Raml2Hyperbus) set
   ),
   libraryDependencies ++= Seq(
     "com.hypertino"               %% "hyperbus"                     % "0.6-SNAPSHOT",
-    "com.hypertino"               %% "hyperbus-t-zeromq"            % "0.6-SNAPSHOT",
+    "com.hypertino"               %% "hyperbus-t-zeromq"            % "0.6.1-SNAPSHOT",
     "com.hypertino"               %% "hyperbus-t-inproc"            % "0.6-SNAPSHOT",
     "ch.qos.logback"              % "logback-classic"               % "1.2.3",
     "com.storm-enroute"           %% "scalameter"                   % "0.8.2",

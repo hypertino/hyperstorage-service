@@ -25,8 +25,11 @@ trait CassandraConnector {
 }
 
 object CassandraConnector extends StrictLogging{
-  def createCassandraSession(hosts: Seq[String], datacenter: String, keyspace: String, connectTimeoutMillis: Int = 3000, readTimeoutMillis: Int = 500) =
-    CassandraSessionBuilder.build(hosts, datacenter, keyspace, connectTimeoutMillis, readTimeoutMillis)
+  def createCassandraSession(hosts: Seq[String], datacenter: String, keyspace: String,
+                             connectTimeoutMillis: Int = 3000, readTimeoutMillis: Int = 500,
+                             consistencyLevel: ConsistencyLevel = ConsistencyLevel.LOCAL_QUORUM,
+                             serialConsistencyLevel: ConsistencyLevel = ConsistencyLevel.LOCAL_SERIAL) =
+    CassandraSessionBuilder.build(hosts, datacenter, keyspace, connectTimeoutMillis, readTimeoutMillis, consistencyLevel, serialConsistencyLevel)
 
   def createCassandraSession(config: Config) =
     CassandraSessionBuilder.build(config)
@@ -95,10 +98,18 @@ object CassandraConnector extends StrictLogging{
       hosts = conf.getStringList("hosts"),
       datacenter = conf.getString("datacenter"),
       connectTimeoutMillis = conf.getDuration("connect-timeout", TimeUnit.MILLISECONDS).toInt,
-      readTimeoutMillis = conf.getDuration("read-timeout", TimeUnit.MILLISECONDS).toInt
+      readTimeoutMillis = conf.getDuration("read-timeout", TimeUnit.MILLISECONDS).toInt,
+      ConsistencyLevel.valueOf(conf.getString("consistency-level")),
+      ConsistencyLevel.valueOf(conf.getString("serial-consistency-level"))
     )
 
-    private def newCluster(hosts: Seq[String], datacenter: String, connectTimeoutMillis: Int, readTimeoutMillis: Int):
+    private def newCluster(hosts: Seq[String],
+                           datacenter: String,
+                           connectTimeoutMillis: Int,
+                           readTimeoutMillis: Int,
+                           consistencyLevel: ConsistencyLevel,
+                           serialConsistencyLevel: ConsistencyLevel
+                          ):
     (Cluster, HostListener) = {
       logger.info(s"Create cassandra cluster: $hosts, dc=$datacenter, $connectTimeoutMillis, $readTimeoutMillis")
 
@@ -111,8 +122,8 @@ object CassandraConnector extends StrictLogging{
         )
         .withQueryOptions(
           new QueryOptions()
-            .setConsistencyLevel(ConsistencyLevel.LOCAL_QUORUM)
-            .setSerialConsistencyLevel(ConsistencyLevel.LOCAL_SERIAL)
+            .setConsistencyLevel(consistencyLevel)
+            .setSerialConsistencyLevel(serialConsistencyLevel)
         ).withSocketOptions(
         new SocketOptions()
           .setTcpNoDelay(true)
@@ -154,8 +165,14 @@ object CassandraConnector extends StrictLogging{
       session
     }
 
-    def build(hosts: Seq[String], datacenter: String, keyspace: String, connectTimeoutMillis: Int, readTimeoutMillis: Int) = {
-      val (cluster, listener) = newCluster(hosts, datacenter, connectTimeoutMillis, readTimeoutMillis)
+    def build(hosts: Seq[String],
+              datacenter: String,
+              keyspace: String,
+              connectTimeoutMillis: Int,
+              readTimeoutMillis: Int,
+              consistencyLevel: ConsistencyLevel,
+              serialConsistencyLevel: ConsistencyLevel) = {
+      val (cluster, listener) = newCluster(hosts, datacenter, connectTimeoutMillis, readTimeoutMillis, consistencyLevel, serialConsistencyLevel)
       try {
         session(cluster, listener, keyspace)
       }
