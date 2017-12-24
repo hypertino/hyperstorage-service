@@ -77,6 +77,7 @@ lazy val hyperstorage = project in file("hyperstorage") enablePlugins(BuildInfoP
 
 lazy val perftest = project in file("perftest") enablePlugins(Raml2Hyperbus) settings (
   commonSettings,
+  publishSettings,
   ramlHyperbusSources := Seq(
   ramlSource(
       path = "api/hyperstorage-service-api/hyperstorage.raml",
@@ -92,7 +93,11 @@ lazy val perftest = project in file("perftest") enablePlugins(Raml2Hyperbus) set
     "com.storm-enroute"           %% "scalameter"                   % "0.8.2",
     "com.hypertino"               %% "service-config"               % "0.2.0",
     "com.hypertino"               %% "hyperbus-consul-resolver"     % "0.3-SNAPSHOT"
-  )
+  ),
+  publishArtifact := false,
+  publishArtifact in Test := false,
+  publish := {},
+  publishLocal := {}
 )
 
 lazy val `hyperstorage-root` = project.in(file(".")) enablePlugins(Raml2Hyperbus) settings (
