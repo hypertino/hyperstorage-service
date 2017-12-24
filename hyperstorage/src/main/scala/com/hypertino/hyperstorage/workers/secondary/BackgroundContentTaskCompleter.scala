@@ -73,49 +73,59 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
     }
     else {
       selectIncompleteTransactions(content).flatMap { incompleteTransactions ⇒
-        val updateIndexTask: Task[Any] = updateIndexesAndViews(content, incompleteTransactions, owner, task.ttl)
-
-        updateIndexTask.flatMap { _ ⇒
-          Task.sequence{
-            incompleteTransactions.map { it ⇒
-              val event = it.unwrappedBody
-              val viewTask: Task[Any] = {
-                event.headers.get(TransactionLogic.HB_HEADER_VIEW_TEMPLATE_URI).map { templateUri ⇒
-                  val filter = event.headers.getOrElse(TransactionLogic.HB_HEADER_FILTER, Null) match {
-                    case Null ⇒ None
-                    case other ⇒ Some(other.toString)
-                  }
-                  db.insertViewDef(ViewDef(key = "*", request.body.documentUri, templateUri.toString, filter))
-                } getOrElse {
-                  if (event.headers.hrl.location == ViewDelete.location) {
-                    db.deleteViewDef(key = "*", request.body.documentUri)
-                  }
-                  else {
-                    Task.unit
-                  }
-                }
-              }
-
-              viewTask
-                .flatMap(_ ⇒ hyperbus.publish(event))
-                .flatMap { publishResult ⇒
-                  logger.debug(s"Event $event is published with result $publishResult")
-
-                  db.completeTransaction(it.transaction) map { _ ⇒
-                    logger.debug(s"${it.transaction} is complete")
-
-                    it.transaction
-                  }
-                }
-            }
-          }
-        } flatMap { updatedTransactions ⇒
-          logger.debug(s"Removing completed transactions $updatedTransactions from ${request.body.documentUri}")
-          db.removeCompleteTransactionsFromList(request.body.documentUri, updatedTransactions.map(_.uuid).toList) onErrorRecover {
+        if (incompleteTransactions.isEmpty) {
+          logger.debug(s"Removing already completed transactions ${content.transactionList} from ${request.body.documentUri}")
+          db.removeCompleteTransactionsFromList(request.body.documentUri, content.transactionList) onErrorRecover {
             case e: Throwable ⇒
-              logger.error(s"Can't remove complete transactions $updatedTransactions from ${request.body.documentUri}", e)
+              logger.error(s"Can't remove complete transactions ${content.transactionList} from ${request.body.documentUri}", e)
           } map { _ ⇒
-            Ok(BackgroundContentTaskResult(request.body.documentUri, updatedTransactions.map(_.uuid.toString)))
+            Ok(BackgroundContentTaskResult(request.body.documentUri, content.transactionList.map(_.toString)))
+          }
+        }
+        else {
+          val updateIndexTask: Task[Any] = updateIndexesAndViews(content, incompleteTransactions, owner, task.ttl)
+          updateIndexTask.flatMap { _ ⇒
+            Task.sequence {
+              incompleteTransactions.map { it ⇒
+                val event = it.unwrappedBody
+                val viewTask: Task[Any] = {
+                  event.headers.get(TransactionLogic.HB_HEADER_VIEW_TEMPLATE_URI).map { templateUri ⇒
+                    val filter = event.headers.getOrElse(TransactionLogic.HB_HEADER_FILTER, Null) match {
+                      case Null ⇒ None
+                      case other ⇒ Some(other.toString)
+                    }
+                    db.insertViewDef(ViewDef(key = "*", request.body.documentUri, templateUri.toString, filter))
+                  } getOrElse {
+                    if (event.headers.hrl.location == ViewDelete.location) {
+                      db.deleteViewDef(key = "*", request.body.documentUri)
+                    }
+                    else {
+                      Task.unit
+                    }
+                  }
+                }
+
+                viewTask
+                  .flatMap(_ ⇒ hyperbus.publish(event))
+                  .flatMap { publishResult ⇒
+                    logger.debug(s"Event $event is published with result $publishResult")
+
+                    db.completeTransaction(it.transaction) map { _ ⇒
+                      logger.debug(s"${it.transaction} is complete")
+
+                      it.transaction
+                    }
+                  }
+              }
+            }
+          } flatMap { updatedTransactions ⇒
+            logger.debug(s"Removing completed transactions $updatedTransactions from ${request.body.documentUri}")
+            db.removeCompleteTransactionsFromList(request.body.documentUri, updatedTransactions.map(_.uuid).toList) onErrorRecover {
+              case e: Throwable ⇒
+                logger.error(s"Can't remove complete transactions $updatedTransactions from ${request.body.documentUri}", e)
+            } map { _ ⇒
+              Ok(BackgroundContentTaskResult(request.body.documentUri, updatedTransactions.map(_.uuid.toString)))
+            }
           }
         }
       }
