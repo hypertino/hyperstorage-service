@@ -1,6 +1,6 @@
 import com.hypertino.binders.value.{Lst, Obj, Value}
 import com.hypertino.hyperbus.Hyperbus
-import com.hypertino.hyperbus.model.{DynamicBody, MessagingContext}
+import com.hypertino.hyperbus.model.{DynamicBody, DynamicResponse, HRL, Header, Headers, MessagingContext, Ok, Response}
 import com.hypertino.hyperbus.transport.api.{ServiceRegistrator, ServiceResolver}
 import com.hypertino.hyperbus.transport.registrators.DummyRegistrator
 import com.hypertino.hyperstorage.api.{ContentDelete, ContentGet, ContentPatch, ContentPut}
@@ -34,8 +34,8 @@ case class Counters(success: AtomicLong, fail: AtomicLong)
 object BenchmarkTest extends Injectable with StrictLogging {
   private val random = new Random()
   private val TEST_OBJECTS_SIZE = 10000
-  private val TEST_COLLECTIONS_SIZE = 10
-  private val TEST_COLLECTIONS_ITEMS_SIZE = 1000
+  private val TEST_COLLECTIONS_SIZE = 30
+  private val TEST_COLLECTIONS_ITEMS_SIZE = 500
   private val PARALLELISM = 256
   private val randomObjs = 0 until TEST_OBJECTS_SIZE map { _ ⇒ (nextRandomObj(), nextRandomObj()) }
   private val randomCollectionKeys = 0 until TEST_COLLECTIONS_SIZE map { _ ⇒ random.alphanumeric.take(12).mkString }
@@ -55,7 +55,7 @@ object BenchmarkTest extends Injectable with StrictLogging {
     implicit val mcx = MessagingContext.Implicits.emptyContext
     implicit val injector =
       new ServiceResolverModule ::
-      new BenchmarkModule ::
+        new BenchmarkModule ::
         ConfigModule()
     implicit val scheduler = inject[Scheduler]
     val hyperbus = inject[Hyperbus]
@@ -119,30 +119,74 @@ object BenchmarkTest extends Injectable with StrictLogging {
 
     measure(s"INSERT $TEST_COLLECTIONS_SIZE collections with $TEST_COLLECTIONS_ITEMS_SIZE items") { c ⇒
       val prefix = "test-collection/"
-      parallel(randomCollectionKeys.flatMap { key ⇒
-        val collection = prefix + key + "~"
+      parallel(
+        randomCollectionItems.flatMap { item ⇒
+          randomCollectionKeys.map { key ⇒
+            val collection = prefix + key + "~"
 
-        randomCollectionItems.map { item ⇒
-          val path = collection + "/" + item.dynamic.key.toString
-          retryBackoff(hyperbus
-            .ask(ContentPut(path, DynamicBody(item))),
-            20,
-            100.milliseconds
-          )
-            .materialize
-            .map {
-              case Success(_) ⇒ c.success.increment()
-              case Failure(ex) ⇒
-                c.fail.increment()
-                logErrorThrottled(ex)
-            }
+            val path = collection + "/" + item.dynamic.key.toString
+            retryBackoff(hyperbus
+              .ask(ContentPut(path, DynamicBody(item))),
+              20,
+              100.milliseconds
+            )
+              .materialize
+              .map {
+                case Success(_) ⇒ c.success.increment()
+                case Failure(ex) ⇒
+                  c.fail.increment()
+                  logErrorThrottled(ex)
+              }
+          }
+        }
+      )
+    }
+
+    measure(s"SELECT WITH PAGING $TEST_COLLECTIONS_SIZE collections") { c ⇒
+      val prefix = "test-collection/"
+      parallel(randomCollectionKeys.map { key ⇒
+        val collection = prefix + key + "~"
+        hyperbus.ask(
+          ContentGet(collection)
+        ).materialize.flatMap {
+          case Success(response) ⇒
+            selectCollection(collection, c, Task.now(response))
+
+          case Failure(ex) ⇒
+            c.fail.increment()
+            logErrorThrottled(ex)
+            Task.unit
         }
       })
     }
+
+    def selectCollection(path: String, c: Counters, t: Task[Response[DynamicBody]]): Task[Response[DynamicBody]] = {
+      t.flatMap {
+        response ⇒
+          if (response.body.content.isEmpty) {
+            Task.now(response)
+          } else if (response.headers.link.get("next_page_url").isEmpty) {
+            c.success.increment(response.body.content.toList.size)
+            Task.now(response)
+          }
+          else {
+            import com.hypertino.binders.value._
+            c.success.increment(response.body.content.toList.size)
+            val get = ContentGet(
+              path
+            ).copyWithHeaders(
+              Headers(Header.HRL → HRL(ContentGet.location, response.headers.link.get("next_page_url").map(_.query).getOrElse(Obj.empty)).toValue)
+            )
+            selectCollection(path, c,
+              hyperbus.ask(get).asInstanceOf[Task[Response[DynamicBody]]]
+            )
+          }
+      }
+    }
   }
 
-  private def parallel[T](tasks: Seq[Task[T]]): Task[_] ={
-    val batches = tasks.sliding(PARALLELISM,PARALLELISM).map { batch: Seq[Task[T]] ⇒
+  private def parallel[T](tasks: Seq[Task[T]]): Task[_] = {
+    val batches = tasks.sliding(PARALLELISM, PARALLELISM).map { batch: Seq[Task[T]] ⇒
       Task.gather(batch)
     }
     Task.sequence(batches).map(_.flatten.toList)
@@ -153,14 +197,14 @@ object BenchmarkTest extends Injectable with StrictLogging {
     val before = System.currentTimeMillis()
     val c = Counters(AtomicLong(0), AtomicLong(0))
     val f = block(c).runAsync
-    while(!f.isCompleted) {
+    while (!f.isCompleted) {
       Thread.sleep(1000)
       logger.info(s"Successful: ${c.success.get}, failed: ${c.fail.get}")
     }
     val after = System.currentTimeMillis()
-    logger.info(s"$name completed in ${(after-before).toDouble/1000.0d}s.")
+    logger.info(s"$name completed in ${(after - before).toDouble / 1000.0d}s.")
     logger.info(s"TOTAL Successful: ${c.success.get}, failed: ${c.fail.get}.")
-    logger.info(s"${c.success.get.toDouble/((after-before)/1000.0d)} units/seq")
+    logger.info(s"${c.success.get.toDouble / ((after - before) / 1000.0d)} units/seq")
   }
 
   private def nextRandomObj() = Obj.from(
@@ -177,7 +221,7 @@ object BenchmarkTest extends Injectable with StrictLogging {
     source.onErrorHandleWith {
       case ex: Exception =>
         if (maxRetries > 0)
-          retryBackoff(source, maxRetries-1, firstDelay*2)
+          retryBackoff(source, maxRetries - 1, firstDelay * 2)
             .delayExecution(firstDelay)
         else
           Task.raiseError(ex)
