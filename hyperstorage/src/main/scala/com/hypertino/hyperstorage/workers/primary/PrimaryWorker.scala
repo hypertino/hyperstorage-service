@@ -238,9 +238,10 @@ class PrimaryWorker(hyperbus: Hyperbus,
 
     if (existingContentStatic.exists(_.isView.contains(true))
       && !isInternalOperation
-      && (request.headers.hrl.location != ViewPut.location ||
-      request.headers.hrl.location != ViewDelete.location ||
-      !request.headers.contains(TransactionLogic.HB_HEADER_VIEW_TEMPLATE_URI))
+      && !(
+        request.headers.hrl.location == ViewDelete.location ||
+          (request.headers.hrl.location == ViewPut.location && !request.headers.contains(TransactionLogic.HB_HEADER_VIEW_TEMPLATE_URI))
+      )
     ) Task.raiseError {
       Conflict(ErrorBody(ErrorCode.VIEW_MODIFICATION, Some(s"Can't modify view: $documentUri")))
     }

@@ -72,6 +72,44 @@ class ViewSpec extends FlatSpec
     }
   }
 
+  it should "be able to delete" in {
+    cleanUpCassandra()
+    val hyperbus = integratedHyperbus(db)
+
+    hyperbus.ask(ViewPut("abcs~", HyperStorageView("abc/{*}")))
+      .runAsync
+      .futureValue shouldBe a[Created[_]]
+
+    eventually {
+      val h = db.selectViewDefs().runAsync.futureValue.toSeq.head
+      h.documentUri shouldBe "abcs~"
+      h.templateUri shouldBe "abc/{*}"
+    }
+
+    hyperbus.ask(ContentPut("abc/123", DynamicBody(Obj.from("a" → 10, "x" → "hello"))))
+      .runAsync
+      .futureValue shouldBe a[Created[_]]
+
+    eventually {
+      val ok = hyperbus.ask(ContentGet("abcs~/123"))
+        .runAsync
+        .futureValue
+
+      ok shouldBe a[Ok[_]]
+    }
+
+    hyperbus.ask(ViewDelete("abcs~"))
+      .runAsync
+      .futureValue shouldBe a[Ok[_]]
+
+    eventually {
+      hyperbus.ask(ContentGet("abcs~/123"))
+        .runAsync
+        .failed
+        .futureValue shouldBe a[NotFound[_]]
+    }
+  }
+
   it should "work on documents with filter" in {
     cleanUpCassandra()
     val hyperbus = integratedHyperbus(db)
