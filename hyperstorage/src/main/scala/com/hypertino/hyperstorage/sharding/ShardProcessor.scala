@@ -534,10 +534,7 @@ class ShardProcessor(clusterTransport: ClusterTransport,
       val requestHeaders = RequestHeaders(Headers(remoteTask.taskHeaders.toMap.toSeq: _*))
       val requestMeta = s.lookupRequestMeta(requestHeaders)
       val stringReader = new StringReader(remoteTask.taskBody)
-      println(s"deserializing: " + remoteTask.taskBody)
-      val r = requestMeta(stringReader, requestHeaders.underlying)
-      println(s"got: $r")
-      r
+      requestMeta(stringReader, requestHeaders.underlying)
     } getOrElse {
       throw new IllegalArgumentException(s"No settings are defined for a group ${remoteTask.group}")
     }
