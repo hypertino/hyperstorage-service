@@ -14,7 +14,7 @@ import akka.actor._
 import akka.cluster.ClusterEvent._
 import akka.pattern.AskTimeoutException
 import com.hypertino.binders.value.{Null, Obj, Value}
-import com.hypertino.hyperbus.model.{Headers, HyperbusError, MessagingContext, Ok, Request, RequestBase, RequestHeaders, RequestMeta, RequestMetaCompanion, ResponseBase}
+import com.hypertino.hyperbus.model.{Headers, HyperbusError, MessagingContext, Request, RequestBase, RequestHeaders, RequestMeta, RequestMetaCompanion, ResponseBase}
 import com.hypertino.hyperbus.serialization.SerializationOptions
 import com.hypertino.hyperstorage.internal.api._
 import com.hypertino.hyperstorage.metrics.Metrics
@@ -42,6 +42,15 @@ trait RemoteTaskBase extends Request[RemoteTask] with ShardTask {
 
 case class LocalTask(key: String, group: String, ttl: Long, expectsResult: Boolean, request: RequestBase, extra: Value) extends ShardTask
 
+case class LocalTaskWithId(id: Long, inner: LocalTask)
+
+case class BatchTask(batch: Seq[LocalTaskWithId]) extends ShardTask {
+  override def key: String = batch.head.inner.key
+  override def group: String = batch.head.inner.group
+  lazy val ttl: Long = batch.map(_.inner.ttl).max
+  override def expectsResult: Boolean = throw new UnsupportedOperationException("Can't call expectsResult on BatchTask")
+}
+
 case class NoSuchGroupWorkerException(groupName: String) extends RuntimeException(s"No such worker group: $groupName")
 
 case class ShardNode(nodeId: String,
@@ -56,7 +65,12 @@ private[sharding] case object ShardSyncTimer
 
 case object ShutdownProcessor
 
-case class WorkerTaskResult(key: String, group: String, result: Option[ResponseBase], extra: Value)
+trait WorkerTaskResultBase {
+  def key: String
+  def group: String
+}
+case class WorkerTaskResult(key: String, group: String, result: Option[ResponseBase], extra: Value) extends WorkerTaskResultBase
+case class WorkerBatchTaskResult(key: String, group: String, results: Map[Long, (Option[ResponseBase], Value)]) extends WorkerTaskResultBase
 
 object WorkerTaskResult{
   def apply(task: ShardTask, result: ResponseBase, extra:Value = Null): WorkerTaskResult = WorkerTaskResult(
@@ -84,10 +98,11 @@ case class WorkerGroupSettings(props: Props, maxCount: Int, prefix: String, meta
 
 private [sharding] case class ActiveWorkerRemoteData(nodeId: String, taskId: Long)
 
-private [sharding] case class ActiveWorker(taskId: Long,
+private[sharding] case class ActiveWorkerTask(client: Option[ActorRef], remoteData: Option[ActiveWorkerRemoteData])
+
+private [sharding] case class ActiveWorker(batchId: Long,
                                            workerActor: ActorRef,
-                                           client: Option[ActorRef],
-                                           remoteData: Option[ActiveWorkerRemoteData]
+                                           tasks: Map[Long, ActiveWorkerTask]
                                           )
 
 class ShardProcessor(clusterTransport: ClusterTransport,
@@ -148,7 +163,7 @@ class ShardProcessor(clusterTransport: ClusterTransport,
       goto(NodeStatus.DEACTIVATING) using data.copy(selfStatus = NodeStatus.DEACTIVATING)
 
     case Event(task: ShardTask, data) ⇒
-      processTask(task, data, sender())
+      processBatch(Seq(sender() -> task), data)
       stay
   }
 
@@ -186,7 +201,7 @@ class ShardProcessor(clusterTransport: ClusterTransport,
       case Event(TransportNodeDown(nodeId), data) ⇒
         updateAndStay(removeNode(nodeId, data))
 
-    case Event(wt: WorkerTaskResult, data) ⇒
+    case Event(wt: WorkerTaskResultBase, data) ⇒
       workerIsReadyForNextTask(wt, data, sender())
       stay()
 
@@ -303,7 +318,7 @@ class ShardProcessor(clusterTransport: ClusterTransport,
         val allowSync = if (sync.body.status == NodeStatus.ACTIVATING) {
           activeWorkers.values.flatten.forall { case (key, aw) ⇒
             if (newData.keyIsFor(key) == sync.body.nodeId) {
-              logger.info(s"Ignoring sync request $sync while processing task #${aw.taskId}/$key by worker ${aw.workerActor}")
+              logger.info(s"Ignoring sync request $sync while processing #${aw.batchId}/$key by worker ${aw.workerActor}")
               false
             } else {
               true
@@ -346,66 +361,99 @@ class ShardProcessor(clusterTransport: ClusterTransport,
     Some(data - nodeId)
   }
 
-  private def processTask(task: ShardTask, data: ShardedClusterData, replyTo: ActorRef): Unit = {
-    trackTaskMeter.mark()
-    logger.debug(s"Got task to process: $task")
-    if (task.isExpired) {
-      logger.warn(s"Task is expired, dropping: $task")
-      if (task.expectsResult) {
-        replyTo ! new AskTimeoutException(s"Task on ${task.key} is timed out")
+  private def processBatch(batch: Seq[(ActorRef, ShardTask)], data: ShardedClusterData): Unit = {
+    val headTask = batch.head._2
+    val size = batch.size
+    val isBatch = size > 1
+    trackTaskMeter.mark(size)
+    if (size == 1) {
+      logger.debug(s"Got task to process: $headTask")
+    }
+    else {
+      logger.debug(s"Got batch ($size) on ${headTask.key} to process.")
+    }
+    if (batch.forall(_._2.isExpired)) {
+      if (size == 1) {
+        logger.warn(s"Task is expired, dropping: $headTask")
+      }
+      else {
+        logger.warn(s"Batch ($size) on ${headTask.key} is expired, dropping.")
+      }
+      batch.foreach { case (replyTo, task) =>
+        if (task.expectsResult) {
+          replyTo ! new AskTimeoutException(s"Task on ${task.key} is timed out")
+        }
       }
     } else {
-      if (data.taskIsFor(task) == data.selfId) {
-        if (data.taskWasFor(task) != data.selfId) {
-          logger.debug(s"Stashing task received for deactivating node: ${data.taskWasFor(task)}: $task")
-          safeStash(task, replyTo)
+      if (data.taskIsFor(headTask) == data.selfId) {
+        if (data.taskWasFor(headTask) != data.selfId) {
+          logger.debug(s"Stashing tasks ($size) received for deactivating node: ${data.taskWasFor(headTask)} on ${headTask.key}")
+          safeStashBatch(batch)
         } else {
-          activeWorkers.get(task.group) match {
+          activeWorkers.get(headTask.group) match {
             case Some(activeGroupWorkers) ⇒
-              activeGroupWorkers.get(task.key) map { aw ⇒
-                logger.debug(s"Stashing task for the 'locked' URL: ${task.key} while working on ${aw.taskId} @ ${aw.workerActor}")
-                safeStash(task, replyTo)
+              activeGroupWorkers.get(headTask.key) map { aw ⇒
+                logger.debug(s"Stashing tasks ($size) for the 'locked' URL: ${headTask.key} while working on ${aw.batchId} @ ${aw.workerActor}")
+                safeStashBatch(batch)
                 true
               } getOrElse {
-                val ws = workersSettings(task.group)
+                val ws = workersSettings(headTask.group)
                 if (activeGroupWorkers.size >= ws.maxCount) {
-                  logger.debug(s"Worker limit for group '${task.group}' is reached (${ws.maxCount}), stashing task: $task")
-                  safeStash(task, replyTo)
+                  logger.debug(s"Worker limit for group '${headTask.group}' is reached (${ws.maxCount}), stashing tasks ($size) for the 'locked' URL: ${headTask.key}")
+                  safeStashBatch(batch)
                 } else {
                   try {
+                    logger.debug(s"Starting worker for ${headTask.key}")
                     val worker = context.system.actorOf(ws.props, AkkaNaming.next(ws.prefix))
-                    logger.debug(s"Starting worker for task $task sent from $replyTo")
-                    val localTaskId = nextTaskId()
-                    val (localTask, remoteData) = task match {
-                      case r: TasksPost ⇒
-                        val req = deserializeRequest(r.body)
-                        val l = LocalTask(r.key, r.group, r.ttl, r.expectsResult, req, r.body.extra)
-                        (l, Some(ActiveWorkerRemoteData(r.body.sourceNodeId, r.body.taskId)))
+                    val batchMap = batch.map { case (replyTo, task) =>
+                      val localTaskId = nextTaskId()
+                      val (localTask, remoteData) = task match {
+                        case r: TasksPost ⇒
+                          val req = deserializeRequest(r.body)
+                          val l = LocalTask(r.key, r.group, r.ttl, r.expectsResult, req, r.body.extra)
+                          (l, Some(ActiveWorkerRemoteData(r.body.sourceNodeId, r.body.taskId)))
 
-                      case l: LocalTask ⇒ (l, None)
+                        case l: LocalTask ⇒ (l, None)
+                      }
+                      val client = if (task.expectsResult) Some(replyTo) else None
+                      LocalTaskWithId(localTaskId, localTask) -> ActiveWorkerTask(client, remoteData)
                     }
-                    worker ! localTask
-                    val client = if (task.expectsResult) Some(replyTo) else None
-                    activeGroupWorkers += task.key → ActiveWorker(localTaskId, worker, client, remoteData)
+
+                    val workerTask = if (size == 1) {
+                      batchMap.head._1.inner
+                    }
+                    else {
+                      BatchTask(batchMap.map(_._1))
+                    }
+                    activeGroupWorkers += headTask.key → ActiveWorker(batchMap.head._1.id, worker, batchMap.map { m =>
+                      m._1.id -> m._2
+                    }.toMap)
+                    worker ! workerTask
                   } catch {
                     case e: Throwable ⇒
-                      logger.error(s"Can't create worker from props ${ws.props}", e)
-                      if (task.expectsResult) {
-                        replyTo ! e
+                      logger.error(s"Can't create and run worker from props ${ws.props}", e)
+                      batch.foreach { case (replyTo, task) =>
+                        if (task.expectsResult) {
+                          replyTo ! e
+                        }
                       }
                   }
                 }
               }
             case None ⇒
-              logger.error(s"No such worker group: ${task.group}. Task is dismissed: $task")
-              if (task.expectsResult) {
-                replyTo ! NoSuchGroupWorkerException(task.group)
+              logger.error(s"No such worker group: ${headTask.group}. Tasks ($size) is dismissed on ${headTask.key}")
+              batch.foreach { case (replyTo, task) =>
+                if (task.expectsResult) {
+                  replyTo ! NoSuchGroupWorkerException(task.group)
+                }
               }
           }
         }
       }
       else {
-        forwardTask(task, data, replyTo)
+        batch.foreach { case (replyTo, task) =>
+          forwardTask(task, data, replyTo)
+        }
       }
     }
   }
@@ -422,6 +470,12 @@ class ShardProcessor(clusterTransport: ClusterTransport,
       } else {
         forwardTask(task, data, replyTo)
       }
+    }
+  }
+
+  private def safeStashBatch(batch: Seq[(ActorRef, ShardTask)]): Unit = {
+    batch.foreach { case (replyTo, task) =>
+      safeStash(task, replyTo)
     }
   }
 
@@ -471,44 +525,59 @@ class ShardProcessor(clusterTransport: ClusterTransport,
     }
   }
 
-  private def workerIsReadyForNextTask(workerTaskResult: WorkerTaskResult, data: ShardedClusterData, replyTo: ActorRef): Unit = {
+  private def processWorkerTaskResult(awt: ActiveWorkerTask, resultOption: Option[ResponseBase], extra: Value, data: ShardedClusterData): Unit = {
+    resultOption.foreach { result ⇒
+      awt.remoteData match {
+        case None ⇒
+          awt.client.foreach { client ⇒
+            logger.debug(s"Sending result $result to $client")
+            client ! result
+          }
+
+        case Some(remoteData) ⇒
+          data.nodesExceptSelf.get(remoteData.nodeId) match {
+            case Some(rvm) ⇒
+              logger.debug(s"Forwarding result $result to source node ${remoteData.nodeId}")
+              implicit val mcx = MessagingContext.empty
+              val r = TaskResultsPost(RemoteTaskResult(remoteData.taskId, Obj(result.headers.v), result.body.serializeToString, extra))
+              clusterTransport.fireMessage(rvm.nodeId, r)
+
+            case None ⇒
+              logger.error(s"Dropping result $result from $awt, didn't found source node ${remoteData.nodeId}")
+          }
+      }
+    }
+  }
+
+  private def workerIsReadyForNextTask(workerTaskResult: WorkerTaskResultBase, data: ShardedClusterData, replyTo: ActorRef): Unit = {
     activeWorkers.get(workerTaskResult.group) match {
       case Some(activeGroupWorkers) ⇒
         activeGroupWorkers.get(workerTaskResult.key) match {
           case Some(aw) ⇒
-            workerTaskResult.result.foreach { result ⇒
-              aw.remoteData match {
-                case None ⇒
-                  aw.client.foreach { client ⇒
-                    logger.debug(s"Sending result $result to $client")
-                    client ! result
-                  }
+            workerTaskResult match {
+              case singleResult: WorkerTaskResult =>
+                processWorkerTaskResult(aw.tasks.values.head, singleResult.result, singleResult.extra, data)
 
-                case Some(remoteData) ⇒
-                  data.nodesExceptSelf.get(remoteData.nodeId) match {
-                    case Some(rvm) ⇒
-                      logger.debug(s"Forwarding result $result to source node ${remoteData.nodeId}")
-                      implicit val mcx = MessagingContext.empty
-                      val r = TaskResultsPost(RemoteTaskResult(remoteData.taskId, Obj(result.headers.v), result.body.serializeToString, workerTaskResult.extra))
-                      clusterTransport.fireMessage(rvm.nodeId, r)
-
-                    case None ⇒
-                      logger.error(s"Dropping result $workerTaskResult, didn't found source node ${remoteData.nodeId}")
+              case batchResult: WorkerBatchTaskResult =>
+                batchResult.results.foreach { case (taskId, result) =>
+                  aw.tasks.get(taskId).map { awt =>
+                    processWorkerTaskResult(awt, result._1, result._2, data)
+                  } getOrElse {
+                    logger.error(s"Dropping result $result, didn't found task id #$taskId")
                   }
-              }
+                }
             }
 
-            logger.debug(s"Worker ${aw.workerActor} is ready for next task. Completed task: #${aw.taskId}/${workerTaskResult.key}, r: ${workerTaskResult.result}")
+            logger.debug(s"Worker ${aw.workerActor} is ready for next task. Completed: #${aw.batchId}/${workerTaskResult.key}")
             activeGroupWorkers.remove(workerTaskResult.key)
             aw.workerActor ! PoisonPill
             safeUnstashAll(data)
-
           case None ⇒
             logger.error(s"workerIsReadyForNextTask: unknown key $workerTaskResult actor: $replyTo")
         }
 
       case None ⇒
-        logger.error(s"No such worker group: ${workerTaskResult.group}. Task r from $replyTo with key ${workerTaskResult.key} is ignored: ${workerTaskResult.result}")
+        logger.error(s"No such worker group: ${workerTaskResult.group}. Task r from $replyTo with key ${workerTaskResult.key} is ignored.")
     }
   }
 
@@ -517,7 +586,7 @@ class ShardProcessor(clusterTransport: ClusterTransport,
     val copy = stashedTasks
     trackStashCounter.dec(copy.size)
     stashedTasks = mutable.ArrayBuffer[(ActorRef, ShardTask)]()
-    copy.foreach(c => processTask(c._2, data, c._1))
+    copy.foreach(c => processBatch(Seq(c._1 -> c._2), data))
   } catch {
     case e: Throwable ⇒
       logger.error(s"Can't unstash tasks. Some are lost now", e)
