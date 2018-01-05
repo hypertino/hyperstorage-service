@@ -82,7 +82,12 @@ case class ExpectingRemoteResult(client: ActorRef, ttl: Long, key: String, reque
   def isExpired: Boolean = ttl < System.currentTimeMillis()
 }
 
-case class WorkerGroupSettings(props: Props, maxCount: Int, prefix: String, metaCompanions: Seq[RequestMetaCompanion[_ <: RequestBase]]) {
+case class WorkerGroupSettings(props: Props,
+                               maxCount: Int,
+                               prefix: String,
+                               metaCompanions: Seq[RequestMetaCompanion[_ <: RequestBase]],
+                               batchProcessor: BatchProcessor = BatchProcessor.empty
+                              ) {
   private val m : Map[(String,String), RequestMetaCompanion[_ <: RequestBase]] = metaCompanions.map { mc ⇒
     (mc.location, mc.method) → mc
   }.toMap
@@ -96,9 +101,19 @@ case class WorkerGroupSettings(props: Props, maxCount: Int, prefix: String, meta
   }
 }
 
+trait BatchProcessor {
+  def apply(input: Seq[(ActorRef, ShardTask)]): Seq[Seq[(ActorRef, ShardTask)]]
+}
+
+object BatchProcessor {
+  val empty = new BatchProcessor {
+    override def apply(input: Seq[(ActorRef, ShardTask)]): Seq[Seq[(ActorRef, ShardTask)]] = input.map(Seq(_))
+  }
+}
+
 private [sharding] case class ActiveWorkerRemoteData(nodeId: String, taskId: Long)
 
-private[sharding] case class ActiveWorkerTask(client: Option[ActorRef], remoteData: Option[ActiveWorkerRemoteData])
+private [sharding] case class ActiveWorkerTask(client: Option[ActorRef], remoteData: Option[ActiveWorkerRemoteData])
 
 private [sharding] case class ActiveWorker(batchId: Long,
                                            workerActor: ActorRef,
@@ -584,12 +599,27 @@ class ShardProcessor(clusterTransport: ClusterTransport,
   private def safeUnstashAll(data: ShardedClusterData): Unit = try {
     logger.debug(s"Unstashing tasks total: ${stashedTasks.size}, active workers: $activeWorkers")
     val copy = stashedTasks
-    trackStashCounter.dec(copy.size)
     stashedTasks = mutable.ArrayBuffer[(ActorRef, ShardTask)]()
-    copy.foreach(c => processBatch(Seq(c._1 -> c._2), data))
+    copy
+      .filterNot { i =>
+        if (i._2.isExpired) {
+          logger.warn(s"Task is expired, dropping: ${i._2}")
+          true
+        }
+        else {
+          false
+        }
+      }
+      .groupBy(_._2.group)
+      .foreach { case (group, tasks) =>
+        workersSettings(group).batchProcessor(tasks).foreach { batch =>
+          trackStashCounter.dec(batch.size)
+          processBatch(batch, data)
+        }
+      }
   } catch {
     case e: Throwable ⇒
-      logger.error(s"Can't unstash tasks. Some are lost now", e)
+      logger.error(s"Can't unstash/batch tasks. Some are lost now", e)
   }
 
   // todo: call this only when we need it, now it's called for each remote task

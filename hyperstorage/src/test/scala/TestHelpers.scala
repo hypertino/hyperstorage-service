@@ -116,7 +116,7 @@ trait TestHelpers extends Matchers with BeforeAndAfterEach with ScalaFutures wit
     import tk._
 
     val indexManager = TestActorRef(IndexManager.props(hyperbus, db, tracker, 1, scheduler))
-    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, 10, indexManager, scheduler)
+    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, 10, 16777216, indexManager, scheduler)
 
     val clusterTransport = if (defaultClusterTransportIsZMQ) {
       val config = inject[Config]

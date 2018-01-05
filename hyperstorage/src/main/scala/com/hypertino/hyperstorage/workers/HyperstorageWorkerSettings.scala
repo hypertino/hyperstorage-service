@@ -15,7 +15,7 @@ import com.hypertino.hyperstorage.api._
 import com.hypertino.hyperstorage.db.Db
 import com.hypertino.hyperstorage.internal.api.{BackgroundContentTasksPost, IndexContentTasksPost}
 import com.hypertino.hyperstorage.sharding.WorkerGroupSettings
-import com.hypertino.hyperstorage.workers.primary.PrimaryWorker
+import com.hypertino.hyperstorage.workers.primary.{PrimaryBatchProcessor, PrimaryWorker}
 import com.hypertino.hyperstorage.workers.secondary.SecondaryWorker
 import com.hypertino.metrics.MetricsTracker
 import monix.execution.Scheduler
@@ -33,6 +33,7 @@ object HyperstorageWorkerSettings {
             secondaryWorkerCount: Int,
             backgroundTaskTimeout: FiniteDuration,
             maxIncompleteTransactions: Int,
+            maxBatchSizeInBytes: Long,
             indexManager: ActorRef,
             scheduler: Scheduler): Map[String, WorkerGroupSettings] = {
     val primaryWorkerProps = PrimaryWorker.props(hyperbus, db, metricsTracker, backgroundTaskTimeout, maxIncompleteTransactions, scheduler)
@@ -41,7 +42,7 @@ object HyperstorageWorkerSettings {
     val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, metricsTracker, indexManager, scheduler)
     val secondaryRequestMeta: Seq[RequestMetaCompanion[_ <: RequestBase]] = Seq(IndexPost, IndexDelete, BackgroundContentTasksPost, IndexContentTasksPost)
     Map(
-      PRIMARY → WorkerGroupSettings(primaryWorkerProps, primaryWorkerCount, "pgw-", primaryRequestMeta),
+      PRIMARY → WorkerGroupSettings(primaryWorkerProps, primaryWorkerCount, "pgw-", primaryRequestMeta, new PrimaryBatchProcessor(1/*maxIncompleteTransactions/5*/, maxBatchSizeInBytes)),
       SECONDARY → WorkerGroupSettings(secondaryWorkerProps, secondaryWorkerCount, "sgw-", secondaryRequestMeta)
     )
   }

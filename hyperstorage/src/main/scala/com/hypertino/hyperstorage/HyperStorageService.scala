@@ -36,6 +36,7 @@ case class HyperStorageConfig(
                                maxWorkers: Int,
                                backgroundTaskTimeout: FiniteDuration,
                                maxIncompleteTransactions: Int,
+                               maxBatchSizeInBytes: Int,
                                requestTimeout: FiniteDuration,
                                failTimeout: FiniteDuration,
                                hotRecovery: FiniteDuration,
@@ -99,7 +100,8 @@ class HyperStorageService(implicit val scheduler: Scheduler,
 
   // worker actor todo: recovery job
   private val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, serviceConfig.maxWorkers,
-    serviceConfig.maxWorkers, serviceConfig.backgroundTaskTimeout, serviceConfig.maxIncompleteTransactions, indexManagerRef, scheduler)
+    serviceConfig.maxWorkers, serviceConfig.backgroundTaskTimeout, serviceConfig.maxIncompleteTransactions,
+    serviceConfig.maxBatchSizeInBytes, indexManagerRef, scheduler)
 
   // shard shard cluster transport
   private val shardTransport = if (zmqClusterManager) {
