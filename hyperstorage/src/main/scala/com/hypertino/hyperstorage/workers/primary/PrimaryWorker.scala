@@ -56,6 +56,7 @@ class PrimaryWorker(hyperbus: Hyperbus,
                     tracker: MetricsTracker,
                     backgroundTaskTimeout: FiniteDuration,
                     maxIncompleteTransaction: Int,
+                    maxBatchSizeInBytes: Long,
                     scheduler: monix.execution.Scheduler) extends Actor with StrictLogging {
 
   import ContentLogic._
@@ -613,8 +614,8 @@ class PrimaryWorker(hyperbus: Hyperbus,
 }
 
 object PrimaryWorker {
-  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgroundTaskTimeout: FiniteDuration, maxIncompleteTransaction: Int, scheduler: monix.execution.Scheduler) =
-    Props(new PrimaryWorker(hyperbus, db, tracker, backgroundTaskTimeout, maxIncompleteTransaction, scheduler))
+  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, backgroundTaskTimeout: FiniteDuration, maxIncompleteTransaction: Int, maxBatchSizeInBytes: Long, scheduler: monix.execution.Scheduler) =
+    Props(new PrimaryWorker(hyperbus, db, tracker, backgroundTaskTimeout, maxIncompleteTransaction, maxBatchSizeInBytes, scheduler))
 }
 
 case class ExpressionEvaluatorContext(request: PrimaryWorkerRequest, original: Value) extends Context{

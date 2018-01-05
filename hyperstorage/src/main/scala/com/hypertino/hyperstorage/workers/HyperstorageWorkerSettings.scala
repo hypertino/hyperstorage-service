@@ -36,13 +36,13 @@ object HyperstorageWorkerSettings {
             maxBatchSizeInBytes: Long,
             indexManager: ActorRef,
             scheduler: Scheduler): Map[String, WorkerGroupSettings] = {
-    val primaryWorkerProps = PrimaryWorker.props(hyperbus, db, metricsTracker, backgroundTaskTimeout, maxIncompleteTransactions, scheduler)
+    val primaryWorkerProps = PrimaryWorker.props(hyperbus, db, metricsTracker, backgroundTaskTimeout, maxIncompleteTransactions, maxBatchSizeInBytes, scheduler)
     val primaryRequestMeta: Seq[RequestMetaCompanion[_ <: RequestBase]] = Seq(ContentPut, ContentPatch, ContentDelete, ContentPost, ViewPut, ViewDelete)
 
     val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, metricsTracker, indexManager, scheduler)
     val secondaryRequestMeta: Seq[RequestMetaCompanion[_ <: RequestBase]] = Seq(IndexPost, IndexDelete, BackgroundContentTasksPost, IndexContentTasksPost)
     Map(
-      PRIMARY → WorkerGroupSettings(primaryWorkerProps, primaryWorkerCount, "pgw-", primaryRequestMeta, new PrimaryBatchProcessor(1/*maxIncompleteTransactions/5*/, maxBatchSizeInBytes)),
+      PRIMARY → WorkerGroupSettings(primaryWorkerProps, primaryWorkerCount, "pgw-", primaryRequestMeta, new PrimaryBatchProcessor(1/*maxIncompleteTransactions/5*/)),
       SECONDARY → WorkerGroupSettings(secondaryWorkerProps, secondaryWorkerCount, "sgw-", secondaryRequestMeta)
     )
   }

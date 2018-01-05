@@ -49,7 +49,7 @@ class HyperStorageSpecZMQ extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, scheduler))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, 16777216, scheduler))
 
     val task = ContentPut(
       path = "test-resource-1",
@@ -100,7 +100,7 @@ class HyperStorageSpecZMQ extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, scheduler))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, 16777216, scheduler))
 
     val patch = ContentPatch(
       path = "not-existing",
@@ -144,7 +144,7 @@ class HyperStorageSpecZMQ extends FlatSpec
     val tk = testKit()
     import tk._
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, scheduler))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, 16777216, scheduler))
 
     val path = "test-resource-" + UUID.randomUUID().toString
     val put = ContentPut(path,
@@ -218,7 +218,7 @@ class HyperStorageSpecZMQ extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, scheduler))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, 16777216, scheduler))
 
     val delete = ContentDelete(path = "not-existing", body = EmptyBody)
 
@@ -240,7 +240,7 @@ class HyperStorageSpecZMQ extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, scheduler))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, 16777216, scheduler))
 
     val path = "test-resource-" + UUID.randomUUID().toString
     val put = ContentPut(path,
@@ -277,7 +277,7 @@ class HyperStorageSpecZMQ extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, scheduler))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, 16777216, scheduler))
 
     val path = "test-resource-" + UUID.randomUUID().toString
     val put = ContentPut(path,
@@ -325,7 +325,7 @@ class HyperStorageSpecZMQ extends FlatSpec
 
     val transactionList = mutable.ListBuffer[String]()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, scheduler))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, 16777216, scheduler))
     val path = "abcde"
     val put = ContentPut(path,
       DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
@@ -384,7 +384,7 @@ class HyperStorageSpecZMQ extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, scheduler))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, 16777216, scheduler))
     val path = "faulty"
     val put = ContentPut(path,
       DynamicBody(Obj.from("text" → "Test resource value", "null" → Null))
@@ -460,7 +460,7 @@ class HyperStorageSpecZMQ extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 20.seconds, 10, scheduler))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 20.seconds, 10, 16777216, scheduler))
     val fakeProcessor = TestActorRef[FakeProcessor](Props(classOf[FakeProcessor], worker))
     val distributor = new HyperbusAdapter(hyperbus, fakeProcessor, db, tracker, 20.seconds)
 
@@ -508,7 +508,7 @@ class HyperStorageSpecZMQ extends FlatSpec
 
     cleanUpCassandra()
 
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 2, scheduler))
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 2, 16777216, scheduler))
 
     val task = ContentPut(
       path = "test-resource-1",
