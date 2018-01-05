@@ -101,9 +101,10 @@ class ShardProcessor(clusterTransport: ClusterTransport,
   }.toMap
   private val shardStatusSubscribers = mutable.MutableList[ActorRef]()
   private val remoteTasks = mutable.Map[Long, ExpectingRemoteResult]()
+  private var stashedTasks = mutable.ArrayBuffer[ShardTask]() // todo: limit maximum size
 
   // trackers
-  private val trackStashMeter = tracker.meter(Metrics.SHARD_PROCESSOR_STASH_METER)
+  private val trackStashCounter = tracker.counter(Metrics.SHARD_PROCESSOR_STASH_COUNTER)
   private val trackTaskMeter = tracker.meter(Metrics.SHARD_PROCESSOR_TASK_METER)
   private val trackForwardMeter = tracker.meter(Metrics.SHARD_PROCESSOR_FORWARD_METER)
   private var lastTaskId: Long = 0
@@ -211,7 +212,7 @@ class ShardProcessor(clusterTransport: ClusterTransport,
     case a -> b ⇒
       if (a != b) {
         logger.info(s"Changing state from $a to $b")
-        safeUnstashAll()
+        safeUnstashAll(stateData)
       }
   }
 
@@ -418,8 +419,8 @@ class ShardProcessor(clusterTransport: ClusterTransport,
   }
 
   private def safeStash(task: ShardTask): Unit = try {
-    trackStashMeter.mark()
-    stash()
+    trackStashCounter.inc()
+    stashedTasks += task
   } catch {
     case e: Throwable ⇒
       logger.error(s"Can't stash task: $task. It's lost now", e)
@@ -493,7 +494,7 @@ class ShardProcessor(clusterTransport: ClusterTransport,
             logger.debug(s"Worker ${aw.workerActor} is ready for next task. Completed task: #${aw.taskId}/${workerTaskResult.key}, r: ${workerTaskResult.result}")
             activeGroupWorkers.remove(workerTaskResult.key)
             aw.workerActor ! PoisonPill
-            safeUnstashAll()
+            safeUnstashAll(data)
 
           case None ⇒
             logger.error(s"workerIsReadyForNextTask: unknown key $workerTaskResult actor: $sender")
@@ -504,9 +505,12 @@ class ShardProcessor(clusterTransport: ClusterTransport,
     }
   }
 
-  private def safeUnstashAll(): Unit = try {
+  private def safeUnstashAll(data: ShardedClusterData): Unit = try {
     logger.debug(s"Unstashing tasks, active workers: $activeWorkers")
-    unstashAll()
+    val copy = stashedTasks
+    trackStashCounter.dec(copy.size)
+    stashedTasks = mutable.ArrayBuffer[ShardTask]()
+    copy.foreach(processTask(_, data))
   } catch {
     case e: Throwable ⇒
       logger.error(s"Can't unstash tasks. Some are lost now", e)
@@ -554,7 +558,7 @@ class ShardProcessor(clusterTransport: ClusterTransport,
 
   private def updateAndStay(data: Option[ShardedClusterData]): State = {
     if (data.isDefined) {
-      safeUnstashAll()
+      safeUnstashAll(data.get)
       stay using data.get
     }
     else {

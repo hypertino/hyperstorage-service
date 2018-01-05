@@ -18,7 +18,7 @@ object Metrics {
   // time of retrieving data (get request)
   val RETRIEVE_TIME = "hyperstorage.retrieve-time"
 
-  val SHARD_PROCESSOR_STASH_METER = "hyperstorage.shard-stash-meter"
+  val SHARD_PROCESSOR_STASH_COUNTER = "hyperstorage.shard-stash-counter"
   val SHARD_PROCESSOR_TASK_METER = "hyperstorage.shard-message-meter"
   val SHARD_PROCESSOR_FORWARD_METER = "hyperstorage.shard-forward-meter"
 
