@@ -10,9 +10,8 @@ package com.hypertino.hyperstorage.workers.primary
 
 import java.util.Date
 
-import akka.actor.{Actor, ActorRef, Props, Scheduler}
+import akka.actor.{Actor, ActorRef, Props}
 import akka.pattern.pipe
-import com.codahale.metrics.Timer
 import com.datastax.driver.core.utils.UUIDs
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model._
@@ -26,10 +25,9 @@ import com.hypertino.hyperstorage.indexing.IndexLogic
 import com.hypertino.hyperstorage.internal.api.{BackgroundContentTask, BackgroundContentTasksPost}
 import com.hypertino.hyperstorage.metrics.Metrics
 import com.hypertino.hyperstorage.sharding.{LocalTask, ShardTask, WorkerTaskResult}
-import com.hypertino.hyperstorage.utils.ErrorCode
+import com.hypertino.hyperstorage.utils.{ErrorCode, TrackerUtils}
 import com.hypertino.hyperstorage.workers.HyperstorageWorkerSettings
 import com.hypertino.metrics.MetricsTracker
-import com.hypertino.parser.HEval
 import com.hypertino.parser.ast.Identifier
 import com.hypertino.parser.eval.Context
 import com.typesafe.scalalogging.StrictLogging
@@ -46,9 +44,7 @@ trait HyperStorageTransactionBase extends Body {
   def transactionId: String
 }
 
-private [primary] case class PrimaryWorkerTaskFailed(task: ShardTask, inner: Throwable)
-
-private [primary] case class PrimaryWorkerTaskCompleted(task: ShardTask, transaction: Transaction, resourceCreated: Boolean)
+case class PrimaryWorkerResults(results: Seq[Any])
 
 // todo: Protect from direct view items updates!!!
 class PrimaryWorker(hyperbus: Hyperbus,
@@ -62,34 +58,38 @@ class PrimaryWorker(hyperbus: Hyperbus,
   import ContentLogic._
   import context._
 
-  val filterNullsVisitor = new ValueVisitor[Value] {
-    override def visitNumber(d: Number): Value = d
-
-    override def visitNull(): Value = Null
-
-    override def visitBool(d: Bool): Value = d
-
-    override def visitObj(d: Obj): Value = Obj(d.v.flatMap {
-      case (k, Null) ⇒ None
-      case (k, other) ⇒ Some(k → filterNulls(other))
-    })
-
-    override def visitText(d: Text): Value = d
-
-    override def visitLst(d: Lst): Value = d
+  def receive = {
+    case task: LocalTask ⇒
+      become(running(sender()))
+      import TrackerUtils._
+      tracker.timeOfTask(Metrics.PRIMARY_PROCESS_TIME) {
+        executeTask(task).onErrorRecover {
+          case e: Throwable =>
+            logger.error(s"Can't complete task: $task", e)
+            PrimaryWorkerResults(Seq(
+              WorkerTaskResult(task, hyperbusException(e, task)(MessagingContext.empty))
+            ))
+        }
+      }.runAsync(scheduler) pipeTo self
   }
 
-  def receive = {
-    case task: LocalTask ⇒ {
-      task.request match {
-        case request: ViewPut ⇒
-          val newHeaders = MessageHeaders.builder
-            .++=(request.headers)
-            .+=(TransactionLogic.HB_HEADER_VIEW_TEMPLATE_URI → request.body.templateUri.toValue)
-            .+=(TransactionLogic.HB_HEADER_FILTER → request.body.filter.toValue)
-            .requestHeaders()
+  def running(owner: ActorRef): Receive = {
+    case r: PrimaryWorkerResults =>
+      r.results.foreach(owner ! _)
+      unbecome()
+  }
 
-          val newRequest =
+  def executeTask(task: LocalTask): Task[PrimaryWorkerResults] = {
+    Task.fromTry(Try {
+      implicit val request: PrimaryWorkerRequest = {
+        task.request match {
+          case request: ViewPut ⇒
+            val newHeaders = MessageHeaders.builder
+              .++=(request.headers)
+              .+=(TransactionLogic.HB_HEADER_VIEW_TEMPLATE_URI → request.body.templateUri.toValue)
+              .+=(TransactionLogic.HB_HEADER_FILTER → request.body.filter.toValue)
+              .requestHeaders()
+
             new ContentPut(
               path = request.path,
               body = DynamicBody(Null),
@@ -97,18 +97,10 @@ class PrimaryWorker(hyperbus: Hyperbus,
               plain__init = true
             )
 
-          executeTask(sender(), task.copy(request = newRequest))
-        case _ ⇒
-          executeTask(sender(), task)
+          case other: PrimaryWorkerRequest => other
+        }
       }
-    }
-  }
 
-  def executeTask(owner: ActorRef, task: LocalTask): Unit = {
-    val trackProcessTime = tracker.timer(Metrics.PRIMARY_PROCESS_TIME).time()
-
-    Try {
-      implicit val request = task.request.asInstanceOf[PrimaryWorkerRequest]
       val ResourcePath(documentUri, itemId) = splitPath(request.path)
       if (documentUri != task.key) {
         throw new IllegalArgumentException(s"Task key ${task.key} doesn't correspond to $documentUri")
@@ -162,21 +154,15 @@ class PrimaryWorker(hyperbus: Hyperbus,
         case _ ⇒
           (documentUri, itemId, None, request)
       }
-      (resultDocumentUri, updatedItemId, updatedIdField, updatedRequest)
-    } map {
-      case (documentUri: String, itemId: String, updatedIdField: Option[(String,String)]@unchecked, request: PrimaryWorkerRequest) ⇒
-        become(taskWaitResult(owner, task, request, documentUri, itemId, updatedIdField, trackProcessTime)(request))
-
-        // fetch and complete existing content
-        executeResourceUpdateTask(owner, documentUri, itemId, task, request)
-    } recover {
-      case e: Throwable ⇒
-        logger.error(s"Can't prepare task: $task", e)
-        owner ! WorkerTaskResult(task, hyperbusException(e, task)(MessagingContext.empty))
-    }
+      executeResourceUpdateTask(resultDocumentUri, updatedItemId, task, updatedRequest, updatedIdField)
+    }).flatten
   }
 
-  private def executeResourceUpdateTask(owner: ActorRef, documentUri: String, itemId: String, task: LocalTask, request: PrimaryWorkerRequest) = {
+  private def executeResourceUpdateTask(documentUri: String,
+                                        itemId: String,
+                                        task: LocalTask,
+                                        request: PrimaryWorkerRequest,
+                                        idField: Option[(String,String)]): Task[PrimaryWorkerResults] = {
     val existingTask : Task[(Option[Content], Option[ContentBase], List[IndexDef])] =
       if (request.headers.method == Method.POST) {
         Task.now((None, None, List.empty))
@@ -199,9 +185,9 @@ class PrimaryWorker(hyperbus: Hyperbus,
         }
       }
 
+    implicit val mcx = request
     val updateTask = existingTask.flatMap { case (existingContent, existingContentStatic, indexDefs) ⇒
       if (existingContentStatic.isDefined && existingContentStatic.get.transactionList.size >= maxIncompleteTransaction) {
-        implicit val mcx = request
         Task.raiseError(TooManyRequests(ErrorBody(
           ErrorCode.TRANSACTION_LIMIT, Some(s"Transaction limit ($maxIncompleteTransaction) is reached for '$documentUri'")
         )))
@@ -214,17 +200,31 @@ class PrimaryWorker(hyperbus: Hyperbus,
           existingContentStatic,
           indexDefs,
           task.extra.dynamic.internal_operation.toBoolean) map { newTransaction ⇒
-          PrimaryWorkerTaskCompleted(task, newTransaction,
-            (existingContent.isEmpty || existingContent.exists(_.isDeleted.contains(true))) && request.headers.method != Method.DELETE
+
+          val resourceCreated = (existingContent.isEmpty || existingContent.exists(_.isDeleted.contains(true))) && request.headers.method != Method.DELETE
+          val bgTask = LocalTask(
+            key = documentUri,
+            group = HyperstorageWorkerSettings.SECONDARY,
+            ttl = System.currentTimeMillis() + backgroundTaskTimeout.toMillis,
+            expectsResult = false,
+            BackgroundContentTasksPost(BackgroundContentTask(documentUri)),
+            extra = Null
           )
+          val result: ResponseBase = if (resourceCreated) {
+            val target = idField.map(kv ⇒ Obj.from(kv._1 → Text(kv._2))).getOrElse(Null)
+            Created(HyperStorageTransactionCreated(newTransaction.uuid.toString, request.path, newTransaction.revision, target),
+              location = HRL(ContentGet.location, Obj.from("path" → (documentUri + "/" + itemId))))
+          }
+          else {
+            Ok(api.HyperStorageTransaction(newTransaction.uuid.toString, request.path, newTransaction.revision))
+          }
+          val workerResult = WorkerTaskResult(task, result)
+          logger.debug(s"task $task is completed")
+          PrimaryWorkerResults(Seq(bgTask, workerResult))
         }
       }
-    } onErrorRecover {
-      case e: Throwable ⇒
-        PrimaryWorkerTaskFailed(task, e)
     }
-
-    updateTask runAsync scheduler pipeTo self
+    updateTask
   }
 
   private def updateResource(documentUri: String,
@@ -511,15 +511,11 @@ class PrimaryWorker(hyperbus: Hyperbus,
 
   private def mergeBody(existing: Value, patch: Value): Option[String] = {
     import com.hypertino.binders.json.JsonBinders._
-    val newBodyContent = filterNulls(existing % patch)
+    val newBodyContent = FilterNulls.filterNulls(existing % patch)
     newBodyContent match {
       case Null ⇒ None
       case other ⇒ Some(other.toJson)
     }
-  }
-
-  def filterNulls(content: Value): Value = {
-    content ~~ filterNullsVisitor
   }
 
   private def deleteContent(documentUri: String,
@@ -553,43 +549,6 @@ class PrimaryWorker(hyperbus: Hyperbus,
     }
   }
 
-  private def taskWaitResult(owner: ActorRef,
-                             originalTask: LocalTask,
-                             request: PrimaryWorkerRequest,
-                             documentUri: String,
-                             id: String,
-                             idField: Option[(String, String)],
-                             trackProcessTime: Timer.Context)
-                            (implicit mcf: MessagingContext): Receive = {
-    case PrimaryWorkerTaskCompleted(task, transaction, created) if task == originalTask ⇒
-      logger.debug(s"task $originalTask is completed")
-      val bgTask = LocalTask(
-        key = documentUri,
-        group = HyperstorageWorkerSettings.SECONDARY,
-        ttl = System.currentTimeMillis() + backgroundTaskTimeout.toMillis,
-        expectsResult = false,
-        BackgroundContentTasksPost(BackgroundContentTask(documentUri)),
-        extra = Null
-      )
-      owner ! bgTask
-      val result: ResponseBase = if (created) {
-        val target = idField.map(kv ⇒ Obj.from(kv._1 → Text(kv._2))).getOrElse(Null)
-        Created(HyperStorageTransactionCreated(transaction.uuid.toString, request.path, transaction.revision, target),
-          location = HRL(ContentGet.location, Obj.from("path" → (documentUri + "/" + id))))
-      }
-      else {
-        Ok(api.HyperStorageTransaction(transaction.uuid.toString, request.path, transaction.revision))
-      }
-      owner ! WorkerTaskResult(task, result)
-      trackProcessTime.stop()
-      unbecome()
-
-    case PrimaryWorkerTaskFailed(task, e) if task == originalTask ⇒
-      owner ! WorkerTaskResult(task, hyperbusException(e, task))
-      trackProcessTime.stop()
-      unbecome()
-  }
-
   private def hyperbusException(e: Throwable, task: ShardTask)(implicit mcx: MessagingContext): ResponseBase = {
     val (response: HyperbusError[ErrorBody], logException) = e match {
       case h: HyperbusClientError[ErrorBody] @unchecked ⇒ (h, false)
@@ -605,7 +564,7 @@ class PrimaryWorker(hyperbus: Hyperbus,
   }
 
   private def filterNulls(body: DynamicBody): DynamicBody = {
-    body.copy(content = body.content ~~ filterNullsVisitor)
+    body.copy(content = body.content ~~ FilterNulls)
   }
 
   private def appendId(body: DynamicBody, id: Value, idFieldName: String): DynamicBody = {
@@ -639,4 +598,19 @@ case class ExpressionEvaluatorContext(request: PrimaryWorkerRequest, original: V
   }
   override def unaryOperation = Map.empty
   override def binaryOperationLeftArgument = Map.empty
+}
+
+object FilterNulls extends ValueVisitor[Value] {
+  override def visitNumber(d: Number): Value = d
+  override def visitNull(): Value = Null
+  override def visitBool(d: Bool): Value = d
+  override def visitObj(d: Obj): Value = Obj(d.v.flatMap {
+    case (k, Null) ⇒ None
+    case (k, other) ⇒ Some(k → filterNulls(other))
+  })
+  override def visitText(d: Text): Value = d
+  override def visitLst(d: Lst): Value = d
+  def filterNulls(content: Value): Value = {
+    content ~~ this
+  }
 }
