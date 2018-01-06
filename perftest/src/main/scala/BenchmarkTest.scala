@@ -34,10 +34,13 @@ case class Counters(success: AtomicLong, fail: AtomicLong)
 object BenchmarkTest extends Injectable with StrictLogging {
   private val random = new Random()
   private val TEST_OBJECTS_SIZE = 10000
+  private val TEST_REPEATED_OBJECTS_SIZE = 800
+  private val TEST_REPEATED_SIZE = 60
   private val TEST_COLLECTIONS_SIZE = 30
   private val TEST_COLLECTIONS_ITEMS_SIZE = 500
   private val PARALLELISM = 256
   private val randomObjs = 0 until TEST_OBJECTS_SIZE map { _ ⇒ (nextRandomObj(), nextRandomObj()) }
+  private val randomRepeatedObjs = 0 until TEST_REPEATED_OBJECTS_SIZE map { _ ⇒ (nextRandomObj(), nextRandomObj()) }
   private val randomCollectionKeys = 0 until TEST_COLLECTIONS_SIZE map { _ ⇒ random.alphanumeric.take(12).mkString }
   private val randomCollectionItems = 0 until TEST_COLLECTIONS_ITEMS_SIZE map { _ ⇒ nextRandomObj() }
   private var lastErrorLogged = AtomicLong(System.currentTimeMillis())
@@ -101,6 +104,24 @@ object BenchmarkTest extends Injectable with StrictLogging {
             case Failure(_) ⇒ c.fail.increment()
           }
       })
+    }
+
+    measure(s"REPATED $TEST_REPEATED_SIZE PATCHES of $TEST_REPEATED_OBJECTS_SIZE documents") { c ⇒
+      val prefix = "test-objects/"
+      parallel(
+        0 until TEST_REPEATED_SIZE flatMap { _ =>
+          randomRepeatedObjs.map { obj ⇒
+            val path = prefix + obj._1.dynamic.key.toString
+            hyperbus
+              .ask(ContentPatch(path, DynamicBody(obj._2 % Obj.from("e" → random.alphanumeric.take(32).mkString))))
+              .materialize
+              .map {
+                case Success(_) ⇒ c.success.increment()
+                case Failure(_) ⇒ c.fail.increment()
+              }
+          }
+        }
+      )
     }
 
     measure(s"DELETE $TEST_OBJECTS_SIZE documents") { c ⇒
