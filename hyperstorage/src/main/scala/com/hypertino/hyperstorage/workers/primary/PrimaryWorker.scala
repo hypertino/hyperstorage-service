@@ -375,7 +375,7 @@ class PrimaryWorker(hyperbus: Hyperbus,
       None
     }
     val newTransactionWithOI = newTransaction.copy(obsoleteIndexItems = obsoleteIndexItems)
-    (newTransaction,newContent)
+    (newTransactionWithOI, newContent)
   }
 
   private def put(documentUri: String,
