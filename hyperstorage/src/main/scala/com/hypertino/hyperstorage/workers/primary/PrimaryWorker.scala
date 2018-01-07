@@ -24,7 +24,7 @@ import com.hypertino.hyperstorage.db._
 import com.hypertino.hyperstorage.indexing.IndexLogic
 import com.hypertino.hyperstorage.internal.api.{BackgroundContentTask, BackgroundContentTasksPost}
 import com.hypertino.hyperstorage.metrics.Metrics
-import com.hypertino.hyperstorage.sharding.{LocalTask, ShardTask, WorkerTaskResult}
+import com.hypertino.hyperstorage.sharding.{BatchTask, LocalTask, ShardTask, WorkerTaskResult}
 import com.hypertino.hyperstorage.utils.{ErrorCode, TrackerUtils}
 import com.hypertino.hyperstorage.workers.HyperstorageWorkerSettings
 import com.hypertino.metrics.MetricsTracker
@@ -59,18 +59,25 @@ class PrimaryWorker(hyperbus: Hyperbus,
   import context._
 
   def receive = {
-    case task: LocalTask ⇒
-      become(running(sender()))
-      import TrackerUtils._
-      tracker.timeOfTask(Metrics.PRIMARY_PROCESS_TIME) {
-        executeTask(task).onErrorRecover {
-          case e: Throwable =>
-            logger.error(s"Can't complete task: $task", e)
-            PrimaryWorkerResults(Seq(
-              WorkerTaskResult(task, hyperbusException(e, task)(MessagingContext.empty))
-            ))
-        }
-      }.runAsync(scheduler) pipeTo self
+    case singleTask: LocalTask ⇒
+      run(singleTask, executeSingleTask(singleTask))
+
+//    case batch: BatchTask ⇒
+//      run(batch, executeBatch(batch))
+  }
+
+  private def run(task: ShardTask, code: Task[Any]): Unit = {
+    become(running(sender()))
+    import TrackerUtils._
+    tracker.timeOfTask(Metrics.PRIMARY_PROCESS_TIME) {
+      code.onErrorRecover {
+        case e: Throwable =>
+          logger.error(s"Can't complete task: $task", e)
+          PrimaryWorkerResults(Seq(
+            WorkerTaskResult(task, hyperbusException(e, task)(MessagingContext.empty))
+          ))
+      }
+    }.runAsync(scheduler) pipeTo self
   }
 
   def running(owner: ActorRef): Receive = {
@@ -79,205 +86,206 @@ class PrimaryWorker(hyperbus: Hyperbus,
       unbecome()
   }
 
-  def executeTask(task: LocalTask): Task[PrimaryWorkerResults] = {
+  def executeSingleTask(task: LocalTask): Task[PrimaryWorkerResults] = {
     Task.fromTry(Try {
-      implicit val request: PrimaryWorkerRequest = {
-        task.request match {
-          case request: ViewPut ⇒
-            val newHeaders = MessageHeaders.builder
-              .++=(request.headers)
-              .+=(TransactionLogic.HB_HEADER_VIEW_TEMPLATE_URI → request.body.templateUri.toValue)
-              .+=(TransactionLogic.HB_HEADER_FILTER → request.body.filter.toValue)
-              .requestHeaders()
-
-            new ContentPut(
-              path = request.path,
-              body = DynamicBody(Null),
-              headers = newHeaders,
-              plain__init = true
+      val (documentUri, itemId, idField, request) = prepareToTransform(task)
+      selectExisting(documentUri, itemId, request).flatMap { case (existingContent, existingContentStatic, indexDefs) ⇒
+        validateBeforeTransform(documentUri, task, request, existingContentStatic, existingContent) flatMap { _ =>
+          val (newTransaction, newContent) = transform(documentUri, itemId, request, existingContent, existingContentStatic, indexDefs)
+          saveToDb(documentUri, itemId, existingContentStatic, newTransaction, newContent).map { _ =>
+            implicit val mcx = request
+            val bgTask = LocalTask(
+              key = documentUri,
+              group = HyperstorageWorkerSettings.SECONDARY,
+              ttl = System.currentTimeMillis() + backgroundTaskTimeout.toMillis,
+              expectsResult = false,
+              BackgroundContentTasksPost(BackgroundContentTask(documentUri)),
+              extra = Null
             )
-
-          case other: PrimaryWorkerRequest => other
+            val workerResult =  WorkerTaskResult(task, transactionToResponse(documentUri,itemId,newTransaction,idField,request,existingContent))
+            logger.debug(s"task $task is completed")
+            PrimaryWorkerResults(Seq(bgTask, workerResult))
+          }
         }
       }
-
-      val ResourcePath(documentUri, itemId) = splitPath(request.path)
-      if (documentUri != task.key) {
-        throw new IllegalArgumentException(s"Task key ${task.key} doesn't correspond to $documentUri")
-      }
-      val (resultDocumentUri, updatedItemId, updatedIdField, updatedRequest) = request.headers.method match {
-        case Method.POST ⇒
-          // posting new item, converting post to put
-          if (itemId.isEmpty || !ContentLogic.isCollectionUri(documentUri)) {
-            val id = IdGenerator.create()
-            val idFieldName = ContentLogic.getIdFieldName(documentUri)
-            val idField = idFieldName → id
-            val newItemId = if (ContentLogic.isCollectionUri(documentUri)) id else ""
-            val newDocumentUri = if (ContentLogic.isCollectionUri(documentUri)) documentUri else documentUri + "/" + id
-
-            // POST becomes PUT with auto Id
-            (newDocumentUri, newItemId, Some(idField), ContentPut(
-              path = request.path + "/" + id,
-              body = appendId(filterNulls(request.body), id, idFieldName),
-              headers = request.headers.underlying,
-              query = request.headers.hrl.query
-            ))
-          }
-          else {
-            // todo: replace with BadRequest?
-            throw new IllegalArgumentException(s"POST is not allowed on existing item of collection~")
-          }
-
-        case Method.PUT ⇒
-          if (itemId.isEmpty) {
-            (documentUri, itemId, None,
-              ContentPut(
-                path=request.path,
-                body=filterNulls(request.body),
-                headers=request.headers.underlying,
-                query = request.headers.hrl.query
-              )
-            )
-          }
-          else {
-            val idFieldName = ContentLogic.getIdFieldName(documentUri)
-            (documentUri, itemId, Some(idFieldName → itemId),
-              ContentPut(
-                path=request.path,
-                body=appendId(filterNulls(request.body), itemId, idFieldName),
-                headers=request.headers.underlying,
-                query = request.headers.hrl.query
-              )
-            )
-          }
-
-        case _ ⇒
-          (documentUri, itemId, None, request)
-      }
-      executeResourceUpdateTask(resultDocumentUri, updatedItemId, task, updatedRequest, updatedIdField)
     }).flatten
   }
 
-  private def executeResourceUpdateTask(documentUri: String,
-                                        itemId: String,
-                                        task: LocalTask,
-                                        request: PrimaryWorkerRequest,
-                                        idField: Option[(String,String)]): Task[PrimaryWorkerResults] = {
-    val existingTask : Task[(Option[Content], Option[ContentBase], List[IndexDef])] =
-      if (request.headers.method == Method.POST) {
-        Task.now((None, None, List.empty))
-      } else {
-        val indexDefsTask = if (ContentLogic.isCollectionUri(documentUri)) {
-          db.selectIndexDefs(documentUri).map(_.toList)
-        } else {
-          Task.now(List.empty)
-        }
-        val contentTask = db.selectContent(documentUri, itemId)
+  private def transformViewPut(task: LocalTask): PrimaryWorkerRequest = {
+    task.request match {
+      case request: ViewPut ⇒
+        val newHeaders = MessageHeaders.builder
+          .++=(request.headers)
+          .+=(TransactionLogic.HB_HEADER_VIEW_TEMPLATE_URI → request.body.templateUri.toValue)
+          .+=(TransactionLogic.HB_HEADER_FILTER → request.body.filter.toValue)
+          .requestHeaders()
 
-        Task.zip2(contentTask,indexDefsTask).flatMap { case (contentOption, indexDefs) ⇒
-          contentOption match {
-            case Some(_) ⇒ Task.now((contentOption, contentOption, indexDefs))
-            case None if ContentLogic.isCollectionUri(documentUri) ⇒ db.selectContentStatic(documentUri).map(contentStatic ⇒
-              (contentOption, contentStatic, indexDefs)
-            )
-            case _ ⇒ Task.now((contentOption, None, indexDefs))
-          }
-        }
-      }
+        new ContentPut(
+          path = request.path,
+          body = DynamicBody(Null),
+          headers = newHeaders,
+          plain__init = true
+        )
 
-    implicit val mcx = request
-    val updateTask = existingTask.flatMap { case (existingContent, existingContentStatic, indexDefs) ⇒
-      if (existingContentStatic.isDefined && existingContentStatic.get.transactionList.size >= maxIncompleteTransaction) {
-        Task.raiseError(TooManyRequests(ErrorBody(
-          ErrorCode.TRANSACTION_LIMIT, Some(s"Transaction limit ($maxIncompleteTransaction) is reached for '$documentUri'")
-        )))
-      }
-      else {
-        updateResource(documentUri,
-          itemId,
-          request,
-          existingContent,
-          existingContentStatic,
-          indexDefs,
-          task.extra.dynamic.internal_operation.toBoolean) map { newTransaction ⇒
-
-          val resourceCreated = (existingContent.isEmpty || existingContent.exists(_.isDeleted.contains(true))) && request.headers.method != Method.DELETE
-          val bgTask = LocalTask(
-            key = documentUri,
-            group = HyperstorageWorkerSettings.SECONDARY,
-            ttl = System.currentTimeMillis() + backgroundTaskTimeout.toMillis,
-            expectsResult = false,
-            BackgroundContentTasksPost(BackgroundContentTask(documentUri)),
-            extra = Null
-          )
-          val result: ResponseBase = if (resourceCreated) {
-            val target = idField.map(kv ⇒ Obj.from(kv._1 → Text(kv._2))).getOrElse(Null)
-            Created(HyperStorageTransactionCreated(newTransaction.uuid.toString, request.path, newTransaction.revision, target),
-              location = HRL(ContentGet.location, Obj.from("path" → (documentUri + "/" + itemId))))
-          }
-          else {
-            Ok(api.HyperStorageTransaction(newTransaction.uuid.toString, request.path, newTransaction.revision))
-          }
-          val workerResult = WorkerTaskResult(task, result)
-          logger.debug(s"task $task is completed")
-          PrimaryWorkerResults(Seq(bgTask, workerResult))
-        }
-      }
+      case other: PrimaryWorkerRequest => other
     }
-    updateTask
   }
 
-  private def updateResource(documentUri: String,
-                             itemId: String,
-                             request: PrimaryWorkerRequest,
-                             existingContent: Option[Content],
-                             existingContentStatic: Option[ContentBase],
-                             indexDefs: Seq[IndexDef],
-                             isInternalOperation: Boolean
-                            ): Task[Transaction] = {
-    implicit val mcx = request
-
-    if (existingContentStatic.exists(_.isView.contains(true))
-      && !isInternalOperation
-      && !(
-        request.headers.hrl.location == ViewDelete.location ||
-          (request.headers.hrl.location == ViewPut.location && !request.headers.contains(TransactionLogic.HB_HEADER_VIEW_TEMPLATE_URI))
-      )
-    ) Task.raiseError {
-      Conflict(ErrorBody(ErrorCode.VIEW_MODIFICATION, Some(s"Can't modify view: $documentUri")))
+  private def prepareToTransform(task: LocalTask) = {
+    val request = transformViewPut(task)
+    val ResourcePath(documentUri, itemId) = splitPath(request.path)
+    if (documentUri != task.key) {
+      throw new IllegalArgumentException(s"Task key ${task.key} doesn't correspond to $documentUri")
     }
-    else {
-      if (!ContentLogic.checkPrecondition(request, existingContent)) Task.raiseError {
-        PreconditionFailed(ErrorBody(ErrorCode.NOT_MATCHED, Some(s"ETag doesn't match")))
-      } else {
-        val (newTransaction, newContent) = updateContent(documentUri, itemId, request, existingContent, existingContentStatic)
-        val obsoleteIndexItems = if (request.headers.method != Method.POST && ContentLogic.isCollectionUri(documentUri) && !itemId.isEmpty) {
-          findObsoleteIndexItems(existingContent, newContent, indexDefs)
+
+    implicit val mcx = request
+    request.headers.method match {
+      case Method.POST ⇒
+        // posting new item, converting post to put
+        if (itemId.isEmpty || !ContentLogic.isCollectionUri(documentUri)) {
+          val id = IdGenerator.create()
+          val idFieldName = ContentLogic.getIdFieldName(documentUri)
+          val idField = idFieldName → id
+          val newItemId = if (ContentLogic.isCollectionUri(documentUri)) id else ""
+          val newDocumentUri = if (ContentLogic.isCollectionUri(documentUri)) documentUri else documentUri + "/" + id
+
+          // POST becomes PUT with auto Id
+          (newDocumentUri, newItemId, Some(idField), ContentPut(
+            path = request.path + "/" + id,
+            body = appendId(filterNulls(request.body), id, idFieldName),
+            headers = request.headers.underlying,
+            query = request.headers.hrl.query
+          ))
         }
         else {
-          None
+          // todo: replace with BadRequest?
+          throw new IllegalArgumentException(s"POST is not allowed on existing item of collection~")
         }
-        val newTransactionWithOI = newTransaction.copy(obsoleteIndexItems = obsoleteIndexItems)
-        db.insertTransaction(newTransactionWithOI) flatMap { _ ⇒ {
-          if (!itemId.isEmpty && newContent.isDeleted.contains(true)) {
-            // deleting item
-            db.deleteContentItem(newContent, itemId)
-          }
-          else {
-            if (isCollectionUri(documentUri) && existingContentStatic.exists(_.isDeleted.contains(true))) {
-              db.purgeCollection(documentUri).flatMap { _ ⇒
-                db.insertContent(newContent)
-              }
-            }
-            else {
-              db.insertContent(newContent)
-            }
-          }
-        } map { _ ⇒
-          newTransactionWithOI
+
+      case Method.PUT ⇒
+        if (itemId.isEmpty) {
+          (documentUri, itemId, None,
+            ContentPut(
+              path=request.path,
+              body=filterNulls(request.body),
+              headers=request.headers.underlying,
+              query = request.headers.hrl.query
+            )
+          )
         }
+        else {
+          val idFieldName = ContentLogic.getIdFieldName(documentUri)
+          (documentUri, itemId, Some(idFieldName → itemId),
+            ContentPut(
+              path=request.path,
+              body=appendId(filterNulls(request.body), itemId, idFieldName),
+              headers=request.headers.underlying,
+              query = request.headers.hrl.query
+            )
+          )
+        }
+
+      case _ ⇒
+        (documentUri, itemId, None, request)
+    }
+  }
+
+  private def validateBeforeTransform(documentUri: String,
+                                      task: LocalTask,
+                                      request: PrimaryWorkerRequest,
+                                      existingContentStatic: Option[ContentBase],
+                                      existingContent: Option[Content]): Task[Any] = {
+    implicit val mcx = request
+    if (existingContentStatic.isDefined && existingContentStatic.get.transactionList.size >= maxIncompleteTransaction) {
+      Task.raiseError(TooManyRequests(ErrorBody(
+        ErrorCode.TRANSACTION_LIMIT, Some(s"Transaction limit ($maxIncompleteTransaction) is reached for '$documentUri'")
+      )))
+    }
+    else {
+      if (existingContentStatic.exists(_.isView.contains(true))
+        && !task.extra.dynamic.internal_operation.toBoolean
+        && !(
+        request.headers.hrl.location == ViewDelete.location ||
+          (request.headers.hrl.location == ViewPut.location && !request.headers.contains(TransactionLogic.HB_HEADER_VIEW_TEMPLATE_URI))
+        )
+      ) Task.raiseError {
+        Conflict(ErrorBody(ErrorCode.VIEW_MODIFICATION, Some(s"Can't modify view: $documentUri")))
+      }
+      else {
+        if (!ContentLogic.checkPrecondition(request, existingContent)) Task.raiseError {
+          PreconditionFailed(ErrorBody(ErrorCode.NOT_MATCHED, Some(s"ETag doesn't match")))
+        }
+        else {
+          Task.unit
         }
       }
+    }
+  }
+
+  private def selectExisting(documentUri: String,
+                             itemId: String,
+                             request: PrimaryWorkerRequest): Task[(Option[Content], Option[ContentBase], List[IndexDef])] = {
+    if (request.headers.method == Method.POST) {
+      Task.now((None, None, List.empty))
+    } else {
+      val indexDefsTask = if (ContentLogic.isCollectionUri(documentUri)) {
+        db.selectIndexDefs(documentUri).map(_.toList)
+      } else {
+        Task.now(List.empty)
+      }
+      val contentTask = db.selectContent(documentUri, itemId)
+
+      Task.zip2(contentTask, indexDefsTask).flatMap { case (contentOption, indexDefs) ⇒
+        contentOption match {
+          case Some(_) ⇒ Task.now((contentOption, contentOption, indexDefs))
+          case None if ContentLogic.isCollectionUri(documentUri) ⇒ db.selectContentStatic(documentUri).map(contentStatic ⇒
+            (contentOption, contentStatic, indexDefs)
+          )
+          case _ ⇒ Task.now((contentOption, None, indexDefs))
+        }
+      }
+    }
+  }
+
+  private def transactionToResponse(documentUri: String,
+                                  itemId: String,
+                                  newTransaction: Transaction,
+                                  idField: Option[(String,String)],
+                                  request: PrimaryWorkerRequest,
+                                  existingContent: Option[Content]): ResponseBase = {
+    implicit val mcx = request
+    val resourceCreated = (existingContent.isEmpty || existingContent.exists(_.isDeleted.contains(true))) && request.headers.method != Method.DELETE
+    if (resourceCreated) {
+      val target = idField.map(kv ⇒ Obj.from(kv._1 → Text(kv._2))).getOrElse(Null)
+      Created(HyperStorageTransactionCreated(newTransaction.uuid.toString, request.path, newTransaction.revision, target),
+        location = HRL(ContentGet.location, Obj.from("path" → (documentUri + "/" + itemId))))
+    }
+    else {
+      Ok(api.HyperStorageTransaction(newTransaction.uuid.toString, request.path, newTransaction.revision))
+    }
+  }
+
+  private def saveToDb(documentUri: String,
+                       itemId: String,
+                       existingContentStatic: Option[ContentBase],
+                       newTransaction: Transaction,
+                       newContent: Content): Task[Any] = {
+    db.insertTransaction(newTransaction) flatMap { _ ⇒ {
+      if (!itemId.isEmpty && newContent.isDeleted.contains(true)) {
+        // deleting item
+        db.deleteContentItem(newContent, itemId)
+      }
+      else {
+        if (isCollectionUri(documentUri) && existingContentStatic.exists(_.isDeleted.contains(true))) {
+          db.purgeCollection(documentUri).flatMap { _ ⇒
+            db.insertContent(newContent)
+          }
+        }
+        else {
+          db.insertContent(newContent)
+        }
+      }
+    }
     }
   }
 
@@ -348,20 +356,29 @@ class PrimaryWorker(hyperbus: Hyperbus,
     TransactionLogic.newTransaction(documentUri, itemId, revision, transaction, uuid)
   }
 
-  private def updateContent(documentUri: String,
-                            itemId: String,
-                            request: PrimaryWorkerRequest,
-                            existingContent: Option[Content],
-                            existingContentStatic: Option[ContentBase]): (Transaction,Content) = {
+  private def transform(documentUri: String,
+                        itemId: String,
+                        request: PrimaryWorkerRequest,
+                        existingContent: Option[Content],
+                        existingContentStatic: Option[ContentBase],
+                        indexDefs: List[IndexDef]): (Transaction,Content) = {
     val ttl = request.headers.get(HyperStorageHeader.HYPER_STORAGE_TTL).map(_.toInt)
-    request.headers.method match {
-      case Method.PUT ⇒ putContent(documentUri, itemId, request, existingContent, existingContentStatic, ttl)
-      case Method.PATCH ⇒ patchContent(documentUri, itemId, request, existingContent, existingContentStatic, ttl)
-      case Method.DELETE ⇒ deleteContent(documentUri, itemId, request, existingContent, existingContentStatic)
+    val (newTransaction, newContent) = request.headers.method match {
+      case Method.PUT ⇒ put(documentUri, itemId, request, existingContent, existingContentStatic, ttl)
+      case Method.PATCH ⇒ patch(documentUri, itemId, request, existingContent, existingContentStatic, ttl)
+      case Method.DELETE ⇒ delete(documentUri, itemId, request, existingContent, existingContentStatic)
     }
+    val obsoleteIndexItems = if (request.headers.method != Method.POST && ContentLogic.isCollectionUri(documentUri) && !itemId.isEmpty) {
+      findObsoleteIndexItems(existingContent, newContent, indexDefs)
+    }
+    else {
+      None
+    }
+    val newTransactionWithOI = newTransaction.copy(obsoleteIndexItems = obsoleteIndexItems)
+    (newTransaction,newContent)
   }
 
-  private def putContent(documentUri: String,
+  private def put(documentUri: String,
                          itemId: String,
                          request: PrimaryWorkerRequest,
                          existingContent: Option[Content],
@@ -432,7 +449,7 @@ class PrimaryWorker(hyperbus: Hyperbus,
     (newTransaction,newContent)
   }
 
-  private def patchContent(documentUri: String,
+  private def patch(documentUri: String,
                            itemId: String,
                            request: PrimaryWorkerRequest,
                            existingContent: Option[Content],
@@ -518,7 +535,7 @@ class PrimaryWorker(hyperbus: Hyperbus,
     }
   }
 
-  private def deleteContent(documentUri: String,
+  private def delete(documentUri: String,
                             itemId: String,
                             request: PrimaryWorkerRequest,
                             existingContent: Option[Content],
