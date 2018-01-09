@@ -166,14 +166,14 @@ class PrimaryWorker(hyperbus: Hyperbus,
               }
               r._1.+=((localTaskWithId, request, transaction, response, extra))
               nextSaveBatch += content.itemId -> (r._1, content, size)
-              nextBatchSize += size
+              nextBatchSize += (if (nextBatchSize == 0) content.transactionList.size * 16 else 0) + size
 
             case None =>
               if ((nextBatchSize + size) > maxBatchSizeInBytes && nextSaveBatch.nonEmpty) {
                 addBatchTask()
               }
               nextSaveBatch += content.itemId -> (mutable.ArrayBuffer((localTaskWithId, request, transaction, response, extra)), content, size)
-              nextBatchSize += size
+              nextBatchSize += (if (nextBatchSize == 0) content.transactionList.size * 16 else 0) + size
           }
 
         case _ =>
@@ -260,28 +260,21 @@ class PrimaryWorker(hyperbus: Hyperbus,
     }.flatten
     transactionTasks.flatMap { results =>
       //logger.error(s"!!!INSERTING CONTENT: ${nextSaveBatch.map(_._2)}")
-      Task.sequence(nextSaveBatch.map { b =>
-        val newContent = b._2
-        val t = if (!newContent.itemId.isEmpty && newContent.isDeleted.contains(true)) {
-          // deleting item
-          db.deleteContentItem(newContent, newContent.itemId)
-        }
-        else {
-          db.insertContent(newContent)
-        }
-        t.onErrorRestart(WRITE_TRIES)
-      }).map { _ =>
+      db.applyBatch(nextSaveBatch.map(_._2))
+        .onErrorRestart(WRITE_TRIES)
+        .map { _ =>
         results
       }
     }
   }
 
   private def contentSize(content: Content): Long = {
-    128 +
-    Utf8.encodedLength(content.itemId) +
-      Utf8.encodedLength(content.documentUri) +
-      content.body.map(Utf8.encodedLength).getOrElse(0) +
-      content.transactionList.size * 16
+    128 + Utf8.encodedLength(content.itemId) + Utf8.encodedLength(content.documentUri) +
+      (if (content.isDeleted.contains(true)) {
+        0
+      } else {
+        content.body.map(Utf8.encodedLength).getOrElse(0)
+      })
   }
 
   private def recursiveBatchProcessing(batch: Seq[LocalTaskWithId],

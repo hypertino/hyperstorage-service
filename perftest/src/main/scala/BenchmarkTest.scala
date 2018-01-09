@@ -148,8 +148,8 @@ object BenchmarkTest extends Injectable with StrictLogging {
             val path = collection + "/" + item.dynamic.key.toString
             retryWithPause(hyperbus
               .ask(ContentPut(path, DynamicBody(item))),
-              10,
-              100.milliseconds
+              20,
+              150.milliseconds
             )
               .materialize
               .map {

@@ -21,6 +21,7 @@ import monix.eval.Task
 import monix.execution.Scheduler
 
 import scala.concurrent.{ExecutionContext, Future}
+import scala.util.Try
 import scala.util.control.NonFatal
 
 // todo: check if Dynamic's are statments are cached
@@ -344,6 +345,60 @@ class Db(connector: CassandraConnector)(implicit scheduler: Scheduler) extends S
       delete from content
       where document_uri = $documentUri;
     """.task
+  }
+
+  def applyBatch(batch: Seq[Content]): Task[Any] = {
+    logger.debug(s"Applying batch on: ${batch.head.documentUri}")
+    val last = batch.last
+    val itemUpdates = batch.map { content =>
+      if (!content.itemId.isEmpty && content.isDeleted.contains(true)) {
+        s"""
+          delete from content
+          where document_uri = ? and item_id = ?;
+        """
+      }
+      else {
+        val ttlValue = content.realTtl.toString
+        s"""
+          insert into content( document_uri, item_id, body, created_at, modified_at, ttl )
+          values( ?, ?, ?, ?, ?, ? )
+          using ttl $ttlValue;
+        """
+      }
+    }
+
+    val staticFields = Seq("document_uri", "revision", "transaction_list") ++
+      last.isView.map(_ ⇒ "is_view") ++
+      last.isDeleted.map(_ ⇒ "is_deleted") ++
+      last.count.map(_ ⇒ "count")
+    val sFieldNames = staticFields mkString ","
+    val sQs = staticFields.map(_ ⇒ "?") mkString ","
+
+    val c = cql"""
+      begin batch
+        insert into content(${Dynamic(sFieldNames)})
+        values( ${Dynamic(sQs)} );
+
+        ${Dynamic(itemUpdates.mkString("\n"))}
+      apply batch;
+    """
+    import scala.collection.JavaConverters._
+    val binds = Seq(last.documentUri,last.revision,last.transactionList.asJava) ++
+      last.isView.map(identity) ++
+      last.isDeleted.map(identity) ++
+      last.count.map(identity) ++
+      batch.flatMap { content =>
+        if (!content.itemId.isEmpty && content.isDeleted.contains(true)) {
+          Seq(content.documentUri, content.itemId)
+        }
+        else {
+          Seq(content.documentUri, content.itemId, content.body.orNull, content.createdAt, content.modifiedAt.orNull, content.ttl.map(_.asInstanceOf[AnyRef]).orNull)
+        }
+      }
+
+    Task.fromTry(Try(c.boundStatement.bind(binds.map(_.asInstanceOf[AnyRef]).toArray: _*))).flatMap { _ =>
+      c.task
+    }
   }
 
   def selectTransaction(dtQuantum: Long, partition: Int, documentUri: String, uuid: UUID): Task[Option[Transaction]] = cql"""

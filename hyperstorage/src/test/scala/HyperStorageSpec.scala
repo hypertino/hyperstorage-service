@@ -662,26 +662,31 @@ class HyperStorageSpecZMQ extends FlatSpec
 
     val transactionList = mutable.ListBuffer[String]()
 
-    val records = 10
-    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, maxIncompleteTransaction=records+1,
+    val inserts = 1
+    val deletes = 2
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, maxIncompleteTransaction=inserts+deletes+1,
       maxBatchSizeInBytes=1024, scheduler))
     val path = "abcde~"
     worker ! BatchTask(
-      0 until records map { i =>
+      (0 until inserts).map { i =>
         LocalTaskWithId(i, primaryTask(path,
           ContentPut(path+ "/" + i, DynamicBody(Obj.from("text" → "yey", "n" -> i)))
+        ))
+      } ++ (inserts until (inserts + deletes)).map { i =>
+        LocalTaskWithId(i, primaryTask(path,
+          ContentDelete(path + "/" + i)
         ))
       }
     )
 
     val (bgTask, br) = tk.expectTaskR[BackgroundContentTasksPost]()
     val result1 = expectMsgType[WorkerBatchTaskResult]
-    result1.results.size shouldBe records
-    println(result1)
-    transactionList ++= result1.results.sortBy(_._1).map(_._2.get.asInstanceOf[Response[HyperStorageTransactionCreated]].body.transactionId)
+    result1.results.size shouldBe inserts + deletes
+    transactionList ++= result1.results.sortBy(_._1).take(inserts).map(_._2.get.asInstanceOf[Response[HyperStorageTransactionCreated]].body.transactionId)
+    result1.results.sortBy(_._1).drop(inserts).map(_._2.get shouldBe a[Ok[_]])
 
     val transactionsC = whenReady(db.selectContentStatic(path).runAsync) { result =>
-      result.get.count shouldBe Some(records)
+      result.get.count shouldBe Some(inserts)
       result.get.isDeleted shouldBe None
       result.get.transactionList
     }
