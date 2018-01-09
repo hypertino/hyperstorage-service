@@ -376,7 +376,6 @@ class HyperStorageSpecZMQ extends FlatSpec
       transaction.completedAt shouldNot be(None)
     }
   }
-
   it should "Test faulty publish" in {
     val hyperbus = testHyperbus()
     val tk = testKit()
@@ -537,6 +536,173 @@ class HyperStorageSpecZMQ extends FlatSpec
     val workerResult3 = expectMsgType[WorkerTaskResult]
     val r3 = workerResult3.result.get
     r3.headers.statusCode should equal(Status.TOO_MANY_REQUESTS)
+  }
+
+  "PrimaryWorker" should "execute batched tasks" in {
+    val hyperbus = testHyperbus()
+    val tk = testKit()
+    import tk._
+
+    cleanUpCassandra()
+
+    val transactionList = mutable.ListBuffer[String]()
+
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, 16777216, scheduler))
+    val path = "abcde"
+    val put = ContentPut(path,
+      DynamicBody(Obj.from("text" → "Test resource value", "text2" → "yey"))
+    )
+    val patch = ContentPatch(path,
+      DynamicBody(Obj.from("text2" → "abc", "text3" → "klmn"))
+    )
+    worker ! BatchTask(Seq(
+      LocalTaskWithId(1, primaryTask(path, put)),
+      LocalTaskWithId(2, primaryTask(path, patch))
+    ))
+
+    val (bgTask, br) = tk.expectTaskR[BackgroundContentTasksPost]()
+    val result1 = expectMsgType[WorkerBatchTaskResult]
+    result1.results.size shouldBe 2
+    val m = result1.results.map(i => (i._1, i._2.get)).toMap
+    transactionList += m(1).asInstanceOf[Response[HyperStorageTransactionCreated]].body.transactionId
+    transactionList += m(2).asInstanceOf[Response[HyperStorageTransaction]].body.transactionId
+
+    val transactionsC = whenReady(db.selectContent(path, "").runAsync) { result =>
+      result.get.body should equal(Some("""{"text":"Test resource value","text2":"abc","text3":"klmn"}"""))
+      result.get.isDeleted shouldBe None
+      result.get.transactionList
+    }
+
+    val transactionsUUIDs = transactionList.map(UUID.fromString)
+
+    transactionsUUIDs should equal(transactionsC.reverse)
+
+    selectTransactions(transactionsUUIDs, path, db) foreach { transaction ⇒
+      transaction.completedAt should be(None)
+    }
+
+    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
+    backgroundWorker ! bgTask.copy(expectsResult = true)
+    val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
+    val rc = backgroundWorkerResult.result.get.asInstanceOf[Ok[BackgroundContentTaskResult]]
+    rc.body.documentUri should equal(path)
+    rc.body.transactions should equal(transactionList)
+
+    selectTransactions(rc.body.transactions.map(UUID.fromString), path, db) foreach { transaction ⇒
+      transaction.completedAt shouldNot be(None)
+    }
+  }
+
+  it should "execute all batched tasks even if some fails" in {
+    val hyperbus = testHyperbus()
+    val tk = testKit()
+    import tk._
+
+    cleanUpCassandra()
+
+    val transactionList = mutable.ListBuffer[String]()
+
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, 10, 16777216, scheduler))
+    val path = "abcde"
+    val put = ContentPut(path,
+      DynamicBody(Obj.from("text" → "Test resource value", "text2" → "yey"))
+    )
+    val wrongPatch = ContentPatch(path,
+      DynamicBody(Text("abc"))
+    )
+    val patch = ContentPatch(path,
+      DynamicBody(Obj.from("text2" → "abc", "text3" → "klmn"))
+    )
+    worker ! BatchTask(Seq(
+      LocalTaskWithId(1, primaryTask(path, put)),
+      LocalTaskWithId(2, primaryTask(path, wrongPatch)),
+      LocalTaskWithId(3, primaryTask(path, patch))
+    ))
+
+    val (bgTask, br) = tk.expectTaskR[BackgroundContentTasksPost]()
+    val result1 = expectMsgType[WorkerBatchTaskResult]
+    result1.results.size shouldBe 3
+    val m = result1.results.map(i => (i._1, i._2.get)).toMap
+    transactionList += m(1).asInstanceOf[Response[HyperStorageTransactionCreated]].body.transactionId
+    m(2) shouldBe a[InternalServerError[_]]
+    transactionList += m(3).asInstanceOf[Response[HyperStorageTransaction]].body.transactionId
+
+    val transactionsC = whenReady(db.selectContent(path, "").runAsync) { result =>
+      result.get.body should equal(Some("""{"text":"Test resource value","text2":"abc","text3":"klmn"}"""))
+      result.get.isDeleted shouldBe None
+      result.get.transactionList
+    }
+
+    val transactionsUUIDs = transactionList.map(UUID.fromString)
+
+    transactionsUUIDs should equal(transactionsC.reverse)
+
+    selectTransactions(transactionsUUIDs, path, db) foreach { transaction ⇒
+      transaction.completedAt should be(None)
+    }
+
+    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
+    backgroundWorker ! bgTask.copy(expectsResult = true)
+    val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
+    val rc = backgroundWorkerResult.result.get.asInstanceOf[Ok[BackgroundContentTaskResult]]
+    rc.body.documentUri should equal(path)
+    rc.body.transactions should equal(transactionList)
+
+    selectTransactions(rc.body.transactions.map(UUID.fromString), path, db) foreach { transaction ⇒
+      transaction.completedAt shouldNot be(None)
+    }
+  }
+
+  it should "execute batched tasks on collection/splitting by size" in {
+    val hyperbus = testHyperbus()
+    val tk = testKit()
+    import tk._
+
+    cleanUpCassandra()
+
+    val transactionList = mutable.ListBuffer[String]()
+
+    val records = 10
+    val worker = TestActorRef(PrimaryWorker.props(hyperbus, db, tracker, 10.seconds, maxIncompleteTransaction=records+1,
+      maxBatchSizeInBytes=1024, scheduler))
+    val path = "abcde~"
+    worker ! BatchTask(
+      0 until records map { i =>
+        LocalTaskWithId(i, primaryTask(path,
+          ContentPut(path+ "/" + i, DynamicBody(Obj.from("text" → "yey", "n" -> i)))
+        ))
+      }
+    )
+
+    val (bgTask, br) = tk.expectTaskR[BackgroundContentTasksPost]()
+    val result1 = expectMsgType[WorkerBatchTaskResult]
+    result1.results.size shouldBe records
+    println(result1)
+    transactionList ++= result1.results.sortBy(_._1).map(_._2.get.asInstanceOf[Response[HyperStorageTransactionCreated]].body.transactionId)
+
+    val transactionsC = whenReady(db.selectContentStatic(path).runAsync) { result =>
+      result.get.count shouldBe Some(records)
+      result.get.isDeleted shouldBe None
+      result.get.transactionList
+    }
+
+    val transactionsUUIDs = transactionList.map(UUID.fromString)
+    transactionsUUIDs should equal(transactionsC.reverse)
+
+    selectTransactions(transactionsUUIDs, path, db) foreach { transaction ⇒
+      transaction.completedAt should be(None)
+    }
+
+    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
+    backgroundWorker ! bgTask.copy(expectsResult = true)
+    val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
+    val rc = backgroundWorkerResult.result.get.asInstanceOf[Ok[BackgroundContentTaskResult]]
+    rc.body.documentUri should equal(path)
+    rc.body.transactions should equal(transactionList)
+
+    selectTransactions(rc.body.transactions.map(UUID.fromString), path, db) foreach { transaction ⇒
+      transaction.completedAt shouldNot be(None)
+    }
   }
 }
 

@@ -65,7 +65,7 @@ case class Content(
                   ) extends ContentBase with CollectionContent {
 
   // selecting ttl(body) which is ttlLeft returns null just before expiration
-  // to handle this we set new ttl to 1 second (minum possible value)
+  // to handle this we set new ttl to 1 second (minimum possible value)
   def realTtl: Int = {
     ttlLeft.getOrElse {
       if (ttl.exists(_ > 0)) { // we're already expired, set to 1 second

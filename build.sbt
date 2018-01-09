@@ -46,7 +46,7 @@ lazy val hyperstorage = project in file("hyperstorage") enablePlugins(BuildInfoP
   buildInfoKeys := Seq[BuildInfoKey](name, version, scalaVersion, sbtVersion),
   libraryDependencies ++= Seq(
     "com.hypertino"               %% "service-control"              % "0.4.1",
-    "com.hypertino"               %% "service-config"               % "0.2.3",
+    "com.hypertino"               %% "service-config"               % "0.2.5",
     "com.hypertino"               %% "service-metrics"              % "0.3.1",
     "com.hypertino"               %% "typesafe-config-binders"      % "0.2.0",
 

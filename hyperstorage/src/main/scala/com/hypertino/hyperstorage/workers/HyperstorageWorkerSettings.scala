@@ -42,7 +42,7 @@ object HyperstorageWorkerSettings {
     val secondaryWorkerProps = SecondaryWorker.props(hyperbus, db, metricsTracker, indexManager, scheduler)
     val secondaryRequestMeta: Seq[RequestMetaCompanion[_ <: RequestBase]] = Seq(IndexPost, IndexDelete, BackgroundContentTasksPost, IndexContentTasksPost)
     Map(
-      PRIMARY → WorkerGroupSettings(primaryWorkerProps, primaryWorkerCount, "pgw-", primaryRequestMeta, new PrimaryBatchProcessor(1/*maxIncompleteTransactions/5*/)),
+      PRIMARY → WorkerGroupSettings(primaryWorkerProps, primaryWorkerCount, "pgw-", primaryRequestMeta, new PrimaryBatchProcessor(maxIncompleteTransactions/5)),
       SECONDARY → WorkerGroupSettings(secondaryWorkerProps, secondaryWorkerCount, "sgw-", secondaryRequestMeta)
     )
   }

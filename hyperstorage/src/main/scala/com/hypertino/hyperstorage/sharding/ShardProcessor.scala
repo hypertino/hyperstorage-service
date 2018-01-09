@@ -19,6 +19,7 @@ import com.hypertino.hyperbus.serialization.SerializationOptions
 import com.hypertino.hyperstorage.internal.api._
 import com.hypertino.hyperstorage.metrics.Metrics
 import com.hypertino.hyperstorage.utils.AkkaNaming
+import com.hypertino.hyperstorage.workers.primary.PrimaryWorkerRequest
 import com.hypertino.metrics.MetricsTracker
 import com.typesafe.scalalogging.StrictLogging
 
@@ -70,7 +71,7 @@ trait WorkerTaskResultBase {
   def group: String
 }
 case class WorkerTaskResult(key: String, group: String, result: Option[ResponseBase], extra: Value) extends WorkerTaskResultBase
-case class WorkerBatchTaskResult(key: String, group: String, results: Map[Long, (Option[ResponseBase], Value)]) extends WorkerTaskResultBase
+case class WorkerBatchTaskResult(key: String, group: String, results: Seq[(Long, Option[ResponseBase], Value)]) extends WorkerTaskResultBase
 
 object WorkerTaskResult{
   def apply(task: ShardTask, result: ResponseBase, extra:Value = Null): WorkerTaskResult = WorkerTaskResult(
@@ -574,9 +575,9 @@ class ShardProcessor(clusterTransport: ClusterTransport,
                 processWorkerTaskResult(aw.tasks.values.head, singleResult.result, singleResult.extra, data)
 
               case batchResult: WorkerBatchTaskResult =>
-                batchResult.results.foreach { case (taskId, result) =>
+                batchResult.results.foreach { case (taskId, result, extra) =>
                   aw.tasks.get(taskId).map { awt =>
-                    processWorkerTaskResult(awt, result._1, result._2, data)
+                    processWorkerTaskResult(awt, result, extra, data)
                   } getOrElse {
                     logger.error(s"Dropping result $result, didn't found task id #$taskId")
                   }

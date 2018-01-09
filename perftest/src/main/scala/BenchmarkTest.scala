@@ -146,9 +146,9 @@ object BenchmarkTest extends Injectable with StrictLogging {
             val collection = prefix + key + "~"
 
             val path = collection + "/" + item.dynamic.key.toString
-            retryBackoff(hyperbus
+            retryWithPause(hyperbus
               .ask(ContentPut(path, DynamicBody(item))),
-              20,
+              10,
               100.milliseconds
             )
               .materialize
@@ -236,13 +236,13 @@ object BenchmarkTest extends Injectable with StrictLogging {
     "d" → random.nextDouble()
   )
 
-  def retryBackoff[A](source: Task[A],
-                      maxRetries: Int, firstDelay: FiniteDuration): Task[A] = {
+  def retryWithPause[A](source: Task[A],
+                        maxRetries: Int, firstDelay: FiniteDuration): Task[A] = {
 
     source.onErrorHandleWith {
       case ex: Exception =>
         if (maxRetries > 0)
-          retryBackoff(source, maxRetries - 1, firstDelay * 2)
+          retryWithPause(source, maxRetries - 1, firstDelay)
             .delayExecution(firstDelay)
         else
           Task.raiseError(ex)

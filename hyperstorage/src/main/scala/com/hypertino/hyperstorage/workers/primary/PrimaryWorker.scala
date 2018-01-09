@@ -13,6 +13,7 @@ import java.util.Date
 import akka.actor.{Actor, ActorRef, Props}
 import akka.pattern.pipe
 import com.datastax.driver.core.utils.UUIDs
+import com.google.common.base.Utf8
 import com.hypertino.binders.value._
 import com.hypertino.hyperbus.model._
 import com.hypertino.hyperbus.Hyperbus
@@ -24,7 +25,7 @@ import com.hypertino.hyperstorage.db._
 import com.hypertino.hyperstorage.indexing.IndexLogic
 import com.hypertino.hyperstorage.internal.api.{BackgroundContentTask, BackgroundContentTasksPost}
 import com.hypertino.hyperstorage.metrics.Metrics
-import com.hypertino.hyperstorage.sharding.{BatchTask, LocalTask, ShardTask, WorkerTaskResult}
+import com.hypertino.hyperstorage.sharding._
 import com.hypertino.hyperstorage.utils.{ErrorCode, TrackerUtils}
 import com.hypertino.hyperstorage.workers.HyperstorageWorkerSettings
 import com.hypertino.metrics.MetricsTracker
@@ -33,8 +34,10 @@ import com.hypertino.parser.eval.Context
 import com.typesafe.scalalogging.StrictLogging
 import monix.eval.Task
 
+import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.duration.FiniteDuration
-import scala.util.Try
+import scala.util.{Failure, Success, Try}
 
 trait PrimaryWorkerRequest extends Request[DynamicBody] {
   def path: String
@@ -60,39 +63,55 @@ class PrimaryWorker(hyperbus: Hyperbus,
 
   def receive = {
     case singleTask: LocalTask ⇒
-      run(singleTask, executeSingleTask(singleTask))
+      run(singleTask, executeSingleTask(singleTask), e => {
+        PrimaryWorkerResults(Seq(
+          WorkerTaskResult(singleTask, hyperbusException(e, singleTask)(MessagingContext.empty))
+        ))
+      })
 
-//    case batch: BatchTask ⇒
-//      run(batch, executeBatch(batch))
+    case batchTask: BatchTask ⇒
+      run(batchTask, executeBatch(batchTask), e => {
+        val bgTask = LocalTask(
+          key = batchTask.key,
+          group = HyperstorageWorkerSettings.SECONDARY,
+          ttl = System.currentTimeMillis() + backgroundTaskTimeout.toMillis,
+          expectsResult = false,
+          BackgroundContentTasksPost(BackgroundContentTask(batchTask.key))(MessagingContext.empty),
+          extra = Null
+        )
+        PrimaryWorkerResults(Seq(bgTask,
+          WorkerBatchTaskResult(key=batchTask.key,group=batchTask.group,
+            batchTask.batch.map { t =>
+              (t.id, if (t.inner.expectsResult) Some(hyperbusException(e, t.inner)(t.inner.request)) else None, Null)
+            }
+        )))
+      })
   }
 
-  private def run(task: ShardTask, code: Task[Any]): Unit = {
+  private def run[T <: ShardTask](task: T, code: Task[Any], recover: (Throwable) => Any): Unit = {
     become(running(sender()))
     import TrackerUtils._
     tracker.timeOfTask(Metrics.PRIMARY_PROCESS_TIME) {
       code.onErrorRecover {
         case e: Throwable =>
           logger.error(s"Can't complete task: $task", e)
-          PrimaryWorkerResults(Seq(
-            WorkerTaskResult(task, hyperbusException(e, task)(MessagingContext.empty))
-          ))
+          recover(e)
       }
     }.runAsync(scheduler) pipeTo self
   }
 
-  def running(owner: ActorRef): Receive = {
+  private def running(owner: ActorRef): Receive = {
     case r: PrimaryWorkerResults =>
       r.results.foreach(owner ! _)
       unbecome()
   }
 
-  def executeSingleTask(task: LocalTask): Task[PrimaryWorkerResults] = {
-    Task.fromTry(Try {
-      val (documentUri, itemId, idField, request) = prepareToTransform(task)
-      selectExisting(documentUri, itemId, request).flatMap { case (existingContent, existingContentStatic, indexDefs) ⇒
+  private def executeSingleTask(task: LocalTask): Task[PrimaryWorkerResults] = {
+    prepareToTransform(task).flatMap { case (documentUri, itemId, idField, request) =>
+      selectExisting(documentUri, itemId).flatMap { case (existingContent, existingContentStatic, indexDefs) ⇒
         validateBeforeTransform(documentUri, task, request, existingContentStatic, existingContent) flatMap { _ =>
           val (newTransaction, newContent) = transform(documentUri, itemId, request, existingContent, existingContentStatic, indexDefs)
-          saveToDb(documentUri, itemId, existingContentStatic, newTransaction, newContent).map { _ =>
+          saveToDb(existingContentStatic, newTransaction, newContent).map { _ =>
             implicit val mcx = request
             val bgTask = LocalTask(
               key = documentUri,
@@ -102,13 +121,226 @@ class PrimaryWorker(hyperbus: Hyperbus,
               BackgroundContentTasksPost(BackgroundContentTask(documentUri)),
               extra = Null
             )
-            val workerResult =  WorkerTaskResult(task, transactionToResponse(documentUri,itemId,newTransaction,idField,request,existingContent))
+            val workerResult = WorkerTaskResult(task, transactionToResponse(documentUri, itemId, newTransaction, idField, request, existingContent))
             logger.debug(s"task $task is completed")
             PrimaryWorkerResults(Seq(bgTask, workerResult))
           }
         }
       }
-    }).flatten
+    }
+  }
+
+  private def executeBatch(batchTask: BatchTask): Task[PrimaryWorkerResults] = {
+    recursiveBatchProcessing(batchTask.batch, None, Map.empty, None).flatMap { case (existingContentStatic, results) =>
+      val bgTask = LocalTask(
+        key = batchTask.key,
+        group = HyperstorageWorkerSettings.SECONDARY,
+        ttl = System.currentTimeMillis() + backgroundTaskTimeout.toMillis,
+        expectsResult = false,
+        BackgroundContentTasksPost(BackgroundContentTask(batchTask.key))(MessagingContext.empty),
+        extra = Null
+      )
+
+      var nextBatchSize = 0l
+      var nextContentStatic: ContentBase = null
+      var nextSaveBatch = mutable.Map[String, (mutable.ArrayBuffer[(LocalTaskWithId, PrimaryWorkerRequest, Transaction, Option[ResponseBase], Value)], Content, Long)]()
+      val saveBatchTasks = mutable.ArrayBuffer[(Seq[(LocalTaskWithId, PrimaryWorkerRequest, Transaction, Option[ResponseBase], Value)], Task[Seq[(Long, Option[ResponseBase], Value)]])]()
+
+      def addBatchTask(): Unit = {
+        val n = nextSaveBatch.values.toList
+        val ni = n.flatMap { i => i._1 }
+        saveBatchTasks += ((ni, saveBatchToDb(nextContentStatic, n)))
+        nextSaveBatch = mutable.Map[String, (mutable.ArrayBuffer[(LocalTaskWithId, PrimaryWorkerRequest, Transaction, Option[ResponseBase], Value)], Content, Long)]()
+        nextBatchSize = 0l
+      }
+
+      results.foreach {
+        case (localTaskWithId, request, Success((transaction, content, response, extra))) =>
+          nextContentStatic = content
+          val size = contentSize(content)
+          nextSaveBatch.get(content.itemId) match {
+            case Some(r) =>
+              val existingSize = r._3
+              if ((nextBatchSize - existingSize + size) > maxBatchSizeInBytes) {
+                addBatchTask()
+              }
+              r._1.+=((localTaskWithId, request, transaction, response, extra))
+              nextSaveBatch += content.itemId -> (r._1, content, size)
+              nextBatchSize += size
+
+            case None =>
+              if ((nextBatchSize + size) > maxBatchSizeInBytes && nextSaveBatch.nonEmpty) {
+                addBatchTask()
+              }
+              nextSaveBatch += content.itemId -> (mutable.ArrayBuffer((localTaskWithId, request, transaction, response, extra)), content, size)
+              nextBatchSize += size
+          }
+
+        case _ =>
+      }
+      if (nextSaveBatch.nonEmpty) {
+        addBatchTask()
+      }
+
+      val purgeCollectionTask = existingContentStatic.map { c =>
+        if (isCollectionUri(c.documentUri) && c.isDeleted.contains(true)) {
+          db.purgeCollection(c.documentUri)
+        } else {
+          Task.unit
+        }
+      } getOrElse {
+        Task.unit
+      }
+
+      // logger.warn(s"total results on ${bgTask.key}: ${results.size}, successfull: ${results.count(_._3.isSuccess)}, failed: ${results.count(_._3.isFailure)}")
+      purgeCollectionTask.flatMap { _ =>
+        recursiveSaveBatchesToDb(saveBatchTasks).map { saveResults =>
+          val failedResults = results.filter(i => i._3.isFailure).map{ r =>
+            val res = if (r._1.inner.expectsResult) {
+              implicit val mcx = r._2
+              Some(hyperbusException(r._3.asInstanceOf[Failure[_]].exception, r._1.inner))
+            } else {
+              None
+            }
+            (r._1.id, res, Null)
+          }
+          PrimaryWorkerResults(Seq(bgTask, WorkerBatchTaskResult(batchTask.key, batchTask.group, saveResults ++ failedResults)))
+        }
+      }
+    }
+  }
+
+  private def recursiveSaveBatchesToDb(saveBatchTasks: ArrayBuffer[(Seq[(LocalTaskWithId, PrimaryWorkerRequest, Transaction, Option[ResponseBase], Value)], Task[Seq[(Long, Option[ResponseBase], Value)]])]): Task[Seq[(Long, Option[ResponseBase], Value)]] = {
+    if (saveBatchTasks.isEmpty) {
+      Task.now(Seq.empty)
+    } else {
+      val batch = saveBatchTasks.head
+      batch._2.materialize.flatMap {
+        case Success(r) =>
+          if (saveBatchTasks.tail.isEmpty) {
+            Task.now(r)
+          }
+          else {
+            recursiveSaveBatchesToDb(saveBatchTasks.tail).map { tailResults =>
+              r ++ tailResults
+            }
+          }
+
+        case Failure(ex) =>
+          Task.now(saveBatchTasks.flatMap { i =>
+            i._1.map { ir =>
+              val r = if (ir._1.inner.expectsResult) {
+                implicit val mcx = ir._2
+                Some(hyperbusException(ex, ir._1.inner))
+              } else {
+                None
+              }
+
+              (ir._1.id, r, Null)
+            }
+          })
+      }
+    }
+  }
+
+  private def saveBatchToDb(nextContentStatic: ContentBase,
+                            nextSaveBatch: Seq[(Seq[(LocalTaskWithId, PrimaryWorkerRequest, Transaction, Option[ResponseBase], Value)], Content, Long)]):
+    Task[Seq[(Long, Option[ResponseBase], Value)]] = {
+    val WRITE_TRIES = 3
+    val transactionTasks = Task.eval {
+      //logger.error(s"!!!INSERTING TRANSACTIONS: ${nextSaveBatch.flatMap(_._1.map(_._3))}")
+      Task.gatherUnordered(nextSaveBatch.flatMap { n =>
+        n._1.map { i =>
+          //logger.info(s"INSTR ${n._2.documentUri} #${i._3.uuid}")
+          db.insertTransaction(i._3).onErrorRestart(WRITE_TRIES).map { _ =>
+            (i._1.id, i._4, i._5)
+          }
+        }
+      })
+    }.flatten
+    transactionTasks.flatMap { results =>
+      //logger.error(s"!!!INSERTING CONTENT: ${nextSaveBatch.map(_._2)}")
+      Task.sequence(nextSaveBatch.map { b =>
+        val newContent = b._2
+        val t = if (!newContent.itemId.isEmpty && newContent.isDeleted.contains(true)) {
+          // deleting item
+          db.deleteContentItem(newContent, newContent.itemId)
+        }
+        else {
+          db.insertContent(newContent)
+        }
+        t.onErrorRestart(WRITE_TRIES)
+      }).map { _ =>
+        results
+      }
+    }
+  }
+
+  private def contentSize(content: Content): Long = {
+    128 +
+    Utf8.encodedLength(content.itemId) +
+      Utf8.encodedLength(content.documentUri) +
+      content.body.map(Utf8.encodedLength).getOrElse(0) +
+      content.transactionList.size * 16
+  }
+
+  private def recursiveBatchProcessing(batch: Seq[LocalTaskWithId],
+                                       existingContentStaticTask: Option[Task[Option[ContentBase]]],
+                                       existingContentTasks: Map[String, Task[Option[Content]]],
+                                       indexDefsTask: Option[Task[List[IndexDef]]]
+                                      ): Task[(Option[ContentBase], Seq[(LocalTaskWithId, PrimaryWorkerRequest, Try[(Transaction, Content, Option[ResponseBase], Value)])])] = {
+    val task = batch.head.inner
+    val READ_TRIES = 5
+    prepareToTransform(task).flatMap { case (documentUri, itemId, idField, request) =>
+      val existingContentTasksF = existingContentTasks.getOrElse(itemId, db.selectContent(documentUri, itemId).memoizeOnSuccess)
+      val existingContentStaticTaskF = existingContentStaticTask.getOrElse {
+        if (ContentLogic.isCollectionUri(documentUri)) {
+          db.selectContentStatic(documentUri).memoizeOnSuccess
+        } else {
+          existingContentTasksF
+        }
+      }
+      val indexDefsTaskF = indexDefsTask.getOrElse {
+        if (ContentLogic.isCollectionUri(documentUri)) {
+          db.selectIndexDefs(documentUri).map(_.toList).memoizeOnSuccess
+        } else {
+          Task.now(List.empty)
+        }
+      }
+
+      Task.zip3(existingContentTasksF, existingContentStaticTaskF, indexDefsTaskF)
+        .onErrorRestart(READ_TRIES)
+        .flatMap {
+        case (existingContent, existingContentStatic, indexDefs) ⇒
+
+          validateBeforeTransform(documentUri, task, request, existingContentStatic, existingContent).map { _ =>
+            val (t, c) = transform(documentUri, itemId, request, existingContent, existingContentStatic, indexDefs)
+            val response = if (task.expectsResult) {
+              Some(transactionToResponse(documentUri, itemId, t, idField, request, existingContent))
+            }
+            else {
+              None
+            }
+            (t, c, response, Null)
+          }.materialize
+            .flatMap { r: Try[(Transaction, Content, Option[ResponseBase], Value)] =>
+              if (batch.tail.isEmpty) {
+                Task.now((existingContentStatic, Seq((batch.head, request, r))))
+              }
+              else {
+                val (existingContentTasksN, existingContentStaticTaskN) = r match {
+                  case Success(s) => (existingContentTasks + (itemId -> Task.now(Some(s._2))), Task.now(Some(s._2)))
+                  case _ => (existingContentTasks + (itemId -> Task.now(existingContent)), existingContentStaticTaskF)
+                }
+
+                recursiveBatchProcessing(batch.tail, Some(existingContentStaticTaskN), existingContentTasksN, Some(indexDefsTaskF))
+                  .map { tailResult =>
+                    (existingContentStatic, Seq((batch.head, request, r)) ++ tailResult._2)
+                  }
+              }
+            }
+      }
+    }
   }
 
   private def transformViewPut(task: LocalTask): PrimaryWorkerRequest = {
@@ -135,58 +367,59 @@ class PrimaryWorker(hyperbus: Hyperbus,
     val request = transformViewPut(task)
     val ResourcePath(documentUri, itemId) = splitPath(request.path)
     if (documentUri != task.key) {
-      throw new IllegalArgumentException(s"Task key ${task.key} doesn't correspond to $documentUri")
+      Task.raiseError(new IllegalArgumentException(s"Task key ${task.key} doesn't correspond to $documentUri"))
     }
+    else {
+      implicit val mcx = request
+      request.headers.method match {
+        case Method.POST ⇒
+          // posting new item, converting post to put
+          if (itemId.isEmpty || !ContentLogic.isCollectionUri(documentUri)) {
+            val id = IdGenerator.create()
+            val idFieldName = ContentLogic.getIdFieldName(documentUri)
+            val idField = idFieldName → id
+            val newItemId = if (ContentLogic.isCollectionUri(documentUri)) id else ""
+            val newDocumentUri = if (ContentLogic.isCollectionUri(documentUri)) documentUri else documentUri + "/" + id
 
-    implicit val mcx = request
-    request.headers.method match {
-      case Method.POST ⇒
-        // posting new item, converting post to put
-        if (itemId.isEmpty || !ContentLogic.isCollectionUri(documentUri)) {
-          val id = IdGenerator.create()
-          val idFieldName = ContentLogic.getIdFieldName(documentUri)
-          val idField = idFieldName → id
-          val newItemId = if (ContentLogic.isCollectionUri(documentUri)) id else ""
-          val newDocumentUri = if (ContentLogic.isCollectionUri(documentUri)) documentUri else documentUri + "/" + id
-
-          // POST becomes PUT with auto Id
-          (newDocumentUri, newItemId, Some(idField), ContentPut(
-            path = request.path + "/" + id,
-            body = appendId(filterNulls(request.body), id, idFieldName),
-            headers = request.headers.underlying,
-            query = request.headers.hrl.query
-          ))
-        }
-        else {
-          // todo: replace with BadRequest?
-          throw new IllegalArgumentException(s"POST is not allowed on existing item of collection~")
-        }
-
-      case Method.PUT ⇒
-        if (itemId.isEmpty) {
-          (documentUri, itemId, None,
-            ContentPut(
-              path=request.path,
-              body=filterNulls(request.body),
-              headers=request.headers.underlying,
+            // POST becomes PUT with auto Id
+            Task.now((newDocumentUri, newItemId, Some(idField), ContentPut(
+              path = request.path + "/" + id,
+              body = appendId(filterNulls(request.body), id, idFieldName),
+              headers = request.headers.underlying,
               query = request.headers.hrl.query
-            )
-          )
-        }
-        else {
-          val idFieldName = ContentLogic.getIdFieldName(documentUri)
-          (documentUri, itemId, Some(idFieldName → itemId),
-            ContentPut(
-              path=request.path,
-              body=appendId(filterNulls(request.body), itemId, idFieldName),
-              headers=request.headers.underlying,
-              query = request.headers.hrl.query
-            )
-          )
-        }
+            )))
+          }
+          else {
+            // todo: replace with BadRequest?
+            Task.raiseError(new IllegalArgumentException(s"POST is not allowed on existing item of collection~"))
+          }
 
-      case _ ⇒
-        (documentUri, itemId, None, request)
+        case Method.PUT ⇒
+          if (itemId.isEmpty) {
+            Task.now((documentUri, itemId, None,
+              ContentPut(
+                path = request.path,
+                body = filterNulls(request.body),
+                headers = request.headers.underlying,
+                query = request.headers.hrl.query
+              )
+            ))
+          }
+          else {
+            val idFieldName = ContentLogic.getIdFieldName(documentUri)
+            Task.now((documentUri, itemId, Some(idFieldName → itemId),
+              ContentPut(
+                path = request.path,
+                body = appendId(filterNulls(request.body), itemId, idFieldName),
+                headers = request.headers.underlying,
+                query = request.headers.hrl.query
+              )
+            ))
+          }
+
+        case _ ⇒
+          Task.now((documentUri, itemId, None, request))
+      }
     }
   }
 
@@ -196,9 +429,11 @@ class PrimaryWorker(hyperbus: Hyperbus,
                                       existingContentStatic: Option[ContentBase],
                                       existingContent: Option[Content]): Task[Any] = {
     implicit val mcx = request
-    if (existingContentStatic.isDefined && existingContentStatic.get.transactionList.size >= maxIncompleteTransaction) {
+    val trSize = if (existingContentStatic.isDefined) existingContentStatic.get.transactionList.size else 0
+    if (existingContentStatic.isDefined && (trSize >= maxIncompleteTransaction)) {
+      logger.debug(s"'$documentUri' have too many incomplete transactions: ${existingContentStatic.get.transactionList}")
       Task.raiseError(TooManyRequests(ErrorBody(
-        ErrorCode.TRANSACTION_LIMIT, Some(s"Transaction limit ($maxIncompleteTransaction) is reached for '$documentUri'")
+        ErrorCode.TRANSACTION_LIMIT, Some(s"Transaction limit ($maxIncompleteTransaction) is reached ($trSize) for '$documentUri'.")
       )))
     }
     else {
@@ -223,28 +458,21 @@ class PrimaryWorker(hyperbus: Hyperbus,
   }
 
   private def selectExisting(documentUri: String,
-                             itemId: String,
-                             request: PrimaryWorkerRequest): Task[(Option[Content], Option[ContentBase], List[IndexDef])] = {
-    if (request.headers.method == Method.POST) {
-      Task.now((None, None, List.empty))
-    } else {
-      val indexDefsTask = if (ContentLogic.isCollectionUri(documentUri)) {
-        db.selectIndexDefs(documentUri).map(_.toList)
-      } else {
-        Task.now(List.empty)
-      }
-      val contentTask = db.selectContent(documentUri, itemId)
+                             itemId: String): Task[(Option[Content], Option[ContentBase], List[IndexDef])] = {
 
-      Task.zip2(contentTask, indexDefsTask).flatMap { case (contentOption, indexDefs) ⇒
-        contentOption match {
-          case Some(_) ⇒ Task.now((contentOption, contentOption, indexDefs))
-          case None if ContentLogic.isCollectionUri(documentUri) ⇒ db.selectContentStatic(documentUri).map(contentStatic ⇒
-            (contentOption, contentStatic, indexDefs)
-          )
-          case _ ⇒ Task.now((contentOption, None, indexDefs))
-        }
-      }
+    val indexDefsTask = if (ContentLogic.isCollectionUri(documentUri)) {
+      db.selectIndexDefs(documentUri).map(_.toList)
+    } else {
+      Task.now(List.empty)
     }
+    val contentTask = db.selectContent(documentUri, itemId).memoize
+    val contentTaskStatic  = if (ContentLogic.isCollectionUri(documentUri)) {
+      db.selectContentStatic(documentUri)
+    } else {
+      contentTask
+    }
+
+    Task.zip3(contentTask, contentTaskStatic, indexDefsTask)
   }
 
   private def transactionToResponse(documentUri: String,
@@ -265,19 +493,17 @@ class PrimaryWorker(hyperbus: Hyperbus,
     }
   }
 
-  private def saveToDb(documentUri: String,
-                       itemId: String,
-                       existingContentStatic: Option[ContentBase],
+  private def saveToDb(existingContentStatic: Option[ContentBase],
                        newTransaction: Transaction,
                        newContent: Content): Task[Any] = {
-    db.insertTransaction(newTransaction) flatMap { _ ⇒ {
-      if (!itemId.isEmpty && newContent.isDeleted.contains(true)) {
+    db.insertTransaction(newTransaction) flatMap { _ ⇒
+      if (!newContent.itemId.isEmpty && newContent.isDeleted.contains(true)) {
         // deleting item
-        db.deleteContentItem(newContent, itemId)
+        db.deleteContentItem(newContent, newContent.itemId)
       }
       else {
-        if (isCollectionUri(documentUri) && existingContentStatic.exists(_.isDeleted.contains(true))) {
-          db.purgeCollection(documentUri).flatMap { _ ⇒
+        if (isCollectionUri(newContent.documentUri) && existingContentStatic.exists(_.isDeleted.contains(true))) {
+          db.purgeCollection(newContent.documentUri).flatMap { _ ⇒
             db.insertContent(newContent)
           }
         }
@@ -285,7 +511,6 @@ class PrimaryWorker(hyperbus: Hyperbus,
           db.insertContent(newContent)
         }
       }
-    }
     }
   }
 
