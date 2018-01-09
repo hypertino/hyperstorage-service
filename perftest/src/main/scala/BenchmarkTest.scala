@@ -34,8 +34,8 @@ case class Counters(success: AtomicLong, fail: AtomicLong)
 object BenchmarkTest extends Injectable with StrictLogging {
   private val random = new Random()
   private val TEST_OBJECTS_SIZE = 10000
-  private val TEST_REPEATED_OBJECTS_SIZE = 800
-  private val TEST_REPEATED_SIZE = 60
+  private val TEST_REPEATED_OBJECTS_SIZE = 60
+  private val TEST_REPEATED_SIZE = 500
   private val TEST_COLLECTIONS_SIZE = 30
   private val TEST_COLLECTIONS_ITEMS_SIZE = 500
   private val PARALLELISM = 256
