@@ -271,6 +271,28 @@ class IntegratedSpec extends FlatSpec
     }
   }
 
+  it should "Test hyperstorage PUT+GET Collection when there is no items" in {
+    val hyperbus = testHyperbus()
+    val tk = testKit()
+    import tk._
+
+    cleanUpCassandra()
+
+    val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, 1, 1, 10.seconds, 10, 16777216, self, scheduler)
+    val processor = shardProcessor(workerSettings)
+    val distributor = new HyperbusAdapter(hyperbus, processor, db, tracker, 20.seconds)
+    // wait while subscription is completes
+    Thread.sleep(2000)
+
+    val path = "collection-1~"
+    val r = hyperbus.ask(ContentPut(path, EmptyBody)).runAsync.futureValue
+    r.headers.statusCode should equal(Status.CREATED)
+
+    val r2 = hyperbus.ask(ContentGet(path)).runAsync.futureValue
+    r2.headers.statusCode should equal(Status.OK)
+    r2.body.content should equal(Lst.empty)
+  }
+
   it should "Test hyperstorage POST+GET+GET Collection+Event" in {
     val hyperbus = testHyperbus()
     val tk = testKit()

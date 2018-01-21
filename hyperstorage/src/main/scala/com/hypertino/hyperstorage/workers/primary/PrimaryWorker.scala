@@ -495,13 +495,26 @@ class PrimaryWorker(hyperbus: Hyperbus,
         db.deleteContentItem(newContent, newContent.itemId)
       }
       else {
-        if (isCollectionUri(newContent.documentUri) && existingContentStatic.exists(_.isDeleted.contains(true))) {
-          db.purgeCollection(newContent.documentUri).flatMap { _ ⇒
+        val purgeExisting = if (isCollectionUri(newContent.documentUri) && existingContentStatic.exists(_.isDeleted.contains(true))) {
+          db.purgeCollection(newContent.documentUri)
+        } else {
+          Task.unit
+        }
+
+        purgeExisting.flatMap { _ =>
+          if (isCollectionUri(newContent.documentUri) && newContent.itemId.isEmpty) {
+            db.insertStaticContent(ContentStatic(
+              documentUri = newContent.documentUri,
+              revision = newContent.revision,
+              transactionList = newContent.transactionList,
+              isDeleted = newContent.isDeleted,
+              count = newContent.count,
+              isView = newContent.isView
+            ))
+          }
+          else {
             db.insertContent(newContent)
           }
-        }
-        else {
-          db.insertContent(newContent)
         }
       }
     }

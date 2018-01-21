@@ -3,7 +3,7 @@ crossScalaVersions := Seq("2.12.4", "2.11.12")
 scalaVersion in Global := crossScalaVersions.value.head
 
 lazy val commonSettings = Seq(
-  version := "0.7.3-SNAPSHOT",
+  version := "0.7.4-SNAPSHOT",
   organization := "com.hypertino",
   resolvers ++= Seq(
     Resolver.sonatypeRepo("public")
@@ -56,6 +56,7 @@ lazy val hyperstorage = project in file("hyperstorage") enablePlugins(BuildInfoP
     "com.hypertino"               %% "hyperbus-t-zeromq"            % "0.6.1-SNAPSHOT",
     "com.hypertino"               %% "hyperbus-consul-resolver"     % "0.3-SNAPSHOT",
 
+    "com.hypertino"               %% "binders"                      % "1.2.2",
     "com.hypertino"               %% "cassandra-binders"            % "0.5-SNAPSHOT",
     "com.hypertino"               %% "expression-parser"            % "0.2.1",
 

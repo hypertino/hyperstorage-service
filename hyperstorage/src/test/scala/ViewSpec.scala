@@ -38,6 +38,8 @@ class ViewSpec extends FlatSpec
       h.templateUri shouldBe "abc/{*}"
     }
 
+    db.selectContent("abcs~", "").runAsync.futureValue shouldBe None
+
     hyperbus.ask(ContentPut("def/456", DynamicBody(Obj.from("b" → 10, "y" → "hello"))))
       .runAsync
       .futureValue shouldBe a[Created[_]]

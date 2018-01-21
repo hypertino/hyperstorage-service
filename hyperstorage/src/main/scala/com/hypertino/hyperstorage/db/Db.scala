@@ -326,6 +326,21 @@ class Db(connector: CassandraConnector)(implicit scheduler: Scheduler) extends S
     cql.bindPartial(content).task
   }
 
+  def insertStaticContent(content: ContentStatic): Task[Any] = {
+    logger.debug(s"Inserting static: $content")
+    val fields = Seq("document_uri", "revision", "transaction_list") ++
+      content.isView.map(_ ⇒ "is_view") ++
+      content.isDeleted.map(_ ⇒ "is_deleted") ++
+      content.count.map(_ ⇒ "count")
+    val fieldNames = fields mkString ","
+    val qs = fields.map(_ ⇒ "?") mkString ","
+    val cql = cql"""
+      insert into content( ${Dynamic(fieldNames)})
+      values( ${Dynamic(qs)} )
+    """
+    cql.bindPartial(content).task
+  }
+
   def deleteContentItem(content: ContentBase, itemId: String): Task[Any] = {
     logger.debug(s"Deleting: $content")
     cql"""

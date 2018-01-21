@@ -240,7 +240,7 @@ class CollectionsSpec extends FlatSpec
     }
 
     db.selectContent(documentUri, itemId).runAsync.futureValue.get.isDeleted shouldBe Some(true)
-    db.selectContent(documentUri, "").runAsync.futureValue.get.isDeleted shouldBe Some(true)
+    db.selectContentStatic(documentUri).runAsync.futureValue.get.isDeleted shouldBe Some(true)
 
     val itemId2 = "el2"
     val path2 = documentUri + "/" + itemId2
@@ -279,8 +279,7 @@ class CollectionsSpec extends FlatSpec
         r.get.headers.correlationId == put.correlationId ⇒ true
     }
 
-    whenReady(db.selectContent(collection, "").runAsync) { result =>
-      result.get.body shouldBe None
+    whenReady(db.selectContentStatic(collection).runAsync) { result =>
       result.get.documentUri should equal(collection)
       result.get.count should equal(Some(0))
     }
