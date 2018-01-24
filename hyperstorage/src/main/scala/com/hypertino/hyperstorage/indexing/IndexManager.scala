@@ -202,9 +202,12 @@ private[indexing] object IndexManagerImpl extends StrictLogging {
   def fetchPendingIndexesFromDb(notifyActor: ActorRef, partition: Int, rev: Long, maxIndexWorkers: Int, db: Db)
                                (implicit scheduler: Scheduler): Unit = {
     db.selectPendingIndexes(partition, maxIndexWorkers) map { indexesIterator ⇒
-      notifyActor ! ProcessPartitionPendingIndexes(partition, rev,
-        indexesIterator.map(ii ⇒ IndexDefTransaction(ii.documentUri, ii.indexId, ii.defTransactionId.toString)).toSeq
-      )
+      val pendingIndexes = indexesIterator.toList
+      if (pendingIndexes.nonEmpty) {
+        notifyActor ! ProcessPartitionPendingIndexes(partition, rev,
+          pendingIndexes.map(ii ⇒ IndexDefTransaction(ii.documentUri, ii.indexId, ii.defTransactionId.toString))
+        )
+      }
     } onErrorRecover {
       case e: Throwable ⇒
         logger.error(s"Can't fetch pending indexes", e)
