@@ -19,6 +19,7 @@ import com.hypertino.hyperstorage.sharding.{ShardedClusterData, UpdateShardStatu
 import com.hypertino.hyperstorage.utils.AkkaNaming
 import com.hypertino.metrics.MetricsTracker
 import com.typesafe.scalalogging.StrictLogging
+import monix.eval.Task
 import monix.execution.Scheduler
 
 import scala.collection.mutable
@@ -73,7 +74,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
 
     case ProcessPartitionPendingIndexes(partition, msgRev, indexes) if rev == msgRev ⇒
       if (indexes.isEmpty) {
-        pendingPartitions.remove(partition)
+        pendingPartitions -= partition
         processPendingIndexes(clusterActor)
       }
       else {
@@ -162,19 +163,20 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
   }
 
   def fetchPendingIndexes(availableWorkers: Int): Unit = {
-    nextPendingPartitions.flatMap {
+    Task.sequence(nextPendingPartitions.flatMap {
       case (k, v) if v.isEmpty ⇒ Some(k)
       case _ ⇒ None
-    }.take(availableWorkers).foreach { nextPartitionToFetch ⇒
+    }.take(availableWorkers).map { nextPartitionToFetch ⇒
       // async fetch and send as a message next portion of indexes along with `rev`
       IndexManagerImpl.fetchPendingIndexesFromDb(self, nextPartitionToFetch, rev, maxIndexWorkers, db)
-    }
+    }).runAsync
   }
 
   def nextPendingPartitions: Vector[(Int, Seq[IndexDefTransaction])] = {
+    import scala.collection.breakOut
     // move consequently (but not strictly) over pending partitions
     // because currentProcessId is always incremented
-    val v = pendingPartitions.toVector
+    val v = pendingPartitions.map(identity)(breakOut).toVector
     val startFrom = currentProcessId % v.size
     val vn = if (startFrom == 0) {
       v
@@ -203,17 +205,20 @@ object IndexManager {
 private[indexing] object IndexManagerImpl extends StrictLogging {
   import IndexManager._
   def fetchPendingIndexesFromDb(notifyActor: ActorRef, partition: Int, rev: Long, maxIndexWorkers: Int, db: Db)
-                               (implicit scheduler: Scheduler): Unit = {
+                               (implicit scheduler: Scheduler): Task[Any] = {
     db.selectPendingIndexes(partition, maxIndexWorkers) map { indexesIterator ⇒
       val pendingIndexes = indexesIterator.toList
-      notifyActor ! ProcessPartitionPendingIndexes(partition, rev,
+      ProcessPartitionPendingIndexes(partition, rev,
         pendingIndexes.map(ii ⇒ IndexDefTransaction(ii.documentUri, ii.indexId, ii.defTransactionId.toString))
       )
     } onErrorRecover {
       case e: Throwable ⇒
         logger.error(s"Can't fetch pending indexes", e)
-        notifyActor ! PartitionPendingFailed(rev)
-    } runAsync
+        PartitionPendingFailed(rev)
+    } map { msg =>
+      //logger.trace(s"Sending $msg")
+      notifyActor ! msg
+    }
   }
 }
 
