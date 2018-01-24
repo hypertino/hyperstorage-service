@@ -47,18 +47,22 @@ class PendingIndexWorker(shardProcessor: ActorRef, indexKey: IndexDefTransaction
   override def receive = starOrStop orElse {
     case WaitForIndexDef ⇒
       context.become(waitingForIndexDef)
+      logger.trace(s"Looking for pending index $indexKey")
       IndexWorkerImpl.selectPendingIndex(self, indexKey, db)(scheduler, context.system)
   }
 
   def starOrStop: Receive = {
     case StartPendingIndexWorker ⇒
+      logger.trace(s"Looking for pending index $indexKey")
       IndexWorkerImpl.selectPendingIndex(self, indexKey, db)(scheduler, context.system)
 
     case CompletePendingIndex ⇒
+      logger.trace(s"Indexing complete $indexKey")
       context.parent ! IndexManager.IndexingComplete(indexKey)
       context.stop(self)
 
     case BeginIndexing(indexDef, lastItemId) ⇒
+      logger.trace(s"Indexing next batch $indexKey starting from $lastItemId")
       indexNextBatch(0, indexDef, lastItemId)
   }
 
