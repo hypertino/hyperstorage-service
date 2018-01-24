@@ -126,12 +126,19 @@ private[indexing] object IndexWorkerImpl extends StrictLogging {
                         (implicit scheduler: Scheduler, actorSystem: ActorSystem): Unit = {
     db.selectPendingIndex(TransactionLogic.partitionFromUri(indexKey.documentUri), indexKey.documentUri, indexKey.indexId, UUID.fromString(indexKey.defTransactionId)) flatMap {
       case Some(pendingIndex) ⇒
-        db.selectIndexDef(indexKey.documentUri, indexKey.indexId) map {
+        db.selectIndexDef(indexKey.documentUri, indexKey.indexId) flatMap {
           case Some(indexDef) if indexDef.defTransactionId == pendingIndex.defTransactionId ⇒
             logger.info(s"Starting indexing of: $indexDef")
             notifyActor ! BeginIndexing(indexDef, pendingIndex.lastItemId)
-          case _ ⇒
+            Task.unit
+          case Some(indexDef) ⇒
+            logger.warn(s"Removing abandoned pending index $indexKey for: $indexDef")
+            val t = db.deletePendingIndex(TransactionLogic.partitionFromUri(indexKey.documentUri), indexKey.documentUri, indexKey.indexId, UUID.fromString(indexKey.defTransactionId))
+            notifyActor ! CompletePendingIndex
+            t
+          case None ⇒
             actorSystem.scheduler.scheduleOnce(RETRY_PERIOD, notifyActor, WaitForIndexDef(pendingIndex))
+            Task.unit
         }
 
       case None ⇒

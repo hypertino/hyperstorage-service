@@ -74,6 +74,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
 
     case ProcessPartitionPendingIndexes(partition, msgRev, indexes) if rev == msgRev ⇒
       if (indexes.isEmpty) {
+        logger.trace(s"No pending indexes in partition $partition")
         pendingPartitions -= partition
         processPendingIndexes(clusterActor)
       }
@@ -163,13 +164,13 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
   }
 
   def fetchPendingIndexes(availableWorkers: Int): Unit = {
-    Task.sequence(nextPendingPartitions.flatMap {
+    nextPendingPartitions.flatMap {
       case (k, v) if v.isEmpty ⇒ Some(k)
       case _ ⇒ None
-    }.take(availableWorkers).map { nextPartitionToFetch ⇒
+    }.headOption.foreach { nextPartitionToFetch ⇒
       // async fetch and send as a message next portion of indexes along with `rev`
-      IndexManagerImpl.fetchPendingIndexesFromDb(self, nextPartitionToFetch, rev, maxIndexWorkers, db)
-    }).runAsync
+      IndexManagerImpl.fetchPendingIndexesFromDb(self, nextPartitionToFetch, rev, maxIndexWorkers, db).runAsync
+    }
   }
 
   def nextPendingPartitions: Vector[(Int, Seq[IndexDefTransaction])] = {
@@ -208,6 +209,7 @@ private[indexing] object IndexManagerImpl extends StrictLogging {
                                (implicit scheduler: Scheduler): Task[Any] = {
     db.selectPendingIndexes(partition, maxIndexWorkers) map { indexesIterator ⇒
       val pendingIndexes = indexesIterator.toList
+      logger.trace(s"Fetched pending indexes on partition $partition: $pendingIndexes rev $rev")
       ProcessPartitionPendingIndexes(partition, rev,
         pendingIndexes.map(ii ⇒ IndexDefTransaction(ii.documentUri, ii.indexId, ii.defTransactionId.toString))
       )
@@ -216,7 +218,6 @@ private[indexing] object IndexManagerImpl extends StrictLogging {
         logger.error(s"Can't fetch pending indexes", e)
         PartitionPendingFailed(rev)
     } map { msg =>
-      //logger.trace(s"Sending $msg")
       notifyActor ! msg
     }
   }
