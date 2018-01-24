@@ -74,6 +74,7 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
     case ProcessPartitionPendingIndexes(partition, msgRev, indexes) if rev == msgRev ⇒
       if (indexes.isEmpty) {
         pendingPartitions.remove(partition)
+        processPendingIndexes(clusterActor)
       }
       else {
         val updated = indexes.foldLeft(false) { (updated, index) ⇒
@@ -143,12 +144,14 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
     val availableWorkers = maxIndexWorkers - indexWorkers.size
     if (availableWorkers > 0 && pendingPartitions.nonEmpty) {
       createWorkerActors(clusterActor, availableWorkers)
-      fetchPendingIndexes()
+      fetchPendingIndexes(availableWorkers)
     }
   }
 
   def createWorkerActors(clusterActor: ActorRef, availableWorkers: Int): Unit = {
-    nextPendingPartitions.flatMap(_._2).take(availableWorkers).foreach { key ⇒
+    val nextPending = nextPendingPartitions.flatMap(_._2)
+    val nextToWork = nextPending.take(availableWorkers)
+    nextToWork.foreach { key ⇒
       // createWorkingActor here
       val actorRef = context.actorOf(PendingIndexWorker.props(
         clusterActor, key, hyperbus, db, tracker, scheduler
@@ -158,11 +161,11 @@ class IndexManager(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, maxIndex
     }
   }
 
-  def fetchPendingIndexes(): Unit = {
+  def fetchPendingIndexes(availableWorkers: Int): Unit = {
     nextPendingPartitions.flatMap {
       case (k, v) if v.isEmpty ⇒ Some(k)
       case _ ⇒ None
-    }.headOption.foreach { nextPartitionToFetch ⇒
+    }.take(availableWorkers).foreach { nextPartitionToFetch ⇒
       // async fetch and send as a message next portion of indexes along with `rev`
       IndexManagerImpl.fetchPendingIndexesFromDb(self, nextPartitionToFetch, rev, maxIndexWorkers, db)
     }
