@@ -1022,6 +1022,70 @@ class IndexingSpecMaterialized extends FlatSpec
 
     db.selectIndexDef("b-1~", "t1").runAsync.futureValue.toList shouldBe empty
   }
+
+  it should "Create index with sorting and without filter" in {
+    cleanUpCassandra()
+    val hyperbus = integratedHyperbus(db)
+
+    val c1 = Obj.from("a" → "hello")
+    val c1x = c1 + Obj.from("id" → "item1")
+    val f1 = hyperbus.ask(ContentPut("collection-1~/item1", DynamicBody(c1))).runAsync
+    f1.futureValue.headers.statusCode should equal(Status.CREATED)
+
+    val path = "collection-1~"
+    val fi = hyperbus.ask(IndexPost(path, HyperStorageIndexNew(Some("index1"),
+      Seq(HyperStorageIndexSortItem("a", order = Some("asc"), fieldType = Some("text"))), None, materialize=Some(materialize)))).runAsync
+    fi.futureValue.statusCode should equal(Status.CREATED)
+
+    val indexDef = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
+    indexDef shouldBe defined
+    indexDef.get.documentUri shouldBe "collection-1~"
+    indexDef.get.indexId shouldBe "index1"
+    indexDef.get.materialize shouldBe materialize
+
+    eventually {
+      val indexDefUp = db.selectIndexDef("collection-1~", "index1").runAsync.futureValue
+      indexDefUp shouldBe defined
+      indexDefUp.get.status shouldBe IndexDef.STATUS_NORMAL
+    }
+
+    val c2 = Obj.from("a" → "goodbye")
+    val c2x = c2 + Obj.from("id" → "item2")
+    val f2 = hyperbus.ask(ContentPut("collection-1~/item2", DynamicBody(c2))).runAsync
+    f2.futureValue.headers.statusCode should equal(Status.CREATED)
+
+    val c3 = Obj.from("a" → "way way")
+    val c3x = c3 + Obj.from("id" → "item3")
+    val f3 = hyperbus.ask(ContentPut("collection-1~/item3", DynamicBody(c3))).runAsync
+    f3.futureValue.headers.statusCode should equal(Status.CREATED)
+
+    eventually {
+      val indexContent = db.selectIndexCollection("index_content_ta0", "collection-1~", "index1", Seq.empty, Seq.empty, 10).runAsync.futureValue.toSeq
+      indexContent.size shouldBe 3
+    }
+
+    val r1 = hyperbus.ask(ContentGet("collection-1~",
+      filter = Some("a = \"way way\""),
+      perPage = Some(1),
+      skipMax = Some(1)
+    )).runAsync.futureValue
+    r1.headers.statusCode shouldBe Status.OK
+    r1.body.content shouldBe Lst.from(c3x)
+
+    val r2 = hyperbus.ask(ContentGet("collection-1~",
+      filter = Some("a >= \"way way\""),
+      perPage = Some(1),
+      skipMax = Some(1)
+    )).runAsync.futureValue
+    r2.headers.statusCode shouldBe Status.OK
+    r2.body.content shouldBe Lst.from(c3x)
+
+    val r3 = hyperbus.ask(ContentGet("collection-1~",
+      filter = Some("a < \"way way\" and item_id > \"a\""),
+      perPage = Some(1),
+      skipMax = Some(1)
+    )).runAsync.failed.futureValue shouldBe a[GatewayTimeout[_]]
+  }
 }
 
 class IndexingSpecNonMaterialized extends IndexingSpecMaterialized {

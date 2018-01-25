@@ -256,18 +256,21 @@ class HyperbusAdapter(hyperbus: Hyperbus,
       if (indexDef.status == IndexDef.STATUS_NORMAL) Some {
         val filterAST = indexDef.filter.map(HParser(_))
         val indexSortBy = indexDef.sortByParsed :+ defIdSort
-        (IndexLogic.weighIndex(queryFilterExpression, querySortBy, filterAST, indexSortBy), indexSortBy, Some(indexDef))
+        val ffe = new FieldFiltersExtractor(idFieldName, indexSortBy)
+        val queryFilterFields = queryFilterExpression.map(ffe.extract).getOrElse(Seq.empty)
+        (IndexLogic.weighIndex(idFieldName, queryFilterExpression, querySortBy, queryFilterFields, filterAST, indexSortBy), indexSortBy, queryFilterFields, Some(indexDef): Option[IndexDef])
       }
       else {
         None
       }
-    }.toSeq :+
-      (IndexLogic.weighIndex(queryFilterExpression, querySortBy, None, Seq(defIdSort)), Seq(defIdSort), None)
+    }.toSeq :+ {
+      val indexSortBy = Seq(defIdSort)
+      val ffe = new FieldFiltersExtractor(idFieldName, indexSortBy)
+      val queryFilterFields = queryFilterExpression.map(ffe.extract).getOrElse(Seq.empty)
+      (IndexLogic.weighIndex(idFieldName, queryFilterExpression, querySortBy, queryFilterFields, None, indexSortBy), indexSortBy, queryFilterFields, None)
+    }
+    val (weight,indexSortFields,queryFilterFields,indexDefOpt) = sources.reduceLeft((left,right) ⇒ if (left._1 > right._1) left else right)
 
-    val (weight,indexSortFields,indexDefOpt) = sources.reduceLeft((left,right) ⇒ if (left._1 > right._1) left else right)
-
-    val ffe = new FieldFiltersExtractor(idFieldName, indexSortFields)
-    val queryFilterFields = queryFilterExpression.map(ffe.extract).getOrElse(Seq.empty)
     // todo: detect filter exact match
 
     val (ckFields,reversed) = OrderFieldsLogic.extractIndexSortFields(idFieldName, querySortBy, indexSortFields)

@@ -9,6 +9,7 @@
 package com.hypertino.hyperstorage.indexing
 
 import com.hypertino.binders.value.{Null, Obj, Value}
+import com.hypertino.hyperstorage.api.HyperStorageIndexSortOrder.StringEnum
 import com.hypertino.parser.ast.{Expression, Identifier}
 import com.hypertino.parser.eval.{EvalIdentifierNotFound, ValueContext}
 import com.hypertino.parser.{HEval, HParser}
@@ -94,17 +95,61 @@ object IndexLogic {
     HEval(expression, v).toBoolean
   }
 
-  def weighIndex(queryExpression: Option[Expression], querySortOrder: Seq[SortBy],
+  def sortOrderMatches(indexFieldSortOrder: Option[StringEnum], queryOp: FilterOperator, reversed: Boolean): Boolean = {
+    val asc = !indexFieldSortOrder.contains(HyperStorageIndexSortOrder.DESC)
+    queryOp match {
+      case FilterEq => true
+      case FilterGt | FilterGtEq => (asc && !reversed) || (!asc && reversed)
+      case FilterLt | FilterLtEq => (!asc && !reversed) || (asc && reversed)
+    }
+  }
+
+  def weighIndex(idFieldName: String, queryExpression: Option[Expression], querySortOrder: Seq[SortBy], queryFilterFields: Seq[FieldFilter],
                  indexFilterExpression: Option[Expression], indexSortOrder: Seq[HyperStorageIndexSortItem]): Int = {
+
+    val queryFilterFieldsWeight = if (queryExpression.isDefined && indexSortOrder.nonEmpty) {
+      val sortSize = indexSortOrder.size
+      queryFilterFields.foldLeft((0, 0, indexSortOrder, false)){ case ((index, w, indexSortOrderTail, reversed), f) =>
+        if (indexSortOrderTail.isEmpty) {
+          (index + 1, w, indexSortOrderTail, reversed)
+        } else {
+          val h = indexSortOrderTail.head
+          val fieldName = tableFieldName(idFieldName, h, sortSize, index)
+          if (fieldName == f.name) {
+            val (matched, newReversed) = if (sortOrderMatches(h.order, f.op, reversed)) {
+              (true, reversed)
+            } else {
+              if (w == 0 && sortOrderMatches(h.order, f.op, true)) {
+                (true, true)
+              }
+              else {
+                (false, reversed)
+              }
+            }
+            if (matched) {
+              (index + 1, 10 + w, indexSortOrderTail.tail, newReversed)
+            }
+            else {
+              (index + 1, w, Seq.empty, reversed)
+            }
+          }
+          else {
+            (index + 1, -1000000, Seq.empty, false)
+          }
+        }
+      }._2
+    } else {
+      -30
+    }
 
     val filterWeight = (queryExpression, indexFilterExpression) match {
       case (None, Some(_)) ⇒ -1000000
-      case (Some(_), None) ⇒ -30
+      case (Some(_), None) ⇒ queryFilterFieldsWeight
       case (None, None) ⇒ 0
       case (Some(q), Some(i)) ⇒
         AstComparator.compare(i,q) match {
-          case AstComparation.Equal ⇒ 20
-          case AstComparation.Wider ⇒ 10
+          case AstComparation.Equal ⇒ 20 + queryFilterFieldsWeight
+          case AstComparation.Wider ⇒ 10 + queryFilterFieldsWeight
           case AstComparation.NotEqual ⇒ -1000001
         }
     }
