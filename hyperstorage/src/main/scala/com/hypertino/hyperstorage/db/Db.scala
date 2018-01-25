@@ -529,7 +529,7 @@ class Db(connector: CassandraConnector)(implicit scheduler: Scheduler) extends S
   }
 
   def insertIndexItem(indexTable: String, sortFields: Seq[(String, Value)], indexContent: IndexContent, ttl: Int): Task[Any] = {
-    logger.debug(s"Inserting indexed: $indexTable, $sortFields, $ttl, $indexContent")
+    logger.debug(s"Inserting index item: $indexTable, $sortFields, $ttl, $indexContent")
     val tableName = Dynamic(indexTable)
     val sortFieldNames = if (sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_._1).mkString(",", ",", ""))
     val sortFieldPlaces = if (sortFields.isEmpty) Dynamic("") else Dynamic(sortFields.map(_ ⇒ "?").mkString(",", ",", ""))

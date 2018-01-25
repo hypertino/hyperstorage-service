@@ -52,17 +52,8 @@ trait IndexContentTaskWorker extends ItemIndexer with SecondaryWorkerBase {
 
             db.selectContentCollection(documentUri, bucketSize, request.body.lastItemId.map((_, FilterGt))) flatMap { collectionItems ⇒
               db.selectIndexContentStatic(indexDef.tableName, indexDef.documentUri, indexDef.indexId) flatMap { indexContentStaticO ⇒
-                val countBefore = AtomicLong(indexContentStaticO.flatMap(_.count).getOrElse(0l))
-                Task.sequence {
-                  collectionItems.toList.map { item ⇒
-                    indexItem(indexDef, item, idFieldName, Some(countBefore.get + 1)).map { r ⇒
-                      if (r._2) {
-                        countBefore.increment()
-                      }
-                      r
-                    }
-                  }
-                } flatMap { insertedItemIds ⇒
+                val countBefore = indexContentStaticO.flatMap(_.count).getOrElse(0l)
+                indexItems(indexDef, idFieldName, collectionItems.toList, countBefore, None).flatMap { case (insertedItemIds, countAfter) ⇒
                   if (insertedItemIds.isEmpty) {
                     // indexing is finished
                     // todo: fix code format
@@ -72,7 +63,7 @@ trait IndexContentTaskWorker extends ItemIndexer with SecondaryWorkerBase {
                       }
                     }
                   } else {
-                    val last = insertedItemIds.last._1
+                    val last = insertedItemIds.get
                     db.updatePendingIndexLastItemId(TransactionLogic.partitionFromUri(documentUri), documentUri, indexId, transactionUuid, last) map { _ ⇒
                       Ok(IndexContentTaskResult(Some(last), request.body.processId, isFailed = false, None))
                     }
@@ -94,6 +85,23 @@ trait IndexContentTaskWorker extends ItemIndexer with SecondaryWorkerBase {
         case _ ⇒
           // todo: test this
           Task.now(Ok(IndexContentTaskResult(None, request.body.processId, isFailed = true, Some(s"Can't find index for $defTransactionId"))))
+      }
+    }
+  }
+
+  private def indexItems(indexDef: IndexDef, idFieldName: String, items: List[Content], countBefore: Long, previousId: Option[String]): Task[(Option[String], Long)] = {
+    if (items.isEmpty) {
+      Task.now(previousId, countBefore)
+    }
+    else{
+      indexItem(indexDef, items.head, idFieldName, Some(countBefore + 1)).flatMap { r ⇒
+        val nextCount = if (r._2) {
+            countBefore + 1
+          }
+        else {
+          countBefore
+        }
+        indexItems(indexDef, idFieldName, items.tail, nextCount, Some(r._1))
       }
     }
   }
