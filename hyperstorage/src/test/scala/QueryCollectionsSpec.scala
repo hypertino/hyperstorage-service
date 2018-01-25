@@ -244,14 +244,28 @@ class QueryCollectionsSpec extends FlatSpec
     setupIndexes(hyperbus)
 
     val res = hyperbus
+      .ask(ContentGet("collection-1~", perPage = Some(2), filter = Some("c =\"way way\"")))
+      .runAsync
+      .futureValue
+
+    res.headers.statusCode shouldBe Status.OK
+    res.body.content shouldBe Lst.empty
+    verify(db).selectContentCollection("collection-1~", 2, None, true)
+    verify(db).selectContentCollection("collection-1~", 501, Some(("item2", FilterGt)), true)
+  }
+
+  it should "Query with filter by some field that matches sort order of index" in {
+    val hyperbus = setup()
+    setupIndexes(hyperbus)
+
+    val res = hyperbus
       .ask(ContentGet("collection-1~", perPage = Some(2), filter = Some("a =\"way way\"")))
       .runAsync
       .futureValue
 
     res.headers.statusCode shouldBe Status.OK
     res.body.content shouldBe Lst.from(c3x)
-    verify(db).selectContentCollection("collection-1~", 2, None, true)
-    verify(db).selectContentCollection("collection-1~", 501, Some(("item2", FilterGt)), true)
+    verify(db).selectIndexCollection("index_content_ta0", "collection-1~", "index3", List(FieldFilter("t0","way way",FilterEq)), Seq.empty, 2)
   }
 
   it should "Query with filter by some non-index field and descending sorting" in {
