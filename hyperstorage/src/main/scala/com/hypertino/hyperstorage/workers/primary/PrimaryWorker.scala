@@ -94,7 +94,10 @@ class PrimaryWorker(hyperbus: Hyperbus,
     tracker.timeOfTask(Metrics.PRIMARY_PROCESS_TIME) {
       code.onErrorRecover {
         case e: Throwable =>
-          logger.error(s"Can't complete task: $task", e)
+          // 4xx responses shouldn't be logged as errors
+          if (!e.isInstanceOf[HyperbusClientError[_]]) {
+            logger.error(s"Can't complete task: $task", e)
+          }
           recover(e)
       }
     }.runAsync(scheduler) pipeTo self
