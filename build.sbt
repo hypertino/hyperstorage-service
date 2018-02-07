@@ -3,7 +3,7 @@ crossScalaVersions := Seq("2.12.4", "2.11.12")
 scalaVersion in Global := crossScalaVersions.value.head
 
 lazy val commonSettings = Seq(
-  version := "0.7.8-SNAPSHOT",
+  version := "0.7.9-SNAPSHOT",
   organization := "com.hypertino",
   resolvers ++= Seq(
     Resolver.sonatypeRepo("public")

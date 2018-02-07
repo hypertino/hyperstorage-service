@@ -127,7 +127,7 @@ private[indexing] object IndexWorkerImpl extends StrictLogging {
     db.selectPendingIndex(TransactionLogic.partitionFromUri(indexKey.documentUri), indexKey.documentUri, indexKey.indexId, UUID.fromString(indexKey.defTransactionId)) flatMap {
       case Some(pendingIndex) ⇒
         db.selectIndexDef(indexKey.documentUri, indexKey.indexId) flatMap {
-          case Some(indexDef) if indexDef.defTransactionId == pendingIndex.defTransactionId ⇒
+          case Some(indexDef) if indexDef.defTransactionId == pendingIndex.defTransactionId && indexDef.status != IndexDef.STATUS_NORMAL ⇒
             logger.info(s"Starting indexing of: $indexDef")
             notifyActor ! BeginIndexing(indexDef, pendingIndex.lastItemId)
             Task.unit
@@ -137,6 +137,7 @@ private[indexing] object IndexWorkerImpl extends StrictLogging {
             notifyActor ! CompletePendingIndex
             t
           case None ⇒
+            logger.warn(s"Can't find index_def for pending $pendingIndex, retrying...")
             actorSystem.scheduler.scheduleOnce(RETRY_PERIOD, notifyActor, WaitForIndexDef(pendingIndex))
             Task.unit
         }
