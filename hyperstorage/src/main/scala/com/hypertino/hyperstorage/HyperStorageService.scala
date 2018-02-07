@@ -28,7 +28,7 @@ import monix.execution.Scheduler
 import scaldi.{Injectable, Injector}
 
 import scala.concurrent.Future
-import scala.concurrent.duration.FiniteDuration
+import scala.concurrent.duration._
 
 case class HyperStorageConfig(
                                shutdownTimeout: FiniteDuration,
@@ -43,6 +43,7 @@ case class HyperStorageConfig(
                                hotRecoveryRetry: FiniteDuration,
                                staleRecovery: FiniteDuration,
                                staleRecoveryRetry: FiniteDuration,
+                               transactionTtl: FiniteDuration,
                                clusterManager: String
                              )
 
@@ -101,7 +102,7 @@ class HyperStorageService(implicit val scheduler: Scheduler,
   // worker actor todo: recovery job
   private val workerSettings = HyperstorageWorkerSettings(hyperbus, db, tracker, serviceConfig.maxWorkers,
     serviceConfig.maxWorkers, serviceConfig.backgroundTaskTimeout, serviceConfig.maxIncompleteTransactions,
-    serviceConfig.maxBatchSizeInBytes, indexManagerRef, scheduler)
+    serviceConfig.maxBatchSizeInBytes, serviceConfig.transactionTtl, indexManagerRef, scheduler)
 
   // shard shard cluster transport
   private val shardTransport = if (zmqClusterManager) {
@@ -124,14 +125,14 @@ class HyperStorageService(implicit val scheduler: Scheduler,
   logger.info(s"Launching hot recovery ${serviceConfig.hotRecovery}-${serviceConfig.failTimeout}")
 
   private val hotRecoveryRef = actorSystem.actorOf(HotRecoveryWorker.props(hotPeriod, db, shardProcessorRef, tracker,
-    serviceConfig.hotRecoveryRetry, serviceConfig.backgroundTaskTimeout, scheduler), "hot-recovery")
+    serviceConfig.hotRecoveryRetry, serviceConfig.backgroundTaskTimeout, serviceConfig.transactionTtl, scheduler), "hot-recovery")
   shardProcessorRef ! SubscribeToShardStatus(hotRecoveryRef)
 
   private val stalePeriod = (serviceConfig.staleRecovery.toMillis, serviceConfig.hotRecovery.toMillis)
   logger.info(s"Launching stale recovery ${serviceConfig.staleRecovery}-${serviceConfig.hotRecovery}")
 
   private val staleRecoveryRef = actorSystem.actorOf(StaleRecoveryWorker.props(stalePeriod, db, shardProcessorRef, tracker,
-    serviceConfig.staleRecoveryRetry, serviceConfig.backgroundTaskTimeout, scheduler), "stale-recovery")
+    serviceConfig.staleRecoveryRetry, serviceConfig.backgroundTaskTimeout, serviceConfig.transactionTtl, scheduler), "stale-recovery")
   shardProcessorRef ! SubscribeToShardStatus(staleRecoveryRef)
 
   logger.info(s"Launching index manager")

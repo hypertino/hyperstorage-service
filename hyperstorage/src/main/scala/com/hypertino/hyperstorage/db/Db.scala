@@ -432,12 +432,13 @@ class Db(connector: CassandraConnector)(implicit scheduler: Scheduler) extends S
     """.bind(transaction).task
 
   // toTimestamp isn't supported in Scylla 1.7.x
-  def completeTransaction(transaction: Transaction): Task[Any] = cql"""
+  def completeTransaction(transaction: Transaction, ttl: Long): Task[Any] = cql"""
       update transaction set completed_at=dateOf(now())
       where dt_quantum=${transaction.dtQuantum}
         and partition=${transaction.partition}
         and document_uri=${transaction.documentUri}
         and uuid=${transaction.uuid}
+        using ttl ${Dynamic(ttl.toString)};
     """.task
 
   def deleteTransaction(transaction: Transaction): Task[Any] = cql"""

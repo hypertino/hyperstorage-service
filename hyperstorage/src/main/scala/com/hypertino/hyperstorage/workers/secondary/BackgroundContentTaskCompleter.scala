@@ -31,12 +31,13 @@ import monix.execution.Scheduler
 import monix.execution.atomic.AtomicBoolean
 
 import scala.concurrent.duration
-import scala.concurrent.duration.Duration
+import scala.concurrent.duration.{Duration, FiniteDuration}
 
 trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBase {
   def hyperbus: Hyperbus
   def db: Db
   def tracker: MetricsTracker
+  def transactionTtl: FiniteDuration
   implicit def scheduler: Scheduler
 
   def deleteIndexDefAndData(indexDef: IndexDef): Task[Any]
@@ -110,7 +111,7 @@ trait BackgroundContentTaskCompleter extends ItemIndexer with SecondaryWorkerBas
                   .flatMap { publishResult ⇒
                     logger.debug(s"Event $event is published with result $publishResult")
 
-                    db.completeTransaction(it.transaction) map { _ ⇒
+                    db.completeTransaction(it.transaction, transactionTtl.toSeconds) map { _ ⇒
                       logger.debug(s"${it.transaction} is complete")
 
                       it.transaction

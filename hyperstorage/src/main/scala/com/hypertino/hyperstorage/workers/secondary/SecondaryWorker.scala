@@ -23,12 +23,14 @@ import monix.eval.Task
 import monix.execution.Scheduler
 
 import scala.concurrent.ExecutionContext
+import scala.concurrent.duration.FiniteDuration
 import scala.util.Try
 
 class SecondaryWorker(val hyperbus: Hyperbus,
                       val db: Db,
                       val tracker: MetricsTracker,
                       val indexManager: ActorRef,
+                      val transactionTtl: FiniteDuration,
                       implicit val scheduler: monix.execution.Scheduler) extends Actor with StrictLogging
   with BackgroundContentTaskCompleter
   with IndexDefTaskWorker
@@ -70,8 +72,8 @@ class SecondaryWorker(val hyperbus: Hyperbus,
 }
 
 object SecondaryWorker {
-  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, indexManager: ActorRef, scheduler: Scheduler) = Props(
-    new SecondaryWorker(hyperbus, db, tracker, indexManager, scheduler)
+  def props(hyperbus: Hyperbus, db: Db, tracker: MetricsTracker, indexManager: ActorRef, transactionTtl: FiniteDuration, scheduler: Scheduler) = Props(
+    new SecondaryWorker(hyperbus, db, tracker, indexManager, transactionTtl, scheduler)
   )
 }
 

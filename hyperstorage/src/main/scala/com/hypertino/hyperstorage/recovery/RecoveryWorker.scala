@@ -83,6 +83,7 @@ abstract class RecoveryWorker[T <: WorkerState](
                                                  tracker: MetricsTracker,
                                                  retryPeriod: FiniteDuration,
                                                  backgroundTaskTimeout: FiniteDuration,
+                                                 transactionTtl: FiniteDuration,
                                                  scheduler: monix.execution.Scheduler
                                                ) extends Actor with StrictLogging {
 
@@ -92,7 +93,6 @@ abstract class RecoveryWorker[T <: WorkerState](
 
   def jobName: String
   def checkQuantumTimerName: String
-
   def trackIncompleteMeter: Meter
 
   def receive = {
@@ -185,7 +185,7 @@ abstract class RecoveryWorker[T <: WorkerState](
                           logger.warn(s"$jobName: Abandoned transactions for '$completePath' were found: '${abandonedTransactions.map(_.uuid).mkString(",")}'. Deleting...")
                           Task.sequence {
                             abandonedTransactions.map { abandonedTransaction ⇒
-                              db.completeTransaction(abandonedTransaction)
+                              db.completeTransaction(abandonedTransaction, transactionTtl.toSeconds)
                             }
                           }
                         } else {
@@ -247,9 +247,10 @@ class HotRecoveryWorker(
                          tracker: MetricsTracker,
                          retryPeriod: FiniteDuration,
                          recoveryCompleterTimeout: FiniteDuration,
+                         transactionTtl: FiniteDuration,
                          scheduler: monix.execution.Scheduler
                        ) extends RecoveryWorker[HotWorkerState](
-  db, shardProcessor, tracker, retryPeriod, recoveryCompleterTimeout, scheduler
+  db, shardProcessor, tracker, retryPeriod, recoveryCompleterTimeout, transactionTtl, scheduler
 ) {
 
   import context._
@@ -293,9 +294,10 @@ class StaleRecoveryWorker(
                            tracker: MetricsTracker,
                            retryPeriod: FiniteDuration,
                            backgroundTaskTimeout: FiniteDuration,
+                           transactionTtl: FiniteDuration,
                            scheduler: monix.execution.Scheduler
                          ) extends RecoveryWorker[StaleWorkerState](
-  db, shardProcessor, tracker, retryPeriod, backgroundTaskTimeout, scheduler
+  db, shardProcessor, tracker, retryPeriod, backgroundTaskTimeout, transactionTtl, scheduler
 ) {
 
   import context._
@@ -384,8 +386,9 @@ object HotRecoveryWorker {
              tracker: MetricsTracker,
              retryPeriod: FiniteDuration,
              recoveryCompleterTimeout: FiniteDuration,
+             transactionTtl: FiniteDuration,
              scheduler: monix.execution.Scheduler
-           ) = Props(new HotRecoveryWorker(hotPeriod, db, shardProcessor, tracker, retryPeriod, recoveryCompleterTimeout, scheduler))
+           ) = Props(new HotRecoveryWorker(hotPeriod, db, shardProcessor, tracker, retryPeriod, recoveryCompleterTimeout, transactionTtl, scheduler))
 }
 
 object StaleRecoveryWorker {
@@ -396,6 +399,7 @@ object StaleRecoveryWorker {
              tracker: MetricsTracker,
              retryPeriod: FiniteDuration,
              backgroundTaskTimeout: FiniteDuration,
+             transactionTtl: FiniteDuration,
              scheduler: monix.execution.Scheduler
-           ) = Props(new StaleRecoveryWorker(stalePeriod, db, shardProcessor, tracker, retryPeriod, backgroundTaskTimeout, scheduler))
+           ) = Props(new StaleRecoveryWorker(stalePeriod, db, shardProcessor, tracker, retryPeriod, backgroundTaskTimeout, transactionTtl, scheduler))
 }

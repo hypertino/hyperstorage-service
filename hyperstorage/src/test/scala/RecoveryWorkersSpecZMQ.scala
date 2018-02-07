@@ -64,7 +64,7 @@ class RecoveryWorkersSpecZMQ extends FlatSpec
 
     val processorProbe = TestProbe("processor")
     val hotWorkerProps = HotRecoveryWorker.props(
-      (60 * 1000l, -60 * 1000l), db, processorProbe.ref, tracker, 1.seconds, 10.seconds, scheduler
+      (60 * 1000l, -60 * 1000l), db, processorProbe.ref, tracker, 1.seconds, 10.seconds, 1.day, scheduler
     )
 
     val hotWorker = TestActorRef(hotWorkerProps)
@@ -119,7 +119,7 @@ class RecoveryWorkersSpecZMQ extends FlatSpec
 
     val processorProbe = TestProbe("processor")
     val staleWorkerProps = StaleRecoveryWorker.props(
-      (60 * 1000l, -60 * 1000l), db, processorProbe.ref, tracker, 1.seconds, 2.seconds, scheduler
+      (60 * 1000l, -60 * 1000l), db, processorProbe.ref, tracker, 1.seconds, 2.seconds, 1.day, scheduler
     )
 
     val hotWorker = TestActorRef(staleWorkerProps)

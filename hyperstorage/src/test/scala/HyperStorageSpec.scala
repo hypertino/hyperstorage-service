@@ -80,7 +80,7 @@ class HyperStorageSpecZMQ extends FlatSpec
       result.get.transactionList.head.toString
     }
 
-    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
+    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, 1.day, scheduler))
     backgroundWorker ! bgTask.copy(expectsResult=true)
     val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
     val rc = backgroundWorkerResult.result.get.asInstanceOf[Ok[BackgroundContentTaskResult]]
@@ -126,7 +126,7 @@ class HyperStorageSpecZMQ extends FlatSpec
       result.get.transactionList.head.toString
     }
 
-    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
+    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, 1.day, scheduler))
     backgroundWorker ! bgTask.copy(expectsResult=true)
     val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
     val rc = backgroundWorkerResult.result.get.asInstanceOf[Ok[BackgroundContentTaskResult]]
@@ -198,7 +198,7 @@ class HyperStorageSpecZMQ extends FlatSpec
       result.get.transactionList.head.toString
     }
 
-    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
+    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, 1.day, scheduler))
     backgroundWorker ! bgTask.copy(expectsResult = true)
     val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
     val rc = backgroundWorkerResult.result.get.asInstanceOf[Ok[BackgroundContentTaskResult]]
@@ -365,7 +365,7 @@ class HyperStorageSpecZMQ extends FlatSpec
       transaction.completedAt should be(None)
     }
 
-    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
+    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, 1.day, scheduler))
     backgroundWorker ! bgTask.copy(expectsResult = true)
     val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
     val rc = backgroundWorkerResult.result.get.asInstanceOf[Ok[BackgroundContentTaskResult]]
@@ -407,7 +407,7 @@ class HyperStorageSpecZMQ extends FlatSpec
       _.completedAt shouldBe None
     }
 
-    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
+    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, 1.day, scheduler))
 
     FaultClientTransport.checkers += {
       case request: DynamicRequest ⇒
@@ -488,7 +488,7 @@ class HyperStorageSpecZMQ extends FlatSpec
     Thread.sleep(2000)
     createTask.isCompleted shouldBe false
 
-    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
+    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, 1.day, scheduler))
     backgroundWorker ! backgroundWorkerTask.copy(expectsResult = true)
     val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
     backgroundWorkerResult.result.get.body shouldBe a[BackgroundContentTaskResult]
@@ -581,7 +581,7 @@ class HyperStorageSpecZMQ extends FlatSpec
       transaction.completedAt should be(None)
     }
 
-    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
+    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, 1.day, scheduler))
     backgroundWorker ! bgTask.copy(expectsResult = true)
     val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
     val rc = backgroundWorkerResult.result.get.asInstanceOf[Ok[BackgroundContentTaskResult]]
@@ -641,7 +641,7 @@ class HyperStorageSpecZMQ extends FlatSpec
       transaction.completedAt should be(None)
     }
 
-    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
+    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, 1.day, scheduler))
     backgroundWorker ! bgTask.copy(expectsResult = true)
     val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
     val rc = backgroundWorkerResult.result.get.asInstanceOf[Ok[BackgroundContentTaskResult]]
@@ -698,7 +698,7 @@ class HyperStorageSpecZMQ extends FlatSpec
       transaction.completedAt should be(None)
     }
 
-    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
+    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, 1.day, scheduler))
     backgroundWorker ! bgTask.copy(expectsResult = true)
     val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
     val rc = backgroundWorkerResult.result.get.asInstanceOf[Ok[BackgroundContentTaskResult]]

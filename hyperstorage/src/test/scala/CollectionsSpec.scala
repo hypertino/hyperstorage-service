@@ -101,7 +101,7 @@ class CollectionsSpec extends FlatSpec
     transactions.head.revision should equal(2)
     transactions.tail.head.revision should equal(1)
 
-    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
+    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, 1.day, scheduler))
     backgroundWorker ! bgTask.copy(expectsResult=true)
     val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
     val rc = backgroundWorkerResult.result.get.asInstanceOf[Ok[BackgroundContentTaskResult]]
@@ -348,7 +348,7 @@ class CollectionsSpec extends FlatSpec
     transactions.head.revision should equal(2)
     transactions.tail.head.revision should equal(1)
 
-    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, scheduler))
+    val backgroundWorker = TestActorRef(SecondaryWorker.props(hyperbus, db, tracker, self, 1.day, scheduler))
     backgroundWorker ! bgTask.copy(expectsResult = true)
     val backgroundWorkerResult = expectMsgType[WorkerTaskResult]
     val rc = backgroundWorkerResult.result.get.asInstanceOf[Ok[BackgroundContentTaskResult]]
