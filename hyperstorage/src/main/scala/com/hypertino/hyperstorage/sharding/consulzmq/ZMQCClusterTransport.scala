@@ -45,7 +45,7 @@ class ZMQCClusterTransport(
   private val internalHyperbus = new Hyperbus(config)
   private val resolver = inject[ServiceResolver] (identified by "hyperstorage-cluster-resolver")
   private val dummyTask = TasksPost(RemoteTask(selfNodeId,1,"","",0,false,Null,"",Null))(MessagingContext.empty)
-  private implicit val scheduler = inject[Scheduler]
+  private implicit val scheduler = inject[Scheduler] (identified by "hyperstorage-internal-scheduler")
   private val hyperbusSubscriptions = internalHyperbus.subscribe(this)
   private val stateLock = new Object
   @volatile private var subscriber: ActorRef = null

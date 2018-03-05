@@ -162,3 +162,9 @@ credentials ++= (for {
   username <- Option(System.getenv().get("sonatype_username"))
   password <- Option(System.getenv().get("sonatype_password"))
 } yield Credentials("Sonatype Nexus Repository Manager", "oss.sonatype.org", username, password)).toSeq
+
+// FIXME: remove setting of overwrite flag when the following issue will be fixed: https://github.com/sbt/sbt/issues/3725
+publishConfiguration := publishConfiguration.value.withOverwrite(isSnapshot.value)
+com.typesafe.sbt.pgp.PgpKeys.publishSignedConfiguration := com.typesafe.sbt.pgp.PgpKeys.publishSignedConfiguration.value.withOverwrite(isSnapshot.value)
+publishLocalConfiguration := publishLocalConfiguration.value.withOverwrite(isSnapshot.value)
+com.typesafe.sbt.pgp.PgpKeys.publishLocalSignedConfiguration := com.typesafe.sbt.pgp.PgpKeys.publishLocalSignedConfiguration.value.withOverwrite(isSnapshot.value)
